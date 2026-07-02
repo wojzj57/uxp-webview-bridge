@@ -1,4 +1,4 @@
-export { createFsNamespace, fs } from "./fs.js";
+export { createFsModuleAdapter, dispatchFsCall } from "./host.js";
 export type {
   FsFileHandleReference,
   FsMethodName,

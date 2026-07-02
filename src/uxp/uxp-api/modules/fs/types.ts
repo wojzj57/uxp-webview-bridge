@@ -1,4 +1,3 @@
-export { createFsNamespace, fs } from "./fs.js";
 export type {
   FsFileHandleReference,
   FsMethodName,
@@ -9,4 +8,4 @@ export type {
   FsStats,
   FsWriteFileOptions,
   RemoteFileHandle
-} from "./types.js";
+} from "../../../../shared/contracts/fs.js";

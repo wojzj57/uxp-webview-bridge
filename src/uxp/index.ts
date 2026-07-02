@@ -2,6 +2,7 @@ import { mergeCapabilities } from "../shared/capabilities.js";
 import type { BridgeCapabilities } from "../shared/types.js";
 import { createUxpModuleRegistry } from "./module-registry.js";
 import { RpcHost, type UxpWebViewElement } from "./rpc-host.js";
+import { createFsModuleAdapter } from "./uxp-api/modules/fs/host.js";
 import { osModuleAdapter } from "./uxp-api/modules/os/host.js";
 
 export interface ConfigUxpBridgeOptions {
@@ -19,7 +20,11 @@ const DEFAULT_ALLOWED_ORIGINS = ["plugin:", "plugin-data:", "plugin-temp:"];
 
 export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRuntime {
   const capabilities = mergeCapabilities(options.capabilities);
-  const registry = createUxpModuleRegistry(capabilities, [osModuleAdapter]);
+  const fsModuleAdapter = createFsModuleAdapter(
+    options.resourceTimeoutMs === undefined ? {} : { resourceTimeoutMs: options.resourceTimeoutMs }
+  );
+  const adapters = [osModuleAdapter, fsModuleAdapter];
+  const registry = createUxpModuleRegistry(capabilities, adapters);
   const host = new RpcHost({
     webview: options.webview,
     allowedOrigins: options.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS,
@@ -27,6 +32,11 @@ export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRunti
   });
 
   return {
-    destroy: () => host.destroy()
+    destroy: () => {
+      host.destroy();
+      for (const adapter of adapters) {
+        adapter.destroy?.();
+      }
+    }
   };
 }

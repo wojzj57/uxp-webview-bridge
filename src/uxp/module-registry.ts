@@ -2,10 +2,19 @@ import type { BridgeCallPayload, BridgeCapabilities } from "../shared/types.js";
 
 export type CapabilityName = keyof Omit<BridgeCapabilities, "fs">;
 
+export interface UxpDispatchContext {
+  readonly capabilities: BridgeCapabilities;
+}
+
 export interface UxpModuleAdapter {
   readonly moduleId: string;
-  readonly capability: CapabilityName;
-  dispatch(method: string, args: readonly unknown[]): unknown | Promise<unknown>;
+  readonly capability?: CapabilityName;
+  dispatch(
+    method: string,
+    args: readonly unknown[],
+    context: UxpDispatchContext
+  ): unknown | Promise<unknown>;
+  destroy?(): void;
 }
 
 export interface UxpModuleRegistry {
@@ -25,11 +34,11 @@ export function createUxpModuleRegistry(
         throw new Error(`Unsupported bridge module: ${payload.module}`);
       }
 
-      if (!capabilities[adapter.capability]) {
+      if (adapter.capability && !capabilities[adapter.capability]) {
         throw new Error(`${adapter.capability} capability is disabled.`);
       }
 
-      return adapter.dispatch(payload.method, payload.args);
+      return adapter.dispatch(payload.method, payload.args, { capabilities });
     }
   };
 }
