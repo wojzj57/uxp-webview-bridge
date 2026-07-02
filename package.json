@@ -4,6 +4,7 @@
   "description": "Bridge library for Adobe UXP plugin hosts and WebView clients.",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@11.5.0",
   "sideEffects": false,
   "files": [
     "dist",
@@ -30,9 +31,9 @@
     "clean": "rimraf dist"
   },
   "devDependencies": {
+    "@bubblydoo/uxp-cli": "^0.0.12",
     "@types/node": "^20.14.12",
     "rimraf": "^6.0.1",
     "typescript": "^5.5.4"
-  },
-  "packageManager": "pnpm@9.7.0"
+  }
 }
