@@ -1,0 +1,38 @@
+{
+  "name": "uxp-webview-bridge",
+  "version": "0.0.0",
+  "description": "Bridge library for Adobe UXP plugin hosts and WebView clients.",
+  "type": "module",
+  "private": true,
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "CONTEXT.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./webview": {
+      "types": "./dist/webview/index.d.ts",
+      "import": "./dist/webview/index.js"
+    },
+    "./uxp": {
+      "types": "./dist/uxp/index.d.ts",
+      "import": "./dist/uxp/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.5.4"
+  },
+  "packageManager": "pnpm@9.7.0"
+}
