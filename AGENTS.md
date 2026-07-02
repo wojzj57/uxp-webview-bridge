@@ -128,3 +128,31 @@ Every change to `src` must satisfy these checks:
 - `pnpm typecheck` passes
 
 Run `pnpm build` before publishing or handing off a completed implementation.
+
+## UXP Debugging
+
+This repository uses the local `uxp-cli` binary from `@bubblydoo/uxp-cli` for Chrome DevTools based UXP debugging.
+
+Do not assume Adobe's `uxp` CLI has the same command surface. In this project, UXP debug commands are:
+
+```powershell
+pnpm exec uxp-cli open-devtools
+pnpm exec uxp-cli open-devtools --plugin-path ./path/to/plugin
+pnpm exec uxp-cli create-cdp-url
+pnpm exec uxp-cli create-cdp-url --plugin-path ./path/to/plugin
+```
+
+Use `open-devtools` to open Chrome DevTools for a UXP plugin.
+
+Use `create-cdp-url` when an automated runner needs the Chrome DevTools Protocol URL without opening Chrome.
+
+When adding automated UXP/WebView tests, prefer this flow:
+
+1. Build the bridge package with `pnpm build`.
+2. Build or prepare a minimal UXP fixture plugin.
+3. Start any WebView test server required by the fixture.
+4. Use `pnpm exec uxp-cli create-cdp-url --plugin-path ./path/to/plugin` to obtain the CDP URL.
+5. Drive or observe the real UXP plugin through CDP.
+6. Treat the UXP host and WebView runtime as the source of truth for pass/fail results.
+
+Do not use `uxp open-devtools`; that is not this CLI's command.
