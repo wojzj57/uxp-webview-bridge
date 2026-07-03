@@ -5,7 +5,9 @@ export const DEFAULT_BRIDGE_CAPABILITIES: BridgeCapabilities = {
   uxp: {
     shell: false,
     userInfo: false,
-    secureStorage: false
+    secureStorage: false,
+    pluginManager: false,
+    script: false
   },
   photoshop: true,
   imaging: true,

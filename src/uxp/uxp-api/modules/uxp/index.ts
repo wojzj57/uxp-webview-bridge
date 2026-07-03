@@ -5,6 +5,7 @@ import {
   isUxpSecureStorageTransportValue,
   secureStorageTransportToHostValue,
   UXP_MODULE_ID,
+  type UxpSerializedPlugin,
   type UxpMethodName
 } from "../../../../shared/contracts/uxp.js";
 import type { UxpModuleAdapter } from "../../../module-registry.js";
@@ -28,6 +29,14 @@ interface UxpHostModule {
   readonly userInfo?: {
     userId(): string;
   };
+  readonly pluginManager?: {
+    readonly plugins: Set<UxpHostPlugin>;
+  };
+  readonly script?: {
+    readonly args: readonly unknown[];
+    readonly executionContext: unknown;
+    setResult(result: unknown): void;
+  };
   readonly storage?: {
     readonly secureStorage?: {
       readonly length: number;
@@ -38,6 +47,16 @@ interface UxpHostModule {
       clear(): Promise<void>;
     };
   };
+}
+
+interface UxpHostPlugin {
+  readonly id: string;
+  readonly version: string;
+  readonly name: string;
+  readonly manifest: unknown;
+  readonly enabled: boolean;
+  showPanel(panelId: string): Promise<void | string> | void | string;
+  invokeCommand(commandId: string, ...params: readonly unknown[]): Promise<void> | void;
 }
 
 export const uxpModuleAdapter: UxpModuleAdapter = {
@@ -98,6 +117,59 @@ export async function dispatchUxpCall(
       expectUxpArgs(args, 0, 0, "uxp.userInfo.userId");
       const userInfo = requireUxpSubmodule("userInfo");
       return userInfo.userId();
+    }
+
+    case "pluginManager.plugins": {
+      assertUxpCapability(capabilities, "pluginManager");
+      expectUxpArgs(args, 0, 0, "uxp.pluginManager.plugins");
+      return Array.from(requireUxpSubmodule("pluginManager").plugins, serializePlugin);
+    }
+
+    case "plugin.showPanel": {
+      assertUxpCapability(capabilities, "pluginManager");
+      const [pluginId, panelId] = expectUxpArgs<[string, string]>(
+        args,
+        2,
+        2,
+        "uxp.Plugin.showPanel"
+      );
+      assertUxpString(pluginId, "uxp.Plugin.showPanel plugin id");
+      assertUxpString(panelId, "uxp.Plugin.showPanel panelId");
+      const result = await findPlugin(pluginId).showPanel(panelId);
+      return typeof result === "string" ? result : undefined;
+    }
+
+    case "plugin.invokeCommand": {
+      assertUxpCapability(capabilities, "pluginManager");
+      const [pluginId, commandId, ...params] = expectUxpArgs<[string, string, ...unknown[]]>(
+        args,
+        2,
+        Number.MAX_SAFE_INTEGER,
+        "uxp.Plugin.invokeCommand"
+      );
+      assertUxpString(pluginId, "uxp.Plugin.invokeCommand plugin id");
+      assertUxpString(commandId, "uxp.Plugin.invokeCommand commandId");
+      await findPlugin(pluginId).invokeCommand(commandId, ...params);
+      return undefined;
+    }
+
+    case "script.args": {
+      assertUxpCapability(capabilities, "script");
+      expectUxpArgs(args, 0, 0, "uxp.script.args");
+      return requireUxpSubmodule("script").args;
+    }
+
+    case "script.executionContext": {
+      assertUxpCapability(capabilities, "script");
+      expectUxpArgs(args, 0, 0, "uxp.script.executionContext");
+      return requireUxpSubmodule("script").executionContext;
+    }
+
+    case "script.setResult": {
+      assertUxpCapability(capabilities, "script");
+      const [result] = expectUxpArgs<[unknown]>(args, 1, 1, "uxp.script.setResult");
+      requireUxpSubmodule("script").setResult(result);
+      return undefined;
     }
 
     case "storage.secureStorage.length": {
@@ -186,7 +258,7 @@ function requireSecureStorage(): NonNullable<
   return secureStorage;
 }
 
-function requireUxpSubmodule<TName extends "shell" | "userInfo">(
+function requireUxpSubmodule<TName extends "shell" | "userInfo" | "pluginManager" | "script">(
   name: TName
 ): NonNullable<UxpHostModule[TName]> {
   const submodule = require("uxp")[name];
@@ -194,6 +266,26 @@ function requireUxpSubmodule<TName extends "shell" | "userInfo">(
     throw new Error(`uxp.${name} is not available in this UXP host.`);
   }
   return submodule;
+}
+
+function serializePlugin(plugin: UxpHostPlugin): UxpSerializedPlugin {
+  return {
+    id: plugin.id,
+    version: plugin.version,
+    name: plugin.name,
+    manifest: plugin.manifest,
+    enabled: plugin.enabled
+  };
+}
+
+function findPlugin(pluginId: string): UxpHostPlugin {
+  for (const plugin of requireUxpSubmodule("pluginManager").plugins) {
+    if (plugin.id === pluginId) {
+      return plugin;
+    }
+  }
+
+  throw new Error(`Unknown uxp plugin: ${pluginId}`);
 }
 
 function expectUxpArgs<T extends readonly unknown[]>(

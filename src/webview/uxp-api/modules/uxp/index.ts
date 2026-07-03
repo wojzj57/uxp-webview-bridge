@@ -4,6 +4,8 @@ import {
   secureStorageTransportToUint8Array,
   secureStorageValueToTransport,
   UXP_MODULE_ID,
+  type UxpPlugin,
+  type UxpSerializedPlugin,
   type UxpNamespace
 } from "../../../../shared/contracts/uxp.js";
 
@@ -12,6 +14,13 @@ interface UxpRpc {
 }
 
 export function createUxpNamespace(rpc: UxpRpc): UxpNamespace {
+  const createPlugin = (plugin: UxpSerializedPlugin): UxpPlugin => ({
+    ...plugin,
+    showPanel: (panelId) => rpc.call<void | string>(UXP_MODULE_ID, "plugin.showPanel", [plugin.id, panelId]),
+    invokeCommand: (commandId, ...params) =>
+      rpc.call<void>(UXP_MODULE_ID, "plugin.invokeCommand", [plugin.id, commandId, ...params])
+  });
+
   return {
     host: {
       get name() {
@@ -66,6 +75,22 @@ export function createUxpNamespace(rpc: UxpRpc): UxpNamespace {
     },
     userInfo: {
       userId: () => rpc.call<string>(UXP_MODULE_ID, "userInfo.userId")
+    },
+    pluginManager: {
+      get plugins() {
+        return rpc
+          .call<readonly UxpSerializedPlugin[]>(UXP_MODULE_ID, "pluginManager.plugins")
+          .then((plugins) => new Set(plugins.map(createPlugin)));
+      }
+    },
+    script: {
+      get args() {
+        return rpc.call<readonly unknown[]>(UXP_MODULE_ID, "script.args");
+      },
+      get executionContext() {
+        return rpc.call<unknown>(UXP_MODULE_ID, "script.executionContext");
+      },
+      setResult: (result) => rpc.call<void>(UXP_MODULE_ID, "script.setResult", [result])
     }
   };
 }

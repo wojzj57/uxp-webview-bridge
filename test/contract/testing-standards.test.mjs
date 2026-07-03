@@ -13,6 +13,7 @@ test("CDP case files are immediate .mjs files with stable case names", async () 
     "fs.plugin-data-roundtrip.mjs",
     "os.platform.mjs",
     "path.local.mjs",
-    "uxp.host-info.mjs"
+    "uxp.host-info.mjs",
+    "uxp.plugin-manager-gated.mjs"
   ]);
 });

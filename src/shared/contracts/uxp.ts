@@ -9,6 +9,12 @@ export const UXP_METHOD_NAMES = [
   "shell.openPath",
   "shell.openExternal",
   "userInfo.userId",
+  "pluginManager.plugins",
+  "plugin.showPanel",
+  "plugin.invokeCommand",
+  "script.args",
+  "script.executionContext",
+  "script.setResult",
   "storage.secureStorage.length",
   "storage.secureStorage.setItem",
   "storage.secureStorage.getItem",
@@ -37,6 +43,29 @@ export interface UxpShell {
 
 export interface UxpUserInfo {
   userId(): Promise<string>;
+}
+
+export interface UxpSerializedPlugin {
+  readonly id: string;
+  readonly version: string;
+  readonly name: string;
+  readonly manifest: unknown;
+  readonly enabled: boolean;
+}
+
+export interface UxpPlugin extends UxpSerializedPlugin {
+  showPanel(panelId: string): Promise<void | string>;
+  invokeCommand(commandId: string, ...params: readonly unknown[]): Promise<void>;
+}
+
+export interface UxpPluginManager {
+  readonly plugins: Promise<ReadonlySet<UxpPlugin>>;
+}
+
+export interface UxpScript {
+  readonly args: Promise<readonly unknown[]>;
+  readonly executionContext: Promise<unknown>;
+  setResult(result: unknown): Promise<void>;
 }
 
 export type UxpSecureStorageTransportValue =
@@ -75,6 +104,22 @@ export interface UxpNamespace {
   readonly storage: UxpStorage;
   readonly shell: UxpShell;
   readonly userInfo: UxpUserInfo;
+  readonly pluginManager: UxpPluginManager;
+  readonly script: UxpScript;
+}
+
+export function isUxpSerializedPlugin(value: unknown): value is UxpSerializedPlugin {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<UxpSerializedPlugin>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.version === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.enabled === "boolean"
+  );
 }
 
 const UXP_METHOD_SET = new Set<string>(UXP_METHOD_NAMES);
