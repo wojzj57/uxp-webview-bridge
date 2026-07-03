@@ -15,6 +15,21 @@ export const UXP_METHOD_NAMES = [
   "script.args",
   "script.executionContext",
   "script.setResult",
+  "entrypoints.setup",
+  "entrypoints.getPanel",
+  "entrypoints.getCommand",
+  "entrypoints.menuItems.size",
+  "entrypoints.menuItems.getItem",
+  "entrypoints.menuItems.getItemAt",
+  "entrypoints.menuItems.insertAt",
+  "entrypoints.menuItems.removeAt",
+  "entrypoints.menuItem.getLabel",
+  "entrypoints.menuItem.getEnabled",
+  "entrypoints.menuItem.getChecked",
+  "entrypoints.menuItem.setLabel",
+  "entrypoints.menuItem.setEnabled",
+  "entrypoints.menuItem.setChecked",
+  "entrypoints.menuItem.remove",
   "storage.secureStorage.length",
   "storage.secureStorage.setItem",
   "storage.secureStorage.getItem",
@@ -68,6 +83,110 @@ export interface UxpScript {
   setResult(result: unknown): Promise<void>;
 }
 
+export type UxpMenuSeparator = "-";
+
+export interface UxpMenuItemDescriptor {
+  readonly id: string;
+  readonly label?: string;
+  readonly enabled?: boolean;
+  readonly checked?: boolean;
+  readonly submenu?: readonly UxpMenuItemInput[];
+}
+
+export type UxpMenuItemInput = UxpMenuSeparator | string | UxpMenuItemDescriptor;
+
+export interface UxpShortcutInfo {
+  readonly shortcutKey?: string;
+  readonly commandKey?: boolean;
+  readonly altKey?: boolean;
+  readonly shiftKey?: boolean;
+  readonly ctrlKey?: boolean;
+}
+
+export interface UxpIconInfo {
+  readonly path: string;
+  readonly scale: readonly number[];
+  readonly theme: readonly string[];
+  readonly species: readonly string[];
+}
+
+export interface UxpSizeInfo {
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface UxpSerializedMenuItemsReference {
+  readonly kind: "uxp.entrypoints.menuItems";
+  readonly id: string;
+}
+
+export interface UxpSerializedMenuItem {
+  readonly kind: "uxp.entrypoints.menuItem";
+  readonly id: string;
+  readonly itemId: string;
+  readonly label: string;
+  readonly enabled: boolean;
+  readonly checked: boolean;
+  readonly submenu?: UxpSerializedMenuItemsReference;
+  readonly parent?: UxpSerializedMenuItemsReference;
+}
+
+export interface UxpSerializedPanelInfo {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly shortcut: UxpShortcutInfo;
+  readonly title: string;
+  readonly icons: readonly UxpIconInfo[];
+  readonly minimumSize: UxpSizeInfo;
+  readonly maximumSize: UxpSizeInfo;
+  readonly preferredDockedSize: UxpSizeInfo;
+  readonly preferredFloatingSize: UxpSizeInfo;
+  readonly menuItems: UxpSerializedMenuItemsReference;
+}
+
+export interface UxpSerializedCommandInfo {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly shortcut: UxpShortcutInfo;
+  readonly isManifestCommand?: boolean;
+  readonly commandOptions?: unknown;
+}
+
+export interface UxpMenuItem {
+  readonly id: string;
+  label: Promise<string>;
+  enabled: Promise<boolean>;
+  checked: Promise<boolean>;
+  readonly submenu: UxpMenuItems | undefined;
+  readonly parent: UxpMenuItems | undefined;
+  setLabel(label: string): Promise<void>;
+  setEnabled(enabled: boolean): Promise<void>;
+  setChecked(checked: boolean): Promise<void>;
+  remove(): Promise<void>;
+}
+
+export interface UxpMenuItems {
+  readonly size: Promise<number>;
+  getItem(id: string): Promise<UxpMenuItem | null>;
+  getItemAt(index: number): Promise<UxpMenuItem | null>;
+  insertAt(index: number, newItem: UxpMenuItemInput): Promise<void>;
+  removeAt(index: number): Promise<void>;
+}
+
+export interface UxpPanelInfo extends Omit<UxpSerializedPanelInfo, "menuItems"> {
+  readonly menuItems: UxpMenuItems;
+}
+
+export interface UxpCommandInfo extends UxpSerializedCommandInfo {}
+
+export interface UxpEntrypoints {
+  setup(entrypoints: unknown): never;
+  getPanel(id: string): Promise<UxpPanelInfo | null>;
+  getCommand(id: string): Promise<UxpCommandInfo | null>;
+}
+
 export type UxpSecureStorageTransportValue =
   | {
       readonly kind: "text";
@@ -106,6 +225,7 @@ export interface UxpNamespace {
   readonly userInfo: UxpUserInfo;
   readonly pluginManager: UxpPluginManager;
   readonly script: UxpScript;
+  readonly entrypoints: UxpEntrypoints;
 }
 
 export function isUxpSerializedPlugin(value: unknown): value is UxpSerializedPlugin {

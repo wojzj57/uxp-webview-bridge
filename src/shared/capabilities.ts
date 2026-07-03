@@ -7,7 +7,8 @@ export const DEFAULT_BRIDGE_CAPABILITIES: BridgeCapabilities = {
     userInfo: false,
     secureStorage: false,
     pluginManager: false,
-    script: false
+    script: false,
+    entrypoints: false
   },
   photoshop: true,
   imaging: true,

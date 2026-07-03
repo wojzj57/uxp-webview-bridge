@@ -4,7 +4,16 @@ import {
   secureStorageTransportToUint8Array,
   secureStorageValueToTransport,
   UXP_MODULE_ID,
+  type UxpCommandInfo,
+  type UxpMenuItem,
+  type UxpMenuItemInput,
+  type UxpMenuItems,
+  type UxpPanelInfo,
   type UxpPlugin,
+  type UxpSerializedCommandInfo,
+  type UxpSerializedMenuItem,
+  type UxpSerializedMenuItemsReference,
+  type UxpSerializedPanelInfo,
   type UxpSerializedPlugin,
   type UxpNamespace
 } from "../../../../shared/contracts/uxp.js";
@@ -14,6 +23,61 @@ interface UxpRpc {
 }
 
 export function createUxpNamespace(rpc: UxpRpc): UxpNamespace {
+  const createMenuItems = (reference: UxpSerializedMenuItemsReference): UxpMenuItems => ({
+    get size() {
+      return rpc.call<number>(UXP_MODULE_ID, "entrypoints.menuItems.size", [reference]);
+    },
+    async getItem(id) {
+      const item = await rpc.call<UxpSerializedMenuItem | null>(
+        UXP_MODULE_ID,
+        "entrypoints.menuItems.getItem",
+        [reference, id]
+      );
+      return item ? createMenuItem(item) : null;
+    },
+    async getItemAt(index) {
+      const item = await rpc.call<UxpSerializedMenuItem | null>(
+        UXP_MODULE_ID,
+        "entrypoints.menuItems.getItemAt",
+        [reference, index]
+      );
+      return item ? createMenuItem(item) : null;
+    },
+    insertAt: (index, newItem: UxpMenuItemInput) =>
+      rpc.call<void>(UXP_MODULE_ID, "entrypoints.menuItems.insertAt", [reference, index, newItem]),
+    removeAt: (index) =>
+      rpc.call<void>(UXP_MODULE_ID, "entrypoints.menuItems.removeAt", [reference, index])
+  });
+
+  const createMenuItem = (item: UxpSerializedMenuItem): UxpMenuItem => ({
+    id: item.itemId,
+    get label() {
+      return rpc.call<string>(UXP_MODULE_ID, "entrypoints.menuItem.getLabel", [item]);
+    },
+    get enabled() {
+      return rpc.call<boolean>(UXP_MODULE_ID, "entrypoints.menuItem.getEnabled", [item]);
+    },
+    get checked() {
+      return rpc.call<boolean>(UXP_MODULE_ID, "entrypoints.menuItem.getChecked", [item]);
+    },
+    submenu: item.submenu ? createMenuItems(item.submenu) : undefined,
+    parent: item.parent ? createMenuItems(item.parent) : undefined,
+    setLabel: (label) =>
+      rpc.call<void>(UXP_MODULE_ID, "entrypoints.menuItem.setLabel", [item, label]),
+    setEnabled: (enabled) =>
+      rpc.call<void>(UXP_MODULE_ID, "entrypoints.menuItem.setEnabled", [item, enabled]),
+    setChecked: (checked) =>
+      rpc.call<void>(UXP_MODULE_ID, "entrypoints.menuItem.setChecked", [item, checked]),
+    remove: () => rpc.call<void>(UXP_MODULE_ID, "entrypoints.menuItem.remove", [item])
+  });
+
+  const createPanel = (panel: UxpSerializedPanelInfo): UxpPanelInfo => ({
+    ...panel,
+    menuItems: createMenuItems(panel.menuItems)
+  });
+
+  const createCommand = (command: UxpSerializedCommandInfo): UxpCommandInfo => ({ ...command });
+
   const createPlugin = (plugin: UxpSerializedPlugin): UxpPlugin => ({
     ...plugin,
     showPanel: (panelId) => rpc.call<void | string>(UXP_MODULE_ID, "plugin.showPanel", [plugin.id, panelId]),
@@ -91,6 +155,27 @@ export function createUxpNamespace(rpc: UxpRpc): UxpNamespace {
         return rpc.call<unknown>(UXP_MODULE_ID, "script.executionContext");
       },
       setResult: (result) => rpc.call<void>(UXP_MODULE_ID, "script.setResult", [result])
+    },
+    entrypoints: {
+      setup() {
+        throw new Error("uxp.entrypoints.setup cannot be called from the WebView bridge.");
+      },
+      async getPanel(id) {
+        const panel = await rpc.call<UxpSerializedPanelInfo | null>(
+          UXP_MODULE_ID,
+          "entrypoints.getPanel",
+          [id]
+        );
+        return panel ? createPanel(panel) : null;
+      },
+      async getCommand(id) {
+        const command = await rpc.call<UxpSerializedCommandInfo | null>(
+          UXP_MODULE_ID,
+          "entrypoints.getCommand",
+          [id]
+        );
+        return command ? createCommand(command) : null;
+      }
     }
   };
 }

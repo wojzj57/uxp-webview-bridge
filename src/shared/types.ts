@@ -8,6 +8,7 @@ export interface BridgeCapabilities {
     readonly secureStorage: boolean;
     readonly pluginManager: boolean;
     readonly script: boolean;
+    readonly entrypoints: boolean;
   };
   readonly photoshop: boolean;
   readonly imaging: boolean;
