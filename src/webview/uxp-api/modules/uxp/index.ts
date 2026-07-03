@@ -1,15 +1,17 @@
-import { createUnimplementedNamespace } from "../../../unimplemented-namespace.js";
 import { getBridgeRpcClient } from "../../../runtime.js";
 import {
   secureStorageTransportToUint8Array,
   secureStorageValueToTransport,
   UXP_MODULE_ID,
   type UxpCommandInfo,
+  type UxpLocalFileSystemProvider,
   type UxpMenuItem,
   type UxpMenuItemInput,
   type UxpMenuItems,
   type UxpPanelInfo,
   type UxpPlugin,
+  type UxpStorageErrors,
+  type UxpStorageSymbol,
   type UxpSerializedCommandInfo,
   type UxpSerializedMenuItem,
   type UxpSerializedMenuItemsReference,
@@ -106,6 +108,29 @@ export function createUxpNamespace(rpc: UxpRpc): UxpNamespace {
       }
     },
     storage: {
+      domains: createStorageSymbols([
+        "appLocalCache",
+        "appLocalData",
+        "appLocalLibrary",
+        "appLocalShared",
+        "appLocalTemporary",
+        "appRoamingData",
+        "appRoamingLibrary",
+        "userDesktop",
+        "userDocuments",
+        "userMusic",
+        "userPictures",
+        "userVideos"
+      ]),
+      formats: createStorageSymbols(["binary", "utf8"]),
+      modes: createStorageSymbols(["readOnly", "readWrite"]),
+      types: createStorageSymbols(["file", "folder"]),
+      fileTypes: {
+        all: Object.freeze([".*"]),
+        images: Object.freeze(["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "tif", "tiff"]),
+        text: Object.freeze(["txt", "text", "json", "js", "jsx", "ts", "tsx", "css", "html", "xml", "md"])
+      },
+      errors: createStorageErrors(),
       secureStorage: {
         get length() {
           return rpc.call<number>(UXP_MODULE_ID, "storage.secureStorage.length");
@@ -129,7 +154,7 @@ export function createUxpNamespace(rpc: UxpRpc): UxpNamespace {
         key: (index) => rpc.call<string>(UXP_MODULE_ID, "storage.secureStorage.key", [index]),
         clear: () => rpc.call<void>(UXP_MODULE_ID, "storage.secureStorage.clear")
       },
-      localFileSystem: createUnimplementedNamespace("uxp.storage.localFileSystem")
+      localFileSystem: createUnsupportedLocalFileSystem()
     },
     shell: {
       openPath: (path, developerText) =>
@@ -178,6 +203,74 @@ export function createUxpNamespace(rpc: UxpRpc): UxpNamespace {
       }
     }
   };
+}
+
+function createStorageSymbols<const TName extends string>(
+  names: readonly TName[]
+): { readonly [TKey in TName]: UxpStorageSymbol } {
+  return Object.freeze(
+    Object.fromEntries(names.map((name) => [name, Symbol(`uxp.storage.${name}`)]))
+  ) as { readonly [TKey in TName]: UxpStorageSymbol };
+}
+
+function createStorageErrors(): UxpStorageErrors {
+  const errors = {
+    AbstractMethodInvocationError: createNamedStorageError("AbstractMethodInvocationError"),
+    DataFileFormatMismatchError: createNamedStorageError("DataFileFormatMismatchError"),
+    DomainNotSupportedError: createNamedStorageError("DomainNotSupportedError"),
+    EntryExistsError: createNamedStorageError("EntryExistsError"),
+    EntryIsNotAFileError: createNamedStorageError("EntryIsNotAFileError"),
+    EntryIsNotAFolderError: createNamedStorageError("EntryIsNotAFolderError"),
+    EntryIsNotAnEntryError: createNamedStorageError("EntryIsNotAnEntryError"),
+    FileIsReadOnlyError: createNamedStorageError("FileIsReadOnlyError"),
+    InvalidFileFormatError: createNamedStorageError("InvalidFileFormatError"),
+    InvalidFileNameError: createNamedStorageError("InvalidFileNameError"),
+    NotAFileSystemError: createNamedStorageError("NotAFileSystemError"),
+    OutOfSpaceError: createNamedStorageError("OutOfSpaceError"),
+    PermissionDeniedError: createNamedStorageError("PermissionDeniedError"),
+    ProviderMismatchError: createNamedStorageError("ProviderMismatchError")
+  };
+  return Object.freeze(errors);
+}
+
+function createNamedStorageError(name: string): Error {
+  const error = new Error(name);
+  error.name = name;
+  return error;
+}
+
+function createUnsupportedLocalFileSystem(): UxpLocalFileSystemProvider {
+  const reject = async (..._args: readonly unknown[]): Promise<never> => {
+    throw createLocalFileSystemUnsupportedError();
+  };
+  const fail = (..._args: readonly unknown[]): never => {
+    throw createLocalFileSystemUnsupportedError();
+  };
+
+  return Object.freeze({
+    isFileSystemProvider: true,
+    supportedDomains: Object.freeze([]),
+    getFileForOpening: reject,
+    getFileForSaving: reject,
+    getFolder: reject,
+    getTemporaryFolder: reject,
+    getDataFolder: reject,
+    getPluginFolder: reject,
+    createEntryWithUrl: reject,
+    getEntryWithUrl: reject,
+    getFsUrl: fail,
+    getNativePath: fail,
+    createSessionToken: fail,
+    getEntryForSessionToken: fail,
+    createPersistentToken: reject,
+    getEntryForPersistentToken: reject
+  });
+}
+
+function createLocalFileSystemUnsupportedError(): Error {
+  return new Error(
+    "uxp.storage.localFileSystem is not supported by uxp-webview-bridge. Use the fs namespace for plugin:, plugin-data:, and plugin-temp: URLs."
+  );
 }
 
 export const uxp: UxpNamespace = createUxpNamespace({

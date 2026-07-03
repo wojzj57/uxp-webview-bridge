@@ -212,9 +212,89 @@ export interface UxpSecureStorage {
   clear(): Promise<void>;
 }
 
+export type UxpStorageSymbol = symbol & { readonly __uxpStorageSymbolBrand: "uxp.storage" };
+
+export interface UxpStorageDomains {
+  readonly appLocalCache: UxpStorageSymbol;
+  readonly appLocalData: UxpStorageSymbol;
+  readonly appLocalLibrary: UxpStorageSymbol;
+  readonly appLocalShared: UxpStorageSymbol;
+  readonly appLocalTemporary: UxpStorageSymbol;
+  readonly appRoamingData: UxpStorageSymbol;
+  readonly appRoamingLibrary: UxpStorageSymbol;
+  readonly userDesktop: UxpStorageSymbol;
+  readonly userDocuments: UxpStorageSymbol;
+  readonly userMusic: UxpStorageSymbol;
+  readonly userPictures: UxpStorageSymbol;
+  readonly userVideos: UxpStorageSymbol;
+}
+
+export interface UxpStorageFormats {
+  readonly binary: UxpStorageSymbol;
+  readonly utf8: UxpStorageSymbol;
+}
+
+export interface UxpStorageModes {
+  readonly readOnly: UxpStorageSymbol;
+  readonly readWrite: UxpStorageSymbol;
+}
+
+export interface UxpStorageTypes {
+  readonly file: UxpStorageSymbol;
+  readonly folder: UxpStorageSymbol;
+}
+
+export interface UxpStorageFileTypes {
+  readonly all: readonly string[];
+  readonly images: readonly string[];
+  readonly text: readonly string[];
+}
+
+export interface UxpStorageErrors {
+  readonly AbstractMethodInvocationError: Error;
+  readonly DataFileFormatMismatchError: Error;
+  readonly DomainNotSupportedError: Error;
+  readonly EntryExistsError: Error;
+  readonly EntryIsNotAFileError: Error;
+  readonly EntryIsNotAFolderError: Error;
+  readonly EntryIsNotAnEntryError: Error;
+  readonly FileIsReadOnlyError: Error;
+  readonly InvalidFileFormatError: Error;
+  readonly InvalidFileNameError: Error;
+  readonly NotAFileSystemError: Error;
+  readonly OutOfSpaceError: Error;
+  readonly PermissionDeniedError: Error;
+  readonly ProviderMismatchError: Error;
+}
+
+export interface UxpLocalFileSystemProvider {
+  readonly isFileSystemProvider: true;
+  readonly supportedDomains: readonly UxpStorageSymbol[];
+  getFileForOpening(options?: unknown): Promise<never>;
+  getFileForSaving(suggestedName: string, options?: unknown): Promise<never>;
+  getFolder(options?: unknown): Promise<never>;
+  getTemporaryFolder(): Promise<never>;
+  getDataFolder(): Promise<never>;
+  getPluginFolder(): Promise<never>;
+  createEntryWithUrl(url: string, options?: unknown): Promise<never>;
+  getEntryWithUrl(url: string): Promise<never>;
+  getFsUrl(entry: unknown): never;
+  getNativePath(entry: unknown): never;
+  createSessionToken(entry: unknown): never;
+  getEntryForSessionToken(token: string): never;
+  createPersistentToken(entry: unknown): Promise<never>;
+  getEntryForPersistentToken(token: string): Promise<never>;
+}
+
 export interface UxpStorage {
+  readonly domains: UxpStorageDomains;
+  readonly formats: UxpStorageFormats;
+  readonly modes: UxpStorageModes;
+  readonly types: UxpStorageTypes;
+  readonly fileTypes: UxpStorageFileTypes;
+  readonly errors: UxpStorageErrors;
   readonly secureStorage: UxpSecureStorage;
-  readonly localFileSystem: object;
+  readonly localFileSystem: UxpLocalFileSystemProvider;
 }
 
 export interface UxpNamespace {
