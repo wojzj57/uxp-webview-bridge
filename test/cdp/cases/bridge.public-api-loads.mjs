@@ -8,6 +8,8 @@ export default async function bridgePublicApiLoads({ bridge, assert }) {
   assert.ok(typeof bridge.uxp.entrypoints === "object", "uxp.entrypoints must be available.");
   assert.ok(typeof bridge.uxp.storage.domains.userDocuments === "symbol", "uxp.storage.domains must be available.");
   assert.ok(typeof bridge.uxp.storage.localFileSystem.getFileForOpening === "function", "uxp.storage.localFileSystem shape must be available.");
+  assert.ok(typeof bridge.uxp.xmp.XMPMeta === "function", "uxp.xmp.XMPMeta shape must be available.");
+  assert.ok(typeof bridge.uxp.xmp.XMPUtils.composeArrayItemPath === "function", "uxp.xmp.XMPUtils shape must be available.");
   assert.ok(typeof bridge.photoshop === "object", "photoshop namespace must be available.");
 
   return {
@@ -20,6 +22,7 @@ export default async function bridgePublicApiLoads({ bridge, assert }) {
     hasUxpEntrypoints: true,
     hasUxpStorageDomains: true,
     hasUxpLocalFileSystemShape: true,
+    hasUxpXmpShape: true,
     hasPhotoshop: true
   };
 }

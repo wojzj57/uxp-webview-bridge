@@ -297,6 +297,81 @@ export interface UxpStorage {
   readonly localFileSystem: UxpLocalFileSystemProvider;
 }
 
+export type UxpUnsupportedXmpConstructor = new (...args: readonly unknown[]) => never;
+
+export interface UxpUnsupportedXmpConst {
+  readonly [name: string]: never;
+}
+
+export interface UxpXmpMetaConstructor extends UxpUnsupportedXmpConstructor {
+  deleteNamespace(namespaceURI: string): never;
+  dumpNamespaces(): never;
+  getNamespacePrefix(namespaceURI: string): never;
+  getNamespaceURI(namespacePrefix: string): never;
+  registerNamespace(namespaceURI: string, suggestedPrefix: string): never;
+}
+
+export interface UxpXmpFileConstructor extends UxpUnsupportedXmpConstructor {
+  getFormatInfo(format: number): never;
+}
+
+export interface UxpXmpUtils {
+  appendProperties(source: unknown, dest: unknown, options?: number): never;
+  catenateArrayItems(
+    xmpObj: unknown,
+    schemaNS: string,
+    arrayName: string,
+    separator?: string,
+    quotes?: string,
+    options?: number
+  ): never;
+  composeArrayItemPath(schemaNS: string, arrayName: string, itemIndex: number): never;
+  composeFieldSelector(
+    schemaNS: string,
+    arrayName: string,
+    fieldNS: string,
+    fieldName: string,
+    fieldValue: string
+  ): never;
+  composeLangSelector(schemaNS: string, arrayName: string, locale: string): never;
+  composeStructFieldPath(
+    schemaNS: string,
+    structName: string,
+    fieldNS: string,
+    fieldName: string
+  ): never;
+  composeQualifierPath(schemaNS: string, propName: string, qualNS: string, qualName: string): never;
+  duplicateSubtree(
+    source: unknown,
+    dest: unknown,
+    sourceNS: string,
+    sourceRoot: string,
+    destNS: string,
+    destRoot?: string,
+    options?: number
+  ): never;
+  removeProperties(xmpObj: unknown, schemaNS?: string, propName?: string, options?: number): never;
+  separateArrayItems(
+    xmpObj: unknown,
+    schemaNS: string,
+    arrayName: string,
+    arrayOptions: number | undefined,
+    concatString: string
+  ): never;
+}
+
+export interface UxpXmpNamespace {
+  readonly XMPConst: UxpUnsupportedXmpConst;
+  readonly XMPDateTime: UxpUnsupportedXmpConstructor;
+  readonly XMPFile: UxpXmpFileConstructor;
+  readonly XMPFileInfo: UxpUnsupportedXmpConstructor;
+  readonly XMPIterator: UxpUnsupportedXmpConstructor;
+  readonly XMPMeta: UxpXmpMetaConstructor;
+  readonly XMPPacketInfo: UxpUnsupportedXmpConstructor;
+  readonly XMPProperty: UxpUnsupportedXmpConstructor;
+  readonly XMPUtils: UxpXmpUtils;
+}
+
 export interface UxpNamespace {
   readonly host: UxpHostInformation;
   readonly versions: UxpVersions;
@@ -306,6 +381,7 @@ export interface UxpNamespace {
   readonly pluginManager: UxpPluginManager;
   readonly script: UxpScript;
   readonly entrypoints: UxpEntrypoints;
+  readonly xmp: UxpXmpNamespace;
 }
 
 export function isUxpSerializedPlugin(value: unknown): value is UxpSerializedPlugin {
