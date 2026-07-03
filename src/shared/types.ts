@@ -2,6 +2,11 @@ export type BridgeProtocolVersion = `${number}.${number}.${number}`;
 
 export interface BridgeCapabilities {
   readonly os: boolean;
+  readonly uxp: {
+    readonly shell: boolean;
+    readonly userInfo: boolean;
+    readonly secureStorage: boolean;
+  };
   readonly photoshop: boolean;
   readonly imaging: boolean;
   readonly batchPlay: boolean;

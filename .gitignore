@@ -1,5 +1,8 @@
 node_modules/
 dist/
+test/uxp-plugin/dist/
+test/uxp-plugin/webview/generated/
+test/uxp-plugin/vendor/
 .turbo/
 .DS_Store
 *.log

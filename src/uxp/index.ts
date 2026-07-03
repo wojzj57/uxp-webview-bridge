@@ -4,6 +4,7 @@ import { createUxpModuleRegistry } from "./module-registry.js";
 import { RpcHost, type UxpWebViewElement } from "./rpc-host.js";
 import { createFsModuleAdapter } from "./uxp-api/modules/fs/host.js";
 import { osModuleAdapter } from "./uxp-api/modules/os/host.js";
+import { uxpModuleAdapter } from "./uxp-api/modules/uxp/index.js";
 
 export interface ConfigUxpBridgeOptions {
   readonly webview: UxpWebViewElement;
@@ -23,7 +24,7 @@ export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRunti
   const fsModuleAdapter = createFsModuleAdapter(
     options.resourceTimeoutMs === undefined ? {} : { resourceTimeoutMs: options.resourceTimeoutMs }
   );
-  const adapters = [osModuleAdapter, fsModuleAdapter];
+  const adapters = [osModuleAdapter, fsModuleAdapter, uxpModuleAdapter];
   const registry = createUxpModuleRegistry(capabilities, adapters);
   const host = new RpcHost({
     webview: options.webview,

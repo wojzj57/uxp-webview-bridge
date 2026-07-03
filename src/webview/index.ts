@@ -1,5 +1,7 @@
 export { os } from "./uxp-api/modules/os/os.js";
 export type { CpuInfo, OsNamespace } from "./uxp-api/modules/os/index.js";
+export { path } from "./uxp-api/global-members/path/index.js";
+export type { PathFlavor, PathFormatInput, PathInput, PathNamespace, PathParsed } from "./uxp-api/global-members/path/index.js";
 export { configWebviewBridge } from "./runtime.js";
 export type { BridgeClientRuntime, ConfigWebviewBridgeOptions } from "./runtime.js";
 export { fs } from "./uxp-api/modules/fs/index.js";
