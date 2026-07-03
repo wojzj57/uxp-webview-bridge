@@ -27,6 +27,8 @@ await checkUxpEntrypoint();
 await checkDeprecatedSetupApis();
 await checkSymmetricModuleDirectories("uxp-api");
 await checkSymmetricModuleDirectories("photoshop-api");
+await checkUxpWebviewTypeMirror();
+await checkWebviewUxpApiTypesAreLocal();
 
 if (failures.length > 0) {
   console.error("Static boundary checks failed:");
@@ -108,6 +110,87 @@ async function checkSymmetricModuleDirectories(apiName) {
 
   for (const moduleName of difference(uxpModules, webviewModules)) {
     failures.push(`missing WebView module directory for ${apiName}/${moduleName}`);
+  }
+}
+
+async function checkUxpWebviewTypeMirror() {
+  const sourceRoot = path.join(srcRoot, "types", "uxp", "internal");
+  const mirrorRoot = path.join(
+    webviewRoot,
+    "uxp-api",
+    "modules",
+    "uxp",
+    "types",
+    "native"
+  );
+  const mirrorFiles = [
+    "entrypoints.d.ts",
+    "host.d.ts",
+    "plugin-manager.d.ts",
+    "script.d.ts",
+    "shell.d.ts",
+    "storage.d.ts",
+    "user-info.d.ts",
+    "versions.d.ts"
+  ];
+
+  for (const fileName of mirrorFiles) {
+    const sourceFile = path.join(sourceRoot, fileName);
+    const mirrorFile = path.join(mirrorRoot, fileName);
+    if (!existsSync(mirrorFile)) {
+      failures.push(`missing WebView UXP native type mirror ${relative(mirrorFile)}`);
+      continue;
+    }
+
+    const [source, mirror] = await Promise.all([
+      readFile(sourceFile, "utf8"),
+      readFile(mirrorFile, "utf8")
+    ]);
+    if (source !== mirror) {
+      failures.push(
+        `stale WebView UXP native type mirror ${relative(mirrorFile)}; run node scripts/sync-uxp-webview-types.mjs`
+      );
+    }
+  }
+}
+
+async function checkWebviewUxpApiTypesAreLocal() {
+  const webviewUxpRoot = path.join(webviewRoot, "uxp-api", "modules", "uxp");
+  const forbiddenSharedApiTypes = [
+    "UxpNamespace",
+    "UxpHostInformation",
+    "UxpVersions",
+    "UxpShell",
+    "UxpUserInfo",
+    "UxpPlugin",
+    "UxpPluginManager",
+    "UxpScript",
+    "UxpMenuItem",
+    "UxpMenuItems",
+    "UxpPanelInfo",
+    "UxpCommandInfo",
+    "UxpSecureStorage",
+    "UxpStorage",
+    "UxpLocalFileSystemProvider",
+    "UxpXmpNamespace"
+  ];
+
+  for (const file of await listFiles(webviewUxpRoot, ".ts")) {
+    const source = await readFile(file, "utf8");
+    const importsSharedUxpContract = /from\s+["'][^"']*shared\/contracts\/uxp\.js["']/.test(
+      source.replaceAll("\\", "/")
+    );
+    if (!importsSharedUxpContract) {
+      continue;
+    }
+
+    for (const typeName of forbiddenSharedApiTypes) {
+      if (new RegExp(`\\b${typeName}\\b`).test(source)) {
+        failures.push(
+          `${relative(file)} imports WebView UXP API type ${typeName} from shared contract; use ./types/remote.js`
+        );
+      }
+    }
   }
 }
 
