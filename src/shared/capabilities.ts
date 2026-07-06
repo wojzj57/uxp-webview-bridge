@@ -1,23 +1,17 @@
 import type { BridgeCapabilities } from "./types.js";
 
 export const DEFAULT_BRIDGE_CAPABILITIES: BridgeCapabilities = {
+  fs: false,
   os: true,
-  uxp: {
-    shell: false,
-    userInfo: false,
-    secureStorage: false,
-    pluginManager: false,
-    script: false,
-    entrypoints: false
-  },
+  shell: true,
+  userInfo: true,
+  pluginManager: true,
+  keyValueStorage: true,
+  persistentFileStorage: true,
+  xmp: true,
   photoshop: true,
   imaging: true,
-  batchPlay: true,
-  fs: {
-    read: true,
-    write: true,
-    schemes: ["plugin:", "plugin-data:", "plugin-temp:"]
-  }
+  batchPlay: true
 };
 
 export function mergeCapabilities(
@@ -25,14 +19,6 @@ export function mergeCapabilities(
 ): BridgeCapabilities {
   return {
     ...DEFAULT_BRIDGE_CAPABILITIES,
-    ...overrides,
-    uxp: {
-      ...DEFAULT_BRIDGE_CAPABILITIES.uxp,
-      ...overrides?.uxp
-    },
-    fs: {
-      ...DEFAULT_BRIDGE_CAPABILITIES.fs,
-      ...overrides?.fs
-    }
+    ...overrides
   };
 }

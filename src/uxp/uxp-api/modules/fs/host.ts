@@ -1,301 +1,260 @@
-import type { BridgeCapabilities } from "../../../../shared/types.js";
 import {
-  assertFsMethodName,
-  bytesToFsTransportData,
-  createFsFileHandleReference,
+  assertFsProtocolMethodName,
   FS_MODULE_ID,
-  fsTransportDataToArrayBuffer,
-  isFsFileHandleReference,
+  fsBytesToTransport,
+  fsTransportToArrayBuffer,
+  fsTransportToHostValue,
+  isFsBinaryTransportData,
   isFsTransportData,
-  serializeFsStats,
-  SUPPORTED_FS_SCHEMES,
-  type FsMkdirOptions,
-  type FsReadFileOptions,
-  type FsTransportData,
-  type FsWriteFileOptions
-} from "../../../../shared/contracts/fs.js";
-import type { UxpDispatchContext, UxpModuleAdapter } from "../../../module-registry.js";
+  type FsProtocolMethodName,
+  type FsSerializedStats
+} from "@shared/uxp-api/fs-protocol.js";
+import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import type { FsHostModule, FsMkdirOptions, FsReadFileOptions, FsStats, FsWriteFileOptions } from "./types.js";
 
-declare const require: (moduleName: "fs") => UxpFsModule;
+declare const require: (moduleName: "fs") => FsHostModule;
 
-interface UxpFsModule {
-  readFile(path: string, options?: FsReadFileOptions): Promise<string | ArrayBuffer>;
-  writeFile(
-    path: string,
-    data: string | ArrayBuffer,
-    options?: FsWriteFileOptions
-  ): Promise<number>;
-  open(path: string, flag?: string | number, mode?: string | number): Promise<number>;
-  close(fd: number): Promise<number>;
-  read(
-    fd: number,
-    buffer: ArrayBuffer,
-    offset: number,
-    length: number,
-    position: number
-  ): Promise<{ readonly bytesRead: number; readonly buffer: ArrayBuffer }>;
-  write(
-    fd: number,
-    buffer: ArrayBuffer,
-    offset: number,
-    length: number,
-    position: number
-  ): Promise<{ readonly bytesWritten: number; readonly buffer: ArrayBuffer }>;
-  lstat(path: string): Promise<UxpFsStats>;
-  rename(oldPath: string, newPath: string): Promise<number>;
-  copyFile(srcPath: string, destPath: string, flags?: number): Promise<number>;
-  unlink(path: string): Promise<number>;
-  mkdir(path: string, options?: FsMkdirOptions): Promise<number>;
-  rmdir(path: string): Promise<number>;
-  readdir(path: string): Promise<readonly string[]>;
+const OWNED_FILE_DESCRIPTORS = new Set<number>();
+const FILE_DESCRIPTOR_TIMEOUTS = new Map<number, ReturnType<typeof setTimeout>>();
+const FILE_DESCRIPTOR_IDLE_TIMEOUT_MS = 60_000;
+
+export const fsModuleAdapter: UxpModuleAdapter = {
+  moduleId: FS_MODULE_ID,
+  capability: "fs",
+  dispatch: dispatchFsCall,
+  destroy: destroyFsAdapter
+};
+
+export async function dispatchFsCall(method: string, args: readonly unknown[]): Promise<unknown> {
+  assertFsProtocolMethodName(method);
+
+  switch (method) {
+    case "readFile":
+      return dispatchReadFile(args);
+    case "writeFile":
+      return dispatchWriteFile(args);
+    case "open":
+      return dispatchOpen(args);
+    case "close":
+      return dispatchClose(args);
+    case "read":
+      return dispatchRead(args);
+    case "write":
+      return dispatchWrite(args);
+    case "lstat":
+      return dispatchLstat(args);
+    case "rename":
+      return dispatchRename(args);
+    case "copyFile":
+      return dispatchCopyFile(args);
+    case "unlink":
+      return dispatchSinglePath(method, args);
+    case "mkdir":
+      return dispatchMkdir(args);
+    case "rmdir":
+      return dispatchSinglePath(method, args);
+    case "readdir":
+      return dispatchSinglePath(method, args);
+    default:
+      return assertNever(method);
+  }
 }
 
-interface UxpFsStats {
-  readonly size?: number;
-  readonly mode?: number;
-  readonly atimeMs?: number;
-  readonly mtimeMs?: number;
-  readonly ctimeMs?: number;
-  readonly birthtimeMs?: number;
-  readonly atime?: Date;
-  readonly mtime?: Date;
-  readonly ctime?: Date;
-  readonly birthtime?: Date;
-  isFile?(): boolean;
-  isDirectory?(): boolean;
-  isSymbolicLink?(): boolean;
-}
-
-export interface FsModuleAdapterOptions {
-  readonly resourceTimeoutMs?: number;
-}
-
-interface FsHandleRecord {
-  readonly fd: number;
-  timeoutId: ReturnType<typeof setTimeout>;
-}
-
-const DEFAULT_RESOURCE_TIMEOUT_MS = 5 * 60 * 1000;
-
-export function createFsModuleAdapter(options: FsModuleAdapterOptions = {}): UxpModuleAdapter {
-  const handles = new Map<string, FsHandleRecord>();
-  const resourceTimeoutMs = options.resourceTimeoutMs ?? DEFAULT_RESOURCE_TIMEOUT_MS;
-
-  function scheduleCleanup(id: string, fd: number): ReturnType<typeof setTimeout> {
-    return setTimeout(() => {
-      handles.delete(id);
-      void require("fs").close(fd).catch(() => undefined);
-    }, resourceTimeoutMs);
+function destroyFsAdapter(): void {
+  if (OWNED_FILE_DESCRIPTORS.size === 0) {
+    return;
   }
 
-  function rememberHandle(fd: number): string {
-    const id = `fs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    handles.set(id, {
-      fd,
-      timeoutId: scheduleCleanup(id, fd)
-    });
-    return id;
-  }
-
-  function getHandle(id: string): FsHandleRecord {
-    const record = handles.get(id);
-    if (!record) {
-      throw new Error(`Unknown fs file handle: ${id}`);
+  const fs = require("fs");
+  for (const fd of OWNED_FILE_DESCRIPTORS) {
+    try {
+      clearFileDescriptorTimeout(fd);
+      void fs.close(fd);
+    } catch {
+      // Best-effort cleanup during bridge shutdown.
     }
-
-    clearTimeout(record.timeoutId);
-    record.timeoutId = scheduleCleanup(id, record.fd);
-    return record;
   }
+  OWNED_FILE_DESCRIPTORS.clear();
+}
 
-  async function closeHandle(id: string): Promise<void> {
-    const record = handles.get(id);
-    if (!record) {
-      return;
-    }
+async function dispatchReadFile(args: readonly unknown[]): Promise<string | ReturnType<typeof fsBytesToTransport>> {
+  const [path, options] = expectFsArgs<[string, FsReadFileOptions | undefined]>(
+    args,
+    1,
+    2,
+    "fs.readFile"
+  );
+  assertPath(path, "fs.readFile path");
+  assertOptionalReadFileOptions(options, "fs.readFile options");
 
-    handles.delete(id);
-    clearTimeout(record.timeoutId);
-    await require("fs").close(record.fd);
+  const value = await require("fs").readFile(path, options ?? {});
+  return typeof value === "string" ? value : fsBytesToTransport(toUint8Array(value));
+}
+
+async function dispatchWriteFile(args: readonly unknown[]): Promise<number> {
+  const [path, value, options] = expectFsArgs<[string, unknown, FsWriteFileOptions | undefined]>(
+    args,
+    2,
+    3,
+    "fs.writeFile"
+  );
+  assertPath(path, "fs.writeFile path");
+  if (!isFsTransportData(value)) {
+    throw new Error("fs.writeFile data must be string or binary transport data.");
   }
+  assertOptionalWriteFileOptions(options, "fs.writeFile options");
 
+  return require("fs").writeFile(path, fsTransportToHostValue(value), options ?? {});
+}
+
+async function dispatchOpen(args: readonly unknown[]): Promise<number> {
+  const [path, flag, mode] = expectFsArgs<[string, number | string | undefined, number | string | undefined]>(
+    args,
+    1,
+    3,
+    "fs.open"
+  );
+  assertPath(path, "fs.open path");
+  assertOptionalFlag(flag, "fs.open flag");
+  assertOptionalMode(mode, "fs.open mode");
+
+  const fd = await require("fs").open(path, flag, mode);
+  assertFileDescriptor(fd, "fs.open return value");
+  registerFileDescriptor(fd);
+  return fd;
+}
+
+async function dispatchClose(args: readonly unknown[]): Promise<number> {
+  const [fd] = expectFsArgs<[number]>(args, 1, 1, "fs.close");
+  assertOwnedFileDescriptor(fd, "fs.close fd");
+
+  const result = await require("fs").close(fd);
+  unregisterFileDescriptor(fd);
+  return result;
+}
+
+async function dispatchRead(args: readonly unknown[]): Promise<{
+  readonly bytesRead: number;
+  readonly buffer: ReturnType<typeof fsBytesToTransport>;
+}> {
+  const [fd, buffer, offset, length, position] = expectFsArgs<
+    [number, unknown, number, number, number]
+  >(args, 5, 5, "fs.read");
+  assertOwnedFileDescriptor(fd, "fs.read fd");
+  if (!isFsBinaryTransportData(buffer)) {
+    throw new Error("fs.read buffer must be binary transport data.");
+  }
+  assertNonNegativeInteger(offset, "fs.read offset");
+  assertNonNegativeInteger(length, "fs.read length");
+  assertReadWritePosition(position, "fs.read position");
+
+  refreshFileDescriptorTimeout(fd);
+  const result = await require("fs").read(
+    fd,
+    fsTransportToArrayBuffer(buffer),
+    offset,
+    length,
+    position
+  );
   return {
-    moduleId: FS_MODULE_ID,
-    dispatch: (method, args, context) =>
-      dispatchFsCall({
-        method,
-        args,
-        capabilities: context.capabilities,
-        rememberHandle,
-        getHandle,
-        closeHandle
-      }),
-    destroy: () => {
-      for (const [id, record] of handles) {
-        handles.delete(id);
-        clearTimeout(record.timeoutId);
-        void require("fs").close(record.fd).catch(() => undefined);
-      }
-    }
+    bytesRead: result.bytesRead,
+    buffer: fsBytesToTransport(toUint8Array(result.buffer))
   };
 }
 
-interface DispatchFsCallOptions {
-  readonly method: string;
-  readonly args: readonly unknown[];
-  readonly capabilities: BridgeCapabilities;
-  readonly rememberHandle: (fd: number) => string;
-  readonly getHandle: (id: string) => FsHandleRecord;
-  readonly closeHandle: (id: string) => Promise<void>;
-}
-
-export async function dispatchFsCall(options: DispatchFsCallOptions): Promise<unknown> {
-  assertFsMethodName(options.method);
-
-  const fs = require("fs");
-  switch (options.method) {
-    case "readFile": {
-      const [path, readOptions] = expectArgs<[string, FsReadFileOptions | undefined]>(
-        options.args,
-        1,
-        2,
-        "fs.readFile"
-      );
-      assertReadCapability(options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      const result = await fs.readFile(path, readOptions);
-      return typeof result === "string" ? result : bytesToFsTransportData(new Uint8Array(result));
-    }
-
-    case "writeFile": {
-      const [path, data, writeOptions] = expectArgs<
-        [string, string | FsTransportData, FsWriteFileOptions | undefined]
-      >(options.args, 2, 3, "fs.writeFile");
-      assertWriteCapability(options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      const payload = normalizeWriteData(data);
-      return fs.writeFile(path, payload, writeOptions);
-    }
-
-    case "open": {
-      const [path, flag, mode] = expectArgs<[string, string | number | undefined, string | number | undefined]>(
-        options.args,
-        1,
-        3,
-        "fs.open"
-      );
-      assertOpenCapabilities(flag, options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      const fd = await fs.open(path, flag, mode);
-      return createFsFileHandleReference(options.rememberHandle(fd));
-    }
-
-    case "handleRead": {
-      const [handle, buffer, offset, length, position] = expectArgs<
-        [unknown, unknown, number, number, number]
-      >(options.args, 5, 5, "fs.read");
-      assertReadCapability(options.capabilities);
-      assertChunkOperationArgs(offset, length, position, "fs.read");
-      const fd = getFileDescriptor(handle, options.getHandle);
-      const result = await fs.read(fd, expectTransportBuffer(buffer), offset, length, position);
-      return {
-        bytesRead: result.bytesRead,
-        buffer: bytesToFsTransportData(new Uint8Array(result.buffer))
-      };
-    }
-
-    case "handleWrite": {
-      const [handle, buffer, offset, length, position] = expectArgs<
-        [unknown, unknown, number, number, number]
-      >(options.args, 5, 5, "fs.write");
-      assertWriteCapability(options.capabilities);
-      assertChunkOperationArgs(offset, length, position, "fs.write");
-      const fd = getFileDescriptor(handle, options.getHandle);
-      const result = await fs.write(fd, expectTransportBuffer(buffer), offset, length, position);
-      return {
-        bytesWritten: result.bytesWritten,
-        buffer: bytesToFsTransportData(new Uint8Array(result.buffer))
-      };
-    }
-
-    case "handleClose": {
-      const [handle] = expectArgs<[unknown]>(options.args, 1, 1, "fs.close");
-      if (!isFsFileHandleReference(handle)) {
-        throw new Error("fs.close requires a remote file handle.");
-      }
-      options.getHandle(handle.id);
-      await options.closeHandle(handle.id);
-      return undefined;
-    }
-
-    case "lstat": {
-      const [path] = expectArgs<[string]>(options.args, 1, 1, "fs.lstat");
-      assertReadCapability(options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      return serializeFsStats(await fs.lstat(path));
-    }
-
-    case "rename": {
-      const [oldPath, newPath] = expectArgs<[string, string]>(options.args, 2, 2, "fs.rename");
-      assertWriteCapability(options.capabilities);
-      assertAllowedPath(oldPath, options.capabilities);
-      assertAllowedPath(newPath, options.capabilities);
-      return fs.rename(oldPath, newPath);
-    }
-
-    case "copyFile": {
-      const [srcPath, destPath, flags] = expectArgs<[string, string, number | undefined]>(
-        options.args,
-        2,
-        3,
-        "fs.copyFile"
-      );
-      assertReadCapability(options.capabilities);
-      assertWriteCapability(options.capabilities);
-      if (flags !== undefined && !Number.isInteger(flags)) {
-        throw new Error("fs.copyFile flags must be an integer.");
-      }
-      assertAllowedPath(srcPath, options.capabilities);
-      assertAllowedPath(destPath, options.capabilities);
-      return fs.copyFile(srcPath, destPath, flags);
-    }
-
-    case "unlink": {
-      const [path] = expectArgs<[string]>(options.args, 1, 1, "fs.unlink");
-      assertWriteCapability(options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      return fs.unlink(path);
-    }
-
-    case "mkdir": {
-      const [path, mkdirOptions] = expectArgs<[string, FsMkdirOptions | undefined]>(
-        options.args,
-        1,
-        2,
-        "fs.mkdir"
-      );
-      assertWriteCapability(options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      return fs.mkdir(path, mkdirOptions);
-    }
-
-    case "rmdir": {
-      const [path] = expectArgs<[string]>(options.args, 1, 1, "fs.rmdir");
-      assertWriteCapability(options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      return fs.rmdir(path);
-    }
-
-    case "readdir": {
-      const [path] = expectArgs<[string]>(options.args, 1, 1, "fs.readdir");
-      assertReadCapability(options.capabilities);
-      assertAllowedPath(path, options.capabilities);
-      return fs.readdir(path);
-    }
+async function dispatchWrite(args: readonly unknown[]): Promise<{
+  readonly bytesWritten: number;
+  readonly buffer: ReturnType<typeof fsBytesToTransport>;
+}> {
+  const [fd, buffer, offset, length, position] = expectFsArgs<
+    [number, unknown, number, number, number]
+  >(args, 5, 5, "fs.write");
+  assertOwnedFileDescriptor(fd, "fs.write fd");
+  if (!isFsBinaryTransportData(buffer)) {
+    throw new Error("fs.write buffer must be binary transport data.");
   }
+  assertNonNegativeInteger(offset, "fs.write offset");
+  assertNonNegativeInteger(length, "fs.write length");
+  assertReadWritePosition(position, "fs.write position");
+
+  refreshFileDescriptorTimeout(fd);
+  const result = await require("fs").write(
+    fd,
+    fsTransportToArrayBuffer(buffer),
+    offset,
+    length,
+    position
+  );
+  return {
+    bytesWritten: result.bytesWritten,
+    buffer: fsBytesToTransport(toUint8Array(result.buffer))
+  };
 }
 
-function expectArgs<T extends readonly unknown[]>(
+async function dispatchLstat(args: readonly unknown[]): Promise<FsSerializedStats> {
+  const [path] = expectFsArgs<[string]>(args, 1, 1, "fs.lstat");
+  assertPath(path, "fs.lstat path");
+  return serializeStats(await require("fs").lstat(path));
+}
+
+async function dispatchRename(args: readonly unknown[]): Promise<number> {
+  const [oldPath, newPath] = expectFsArgs<[string, string]>(args, 2, 2, "fs.rename");
+  assertPath(oldPath, "fs.rename oldPath");
+  assertPath(newPath, "fs.rename newPath");
+  return require("fs").rename(oldPath, newPath);
+}
+
+async function dispatchCopyFile(args: readonly unknown[]): Promise<number> {
+  const [srcPath, destPath, flags] = expectFsArgs<[string, string, number | undefined]>(
+    args,
+    2,
+    3,
+    "fs.copyFile"
+  );
+  assertPath(srcPath, "fs.copyFile srcPath");
+  assertPath(destPath, "fs.copyFile destPath");
+  if (flags !== undefined && (!Number.isInteger(flags) || flags < 0)) {
+    throw new Error("fs.copyFile flags must be a non-negative integer when provided.");
+  }
+  return require("fs").copyFile(srcPath, destPath, flags ?? 0);
+}
+
+async function dispatchMkdir(args: readonly unknown[]): Promise<number> {
+  const [path, options] = expectFsArgs<[string, FsMkdirOptions | undefined]>(
+    args,
+    1,
+    2,
+    "fs.mkdir"
+  );
+  assertPath(path, "fs.mkdir path");
+  assertOptionalMkdirOptions(options, "fs.mkdir options");
+  return require("fs").mkdir(path, options ?? {});
+}
+
+async function dispatchSinglePath(
+  method: "unlink" | "rmdir" | "readdir",
+  args: readonly unknown[]
+): Promise<number | string[]> {
+  const [path] = expectFsArgs<[string]>(args, 1, 1, `fs.${method}`);
+  assertPath(path, `fs.${method} path`);
+  return require("fs")[method](path);
+}
+
+function serializeStats(stats: FsStats): FsSerializedStats {
+  return {
+    size: stats.size,
+    mode: stats.mode,
+    atimeMs: dateLikeToMs(stats.atime, stats.atimeMs),
+    mtimeMs: dateLikeToMs(stats.mtime, stats.mtimeMs),
+    ctimeMs: dateLikeToMs(stats.ctime, stats.ctimeMs),
+    birthtimeMs: dateLikeToMs(stats.birthtime, stats.birthtimeMs),
+    isFile: callOptionalStatsPredicate(stats, "isFile"),
+    isDirectory: callOptionalStatsPredicate(stats, "isDirectory"),
+    isSymbolicLink: callOptionalStatsPredicate(stats, "isSymbolicLink")
+  };
+}
+
+function expectFsArgs<T extends readonly unknown[]>(
   args: readonly unknown[],
   minLength: number,
   maxLength: number,
@@ -308,89 +267,158 @@ function expectArgs<T extends readonly unknown[]>(
   return args as unknown as T;
 }
 
-function assertReadCapability(capabilities: BridgeCapabilities): void {
-  if (!capabilities.fs.read) {
-    throw new Error("fs read capability is disabled.");
+function assertPath(value: unknown, label: string): asserts value is string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${label} must be a non-empty string.`);
   }
 }
 
-function assertWriteCapability(capabilities: BridgeCapabilities): void {
-  if (!capabilities.fs.write) {
-    throw new Error("fs write capability is disabled.");
-  }
-}
-
-function assertOpenCapabilities(flag: string | number | undefined, capabilities: BridgeCapabilities): void {
-  const normalized = String(flag ?? "r");
-  const requiresWrite = /[wa+]/.test(normalized);
-  const requiresRead = !/^[wa]/.test(normalized) || normalized.includes("+");
-
-  if (requiresRead) {
-    assertReadCapability(capabilities);
-  }
-  if (requiresWrite) {
-    assertWriteCapability(capabilities);
-  }
-}
-
-function assertAllowedPath(path: string, capabilities: BridgeCapabilities): void {
-  if (typeof path !== "string") {
-    throw new Error("fs path must be a string.");
-  }
-
-  const allowed = capabilities.fs.schemes.some(
-    (scheme) => isSupportedFsScheme(scheme) && path.startsWith(scheme)
-  );
-  if (!allowed) {
-    throw new Error(`Unsupported fs path scheme: ${path}`);
-  }
-}
-
-function isSupportedFsScheme(scheme: string): boolean {
-  return SUPPORTED_FS_SCHEMES.includes(scheme as (typeof SUPPORTED_FS_SCHEMES)[number]);
-}
-
-function assertChunkOperationArgs(
-  offset: number,
-  length: number,
-  position: number,
-  method: string
+function assertOptionalReadFileOptions(
+  value: unknown,
+  label: string
 ): void {
-  if (!Number.isInteger(offset) || offset < 0) {
-    throw new Error(`${method} offset must be a non-negative integer.`);
+  if (value === undefined) {
+    return;
   }
-  if (!Number.isInteger(length) || length < 0) {
-    throw new Error(`${method} length must be a non-negative integer.`);
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object when provided.`);
   }
-  if (!Number.isInteger(position) || position < -1) {
-    throw new Error(`${method} position must be -1 or a non-negative integer.`);
+  assertOptionalString(value.encoding, `${label}.encoding`);
+}
+
+function assertOptionalWriteFileOptions(
+  value: unknown,
+  label: string
+): asserts value is FsWriteFileOptions | undefined {
+  assertOptionalReadFileOptions(value, label);
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object when provided.`);
+  }
+  assertOptionalFlag(value.flag, `${label}.flag`);
+  assertOptionalMode(value.mode, `${label}.mode`);
+}
+
+function assertOptionalMkdirOptions(
+  value: unknown,
+  label: string
+): asserts value is FsMkdirOptions | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object when provided.`);
+  }
+  if (value.recursive !== undefined && typeof value.recursive !== "boolean") {
+    throw new Error(`${label}.recursive must be a boolean when provided.`);
   }
 }
 
-function normalizeWriteData(data: string | FsTransportData): string | ArrayBuffer {
-  if (typeof data === "string") {
-    return data;
+function assertOptionalFlag(value: unknown, label: string): void {
+  if (value !== undefined && typeof value !== "string" && typeof value !== "number") {
+    throw new Error(`${label} must be a string or number when provided.`);
   }
-
-  if (!isFsTransportData(data)) {
-    throw new Error("fs.writeFile data must be a string or binary transport data.");
-  }
-
-  return fsTransportDataToArrayBuffer(data);
 }
 
-function expectTransportBuffer(value: unknown): ArrayBuffer {
-  if (!isFsTransportData(value)) {
-    throw new Error("fs handle operation requires binary transport data.");
+function assertOptionalMode(value: unknown, label: string): void {
+  if (value !== undefined && typeof value !== "string" && typeof value !== "number") {
+    throw new Error(`${label} must be a string or number when provided.`);
   }
-
-  return fsTransportDataToArrayBuffer(value);
 }
 
-function getFileDescriptor(handle: unknown, getHandle: (id: string) => FsHandleRecord): number {
-  if (!isFsFileHandleReference(handle)) {
-    throw new Error("fs handle operation requires a remote file handle.");
+function assertFileDescriptor(value: unknown, label: string): asserts value is number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
   }
+}
 
-  return getHandle(handle.id).fd;
+function assertOwnedFileDescriptor(value: unknown, label: string): asserts value is number {
+  assertFileDescriptor(value, label);
+  if (!OWNED_FILE_DESCRIPTORS.has(value)) {
+    throw new Error(`${label} is not an open fs file descriptor owned by this bridge.`);
+  }
+}
+
+function registerFileDescriptor(fd: number): void {
+  OWNED_FILE_DESCRIPTORS.add(fd);
+  refreshFileDescriptorTimeout(fd);
+}
+
+function unregisterFileDescriptor(fd: number): void {
+  clearFileDescriptorTimeout(fd);
+  OWNED_FILE_DESCRIPTORS.delete(fd);
+}
+
+function refreshFileDescriptorTimeout(fd: number): void {
+  clearFileDescriptorTimeout(fd);
+  FILE_DESCRIPTOR_TIMEOUTS.set(
+    fd,
+    setTimeout(() => {
+      FILE_DESCRIPTOR_TIMEOUTS.delete(fd);
+      if (!OWNED_FILE_DESCRIPTORS.delete(fd)) {
+        return;
+      }
+
+      try {
+        void require("fs").close(fd);
+      } catch {
+        // Best-effort cleanup for descriptors abandoned by the WebView side.
+      }
+    }, FILE_DESCRIPTOR_IDLE_TIMEOUT_MS)
+  );
+}
+
+function clearFileDescriptorTimeout(fd: number): void {
+  const timeout = FILE_DESCRIPTOR_TIMEOUTS.get(fd);
+  if (timeout !== undefined) {
+    clearTimeout(timeout);
+    FILE_DESCRIPTOR_TIMEOUTS.delete(fd);
+  }
+}
+
+function assertNonNegativeInteger(value: unknown, label: string): asserts value is number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
+}
+
+function assertReadWritePosition(value: unknown, label: string): asserts value is number {
+  if (!Number.isInteger(value) || (value as number) < -1) {
+    throw new Error(`${label} must be -1 or a non-negative integer.`);
+  }
+}
+
+function assertOptionalString(value: unknown, label: string): asserts value is string | undefined {
+  if (value !== undefined && typeof value !== "string") {
+    throw new Error(`${label} must be a string when provided.`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function toUint8Array(value: ArrayBuffer | ArrayBufferView): Uint8Array {
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return new Uint8Array(value);
+}
+
+function dateLikeToMs(date: Date | undefined, fallback: number | undefined): number | undefined {
+  if (date instanceof Date) {
+    return date.getTime();
+  }
+  return fallback;
+}
+
+function callOptionalStatsPredicate(stats: FsStats, name: keyof FsStats): boolean {
+  const predicate = stats[name];
+  return typeof predicate === "function" ? Boolean(predicate.call(stats)) : false;
+}
+
+function assertNever(method: never): never {
+  throw new Error(`Unsupported fs method: ${method as FsProtocolMethodName}`);
 }

@@ -1,12 +1,11 @@
 export { createFsNamespace, fs } from "./fs.js";
 export type {
-  FsFileHandleReference,
   FsMethodName,
   FsMkdirOptions,
   FsNamespace,
-  FsPath,
   FsReadFileOptions,
+  FsReadResult,
   FsStats,
   FsWriteFileOptions,
-  RemoteFileHandle
+  FsWriteResult
 } from "./types.js";

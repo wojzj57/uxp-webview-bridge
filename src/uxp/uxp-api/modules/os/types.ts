@@ -1,4 +1,4 @@
-export type {
-  CpuInfo,
-  OsMethodName
-} from "../../../../shared/contracts/os.js";
+import type { os as nativeOs } from "@shared/types/uxp/internal/os.js";
+
+export type OsMethodName = keyof typeof nativeOs & string;
+export type CpuInfo = ReturnType<typeof nativeOs.cpus>[number];

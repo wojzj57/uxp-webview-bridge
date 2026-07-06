@@ -1,6 +1,7 @@
 import { BridgeRemoteError } from "../shared/errors.js";
 import { createOperationId } from "../shared/operation-id.js";
 import type {
+  BridgeCancelEnvelope,
   BridgeErrorEnvelope,
   BridgeRequestEnvelope,
   BridgeResponseEnvelope,
@@ -51,6 +52,22 @@ export class RpcClient {
   call<T>(module: string, method: string, args: readonly unknown[] = []): Promise<T> {
     const payload: BridgeCallPayload = { module, method, args };
     return this.send<T>({ type: "bridge.call", operationId: createOperationId(), payload });
+  }
+
+  callCancelable<T>(
+    module: string,
+    method: string,
+    args: readonly unknown[] = []
+  ): { readonly operationId: string; readonly promise: Promise<T> } {
+    const operationId = createOperationId();
+    const payload: BridgeCallPayload = { module, method, args };
+    const promise = this.send<T>({ type: "bridge.call", operationId, payload });
+    return { operationId, promise };
+  }
+
+  cancel(operationId: string): void {
+    const message: BridgeCancelEnvelope = { type: "bridge.cancel", operationId };
+    this.target.postMessage(message);
   }
 
   private send<T>(message: BridgeRequestEnvelope): Promise<T> {

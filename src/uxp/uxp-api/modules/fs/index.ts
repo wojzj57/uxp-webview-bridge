@@ -1,12 +1,11 @@
-export { createFsModuleAdapter, dispatchFsCall } from "./host.js";
+import { dispatchFsCall, fsModuleAdapter } from "./host.js";
+
+export { dispatchFsCall, fsModuleAdapter };
 export type {
-  FsFileHandleReference,
+  FsHostModule,
   FsMethodName,
   FsMkdirOptions,
-  FsNamespace,
-  FsPath,
   FsReadFileOptions,
   FsStats,
-  FsWriteFileOptions,
-  RemoteFileHandle
+  FsWriteFileOptions
 } from "./types.js";

@@ -1,5 +1,6 @@
 import { BridgeRemoteError } from "../shared/errors.js";
 import type {
+  BridgeCancelEnvelope,
   BridgeErrorEnvelope,
   BridgeRequestEnvelope,
   BridgeSuccessEnvelope
@@ -10,16 +11,27 @@ export interface UxpWebViewElement {
   postMessage(message: unknown): void;
 }
 
+export interface RpcHostDispatchOptions {
+  readonly signal: AbortSignal;
+}
+
 export interface RpcHostOptions {
   readonly webview: UxpWebViewElement;
   readonly allowedOrigins: readonly string[];
-  readonly dispatchCall: (payload: BridgeCallPayload) => unknown | Promise<unknown>;
+  readonly dispatchCall: (
+    payload: BridgeCallPayload,
+    options: RpcHostDispatchOptions
+  ) => unknown | Promise<unknown>;
 }
 
 export class RpcHost {
   private readonly webview: UxpWebViewElement;
   private readonly allowedOrigins: readonly string[];
-  private readonly dispatchCall: (payload: BridgeCallPayload) => unknown | Promise<unknown>;
+  private readonly dispatchCall: (
+    payload: BridgeCallPayload,
+    options: RpcHostDispatchOptions
+  ) => unknown | Promise<unknown>;
+  private readonly inFlight = new Map<string, AbortController>();
   private readonly onMessageBound = (event: MessageEvent<unknown>): void => {
     void this.handleMessage(event);
   };
@@ -33,6 +45,10 @@ export class RpcHost {
 
   destroy(): void {
     window.removeEventListener("message", this.onMessageBound);
+    for (const controller of this.inFlight.values()) {
+      controller.abort();
+    }
+    this.inFlight.clear();
   }
 
   private async handleMessage(event: MessageEvent<unknown>): Promise<void> {
@@ -41,15 +57,25 @@ export class RpcHost {
     }
 
     const message = event.data;
+
+    if (isBridgeCancel(message)) {
+      this.inFlight.get(message.operationId)?.abort();
+      return;
+    }
+
     if (!isBridgeRequest(message)) {
       return;
     }
 
+    const controller = new AbortController();
+    this.inFlight.set(message.operationId, controller);
     try {
-      const payload = await this.dispatch(message);
+      const payload = await this.dispatch(message, controller.signal);
       this.postSuccess({ type: "bridge.success", operationId: message.operationId, payload });
     } catch (error) {
       this.postError(message.operationId, error);
+    } finally {
+      this.inFlight.delete(message.operationId);
     }
   }
 
@@ -61,7 +87,10 @@ export class RpcHost {
     return isAllowedOrigin(event.origin, this.allowedOrigins);
   }
 
-  private dispatch(message: BridgeRequestEnvelope): unknown | Promise<unknown> {
+  private dispatch(
+    message: BridgeRequestEnvelope,
+    signal: AbortSignal
+  ): unknown | Promise<unknown> {
     if (message.type !== "bridge.call") {
       throw new BridgeRemoteError({
         operationId: message.operationId,
@@ -71,7 +100,7 @@ export class RpcHost {
       });
     }
 
-    return this.dispatchCall(message.payload as BridgeCallPayload);
+    return this.dispatchCall(message.payload as BridgeCallPayload, { signal });
   }
 
   private postSuccess(message: BridgeSuccessEnvelope): void {
@@ -128,4 +157,13 @@ function isBridgeRequest(message: unknown): message is BridgeRequestEnvelope {
 
   const candidate = message as Partial<BridgeRequestEnvelope>;
   return typeof candidate.operationId === "string" && candidate.type === "bridge.call";
+}
+
+function isBridgeCancel(message: unknown): message is BridgeCancelEnvelope {
+  if (!message || typeof message !== "object") {
+    return false;
+  }
+
+  const candidate = message as Partial<BridgeCancelEnvelope>;
+  return typeof candidate.operationId === "string" && candidate.type === "bridge.cancel";
 }

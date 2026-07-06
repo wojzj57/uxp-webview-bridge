@@ -1,23 +1,17 @@
 export type BridgeProtocolVersion = `${number}.${number}.${number}`;
 
 export interface BridgeCapabilities {
+  readonly fs: boolean;
   readonly os: boolean;
-  readonly uxp: {
-    readonly shell: boolean;
-    readonly userInfo: boolean;
-    readonly secureStorage: boolean;
-    readonly pluginManager: boolean;
-    readonly script: boolean;
-    readonly entrypoints: boolean;
-  };
+  readonly shell: boolean;
+  readonly userInfo: boolean;
+  readonly pluginManager: boolean;
+  readonly keyValueStorage: boolean;
+  readonly persistentFileStorage: boolean;
+  readonly xmp: boolean;
   readonly photoshop: boolean;
   readonly imaging: boolean;
   readonly batchPlay: boolean;
-  readonly fs: {
-    readonly read: boolean;
-    readonly write: boolean;
-    readonly schemes: readonly string[];
-  };
 }
 
 export interface BridgeHandshakeHello {

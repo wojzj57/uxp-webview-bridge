@@ -11,11 +11,14 @@ export interface ConfigWebviewBridgeOptions extends RpcClientOptions {}
 export function configWebviewBridge(options: ConfigWebviewBridgeOptions = {}): BridgeClientRuntime {
   defaultRpcClient?.destroy();
   defaultRpcClient = new RpcClient(options);
+  const configuredRpcClient = defaultRpcClient;
 
   return {
     destroy: () => {
-      defaultRpcClient?.destroy();
-      defaultRpcClient = undefined;
+      if (defaultRpcClient === configuredRpcClient) {
+        defaultRpcClient.destroy();
+        defaultRpcClient = undefined;
+      }
     }
   };
 }

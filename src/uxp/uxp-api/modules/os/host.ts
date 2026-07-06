@@ -1,21 +1,11 @@
+import type { os as nativeOs } from "@shared/types/uxp/internal/os.js";
 import {
-  assertOsMethodName,
-  OS_MODULE_ID,
-  type CpuInfo
-} from "../../../../shared/contracts/os.js";
-import type { UxpModuleAdapter } from "../../../module-registry.js";
+  assertOsProtocolMethodName,
+  OS_MODULE_ID
+} from "@shared/uxp-api/os-protocol.js";
+import type { UxpModuleAdapter } from "@uxp/module-registry.js";
 
-declare const require: (moduleName: "os") => UxpOsModule;
-
-interface UxpOsModule {
-  platform(): string;
-  release(): string;
-  arch(): string;
-  cpus(): readonly CpuInfo[];
-  totalmem(): number;
-  freemem(): number;
-  homedir(): string;
-}
+declare const require: (moduleName: "os") => typeof nativeOs;
 
 export const osModuleAdapter: UxpModuleAdapter = {
   moduleId: OS_MODULE_ID,
@@ -24,7 +14,7 @@ export const osModuleAdapter: UxpModuleAdapter = {
 };
 
 export function dispatchOsCall(method: string, args: readonly unknown[]): unknown {
-  assertOsMethodName(method);
+  assertOsProtocolMethodName(method);
 
   if (args.length > 0) {
     throw new Error(`os.${method} does not accept arguments.`);

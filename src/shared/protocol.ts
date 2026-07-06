@@ -13,6 +13,11 @@ export interface BridgeRequestEnvelope<TPayload = unknown> {
   readonly payload: TPayload;
 }
 
+export interface BridgeCancelEnvelope {
+  readonly type: "bridge.cancel";
+  readonly operationId: string;
+}
+
 export interface BridgeSuccessEnvelope<TPayload = unknown> {
   readonly type: "bridge.success";
   readonly operationId: string;
