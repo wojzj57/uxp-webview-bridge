@@ -1,5 +1,5 @@
-export { fetch, installFetch } from "./uxp-api/modules/fetch/index.js";
-export type { FetchNamespace } from "./uxp-api/modules/fetch/index.js";
+export { fetch, installFetch } from "./fetch/index.js";
+export type { FetchNamespace } from "./fetch/index.js";
 export { fs } from "./uxp-api/modules/fs/index.js";
 export type {
   FsMethodName,

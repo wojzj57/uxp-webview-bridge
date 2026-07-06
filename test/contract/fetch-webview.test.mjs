@@ -26,7 +26,7 @@ test("WebView public API exposes fetch and installFetch", async () => {
 });
 
 test("WebView fetch serializes a string URL and text body", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   let request;
   const fetch = createFetchNamespace(
     stubRpc((module, method, args) => {
@@ -45,7 +45,7 @@ test("WebView fetch serializes a string URL and text body", async () => {
 });
 
 test("WebView fetch encodes URLSearchParams with a generated content-type", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   let request;
   const fetch = createFetchNamespace(
     stubRpc((_m, _method, args) => {
@@ -65,7 +65,7 @@ test("WebView fetch encodes URLSearchParams with a generated content-type", asyn
 });
 
 test("WebView fetch encodes FormData as multipart with boundary", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   let request;
   const fetch = createFetchNamespace(
     stubRpc((_m, _method, args) => {
@@ -85,7 +85,7 @@ test("WebView fetch encodes FormData as multipart with boundary", async () => {
 });
 
 test("WebView fetch rejects ReadableStream bodies", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   const fetch = createFetchNamespace(stubRpc(() => Promise.resolve(okResponseTransport())));
 
   const stream = new ReadableStream({
@@ -102,7 +102,7 @@ test("WebView fetch rejects ReadableStream bodies", async () => {
 });
 
 test("WebView fetch reconstructs a real Response from transport", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   const fetch = createFetchNamespace(
     stubRpc(() =>
       Promise.resolve({
@@ -123,7 +123,7 @@ test("WebView fetch reconstructs a real Response from transport", async () => {
 });
 
 test("WebView fetch maps transport failures to TypeError with cause", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   const remoteError = new Error("connection refused");
   const fetch = createFetchNamespace(stubRpc(() => Promise.reject(remoteError)));
 
@@ -135,7 +135,7 @@ test("WebView fetch maps transport failures to TypeError with cause", async () =
 });
 
 test("WebView fetch rejects immediately when the signal is already aborted", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   let dispatched = false;
   const fetch = createFetchNamespace(
     stubRpc(() => {
@@ -152,7 +152,7 @@ test("WebView fetch rejects immediately when the signal is already aborted", asy
 });
 
 test("WebView fetch cancels the operation and rejects on in-flight abort", async () => {
-  const { createFetchNamespace } = await import("../../dist/webview/uxp-api/modules/fetch/index.js");
+  const { createFetchNamespace } = await import("../../dist/webview/fetch/index.js");
   const controller = new AbortController();
   let cancelledOperationId;
   let rejectPromise;
