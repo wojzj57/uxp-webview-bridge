@@ -1,4 +1,14 @@
-import { configWebviewBridge, fs, os, path, uxp } from "../dist/webview/index.js";
+import {
+  clipboard,
+  configWebviewBridge,
+  crypto,
+  fs,
+  localStorage,
+  os,
+  path,
+  sessionStorage,
+  uxp
+} from "../dist/webview/index.js";
 import { cases } from "./generated/case-registry.js";
 
 const READY_TYPE = "uxp-webview-bridge:webview-ready";
@@ -92,9 +102,13 @@ function createCaseContext(request) {
     payload: request.payload ?? null,
     bridge: {
       ensureConfigured,
+      clipboard,
+      crypto,
       fs,
+      localStorage,
       os,
       path,
+      sessionStorage,
       uxp
     },
     assert: createAssert(),

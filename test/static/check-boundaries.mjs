@@ -28,6 +28,7 @@ await checkUxpEntrypoint();
 await checkDeprecatedSetupApis();
 await checkSymmetricModuleDirectories("uxp-api");
 await checkSymmetricModuleDirectories("photoshop-api");
+await checkSymmetricGlobalMemberDirectories("uxp-api");
 await checkSharedNativeTypes();
 await checkWebviewUxpModuleDoesNotOwnTypesDirectory();
 await checkWebviewUxpApiTypesAreLocal();
@@ -78,7 +79,17 @@ async function checkNoDeepRelativeImports() {
 async function checkWebviewEntrypoint() {
   const file = path.join(webviewRoot, "index.ts");
   const source = await readFile(file, "utf8");
-  for (const exportedName of ["configWebviewBridge", "fs", "os", "path", "uxp"]) {
+  for (const exportedName of [
+    "clipboard",
+    "configWebviewBridge",
+    "crypto",
+    "fs",
+    "localStorage",
+    "os",
+    "path",
+    "sessionStorage",
+    "uxp"
+  ]) {
     if (!hasNamedExport(source, exportedName)) {
       failures.push(`src/webview/index.ts must export ${exportedName}`);
     }
@@ -133,6 +144,26 @@ async function checkSymmetricModuleDirectories(apiName) {
       continue;
     }
     failures.push(`missing WebView module directory for ${apiName}/${moduleName}`);
+  }
+}
+
+async function checkSymmetricGlobalMemberDirectories(apiName) {
+  const webviewGlobalMembersRoot = path.join(webviewRoot, apiName, "global-members");
+  const uxpGlobalMembersRoot = path.join(uxpRoot, apiName, "global-members");
+
+  if (!existsSync(webviewGlobalMembersRoot) && !existsSync(uxpGlobalMembersRoot)) {
+    return;
+  }
+
+  const webviewGlobalMembers = await listImmediateDirectories(webviewGlobalMembersRoot);
+  const uxpGlobalMembers = await listImmediateDirectories(uxpGlobalMembersRoot);
+
+  for (const moduleName of difference(webviewGlobalMembers, uxpGlobalMembers)) {
+    failures.push(`missing UXP global member directory for ${apiName}/${moduleName}`);
+  }
+
+  for (const moduleName of difference(uxpGlobalMembers, webviewGlobalMembers)) {
+    failures.push(`missing WebView global member directory for ${apiName}/${moduleName}`);
   }
 }
 

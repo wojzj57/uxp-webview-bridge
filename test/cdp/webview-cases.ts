@@ -9,9 +9,13 @@ export interface WebviewCdpAssert {
 
 export interface WebviewCdpBridge {
   ensureConfigured(): unknown;
+  clipboard: any;
+  crypto: any;
   fs: any;
+  localStorage: any;
   os: any;
   path: any;
+  sessionStorage: any;
   uxp: any;
 }
 
