@@ -1,158 +1,45 @@
-# Development Standards
+# Agent Guide
 
-## Scope
+This package is a bridge library between Adobe UXP plugin hosts and WebView clients; keep `src` limited to bridge protocol/types, WebView remote namespaces, UXP host adapters, and message serialization/dispatch/validation.
 
-This package is a bridge library between Adobe UXP plugin hosts and WebView clients.
+## Read First
 
-The package must not contain application shell code, product UI, or business workflow code. All code in `src` must serve one of these responsibilities:
+- CONTRIBUTING rules: `CONTRIBUTING.md`
+- Testing rules: `test/TESTING.md`
+- Project context: `CONTEXT.md`
 
-- define runtime-neutral bridge protocol and shared types
-- expose WebView-side remote namespaces
-- execute real UXP-side host adapters
-- serialize, dispatch, or validate bridge messages
+## Core Boundaries
 
-Adobe UXP and Photoshop API shape must be derived from the local `uxp-document/` source tree when implementing bridged modules.
-
-## Runtime Boundaries
-
-`src` is split into three runtime boundaries:
-
-- `src/webview`: WebView runtime code only
-- `src/uxp`: Adobe UXP host runtime code only
-- `src/shared`: runtime-neutral bridge protocol, errors, transport value shapes, capability types, and generic utilities only
-
-`src/webview` must never import from `src/uxp`.
-
-`src/uxp` must never import from `src/webview`.
-
-Both runtime sides may import from `src/shared`.
-
-Shared code must not contain concrete `os`, `uxp`, `photoshop`, or `fs` module implementation. If a module exists on both sides, each side owns its own implementation under a symmetric directory.
+- `src/webview` is WebView runtime code only and must never import from `src/uxp`.
+- `src/uxp` is Adobe UXP host runtime code only and must never import from `src/webview`.
+- `src/shared` is runtime-neutral protocol, errors, transport shapes, capabilities, and utilities only.
+- Shared code must not contain concrete `os`, `uxp`, `photoshop`, or `fs` implementations.
+- WebView exports are remote proxies; all real UXP, Photoshop, OS, and filesystem calls execute on the UXP side.
+- UXP host code owns origin validation, capability checks, request dispatch, and resource handle lifecycle.
 
 ## Public API
 
-The WebView subpath exports ready-to-use remote namespaces directly:
+- WebView exports direct namespaces from `uxp-webview-bridge/webview`, such as `fs`, `os`, and `path`.
+- WebView has one setup function: `configWebviewBridge`.
+- UXP has one setup function: `configUxpBridge`.
+- Do not reintroduce deprecated factory/setup APIs such as `createPhotoshopClient`, `createBridgeClient`, `createPhotoshopHost`, `createBridgeHost`, or `configureBridgeClient`.
 
-```ts
-import { os, photoshop, uxp } from "uxp-webview-bridge/webview";
-```
+## Layout And Imports
 
-The WebView subpath has exactly one bridge configuration function:
-
-```ts
-import { configWebviewBridge } from "uxp-webview-bridge/webview";
-```
-
-The UXP subpath has exactly one bridge configuration function:
-
-```ts
-import { configUxpBridge } from "uxp-webview-bridge/uxp";
-```
-
-Do not add alternate setup functions for the same responsibility. Deprecated factory-style APIs such as `createPhotoshopClient`, `createBridgeClient`, `createPhotoshopHost`, `createBridgeHost`, and `configureBridgeClient` must not be reintroduced.
-
-## Directory Layout
-
-WebView and UXP module directories must be symmetric.
-
-UXP API modules use this layout:
-
-```txt
-src/webview/uxp-api/modules/{moduleName}/
-src/uxp/uxp-api/modules/{moduleName}/
-```
-
-The `os` module, for example, must live at:
-
-```txt
-src/webview/uxp-api/modules/os/
-src/uxp/uxp-api/modules/os/
-```
-
-Photoshop API modules use this layout:
-
-```txt
-src/webview/photoshop-api/modules/{moduleName}/
-src/uxp/photoshop-api/modules/{moduleName}/
-```
-
-One directory contains one module only. Do not merge unrelated modules into catch-all adapter folders, runtime folders, or multi-module implementation indexes.
-
-Index files may re-export a single module's local public surface. They must not implement unrelated modules.
-
-## Module Ownership
-
-WebView module directories own:
-
-- remote proxy objects
-- WebView-facing namespace exports
-- WebView-facing module types
-- calls into the WebView bridge runtime
-
-UXP module directories own:
-
-- host adapters
-- real UXP or Photoshop calls
-- capability enforcement
-- result serialization for the matching module
-
-`src/shared` owns:
-
-- protocol envelopes
-- operation IDs
-- bridge errors
-- transport-safe value shapes
-- capability types
-- runtime-neutral utilities
+- WebView and UXP bridged module directories must stay symmetric under `src/webview/.../modules/{moduleName}` and `src/uxp/.../modules/{moduleName}`.
+- One module directory owns one module only; do not merge unrelated modules into catch-all adapter or runtime folders.
+- Imports in `src` may use `./` and `../`; deeper relative imports such as `../../` are forbidden and must use the `tsconfig.json` path aliases.
 
 ## Bridge Semantics
 
-WebView-side exports are remote proxies, not native UXP or Photoshop objects.
-
-All real UXP, Photoshop, OS, and filesystem calls execute on the UXP side.
-
-WebView code must not call `require("photoshop")`, `require("uxp")`, `require("os")`, or `require("fs")`.
-
-UXP host code is responsible for origin validation, capability checks, request dispatch, and resource handle lifecycle management.
+- WebView property writes that cross the bridge must be queued and flushed before later reads or method calls; do not rely on async setters.
+- WebView remote errors must surface as `BridgeRemoteError` with remote error metadata such as name/message/stack/code and `operationId`.
+- Remote object identity is represented by stable remote ids; persistent references such as documents/layers should not require user disposal, while resource handles must expose explicit cleanup and host-side timeout cleanup.
+- Binary data must use transport-safe envelopes; do not depend on `postMessage` transfer semantics.
+- Mutating Photoshop operations must respect modal execution semantics; reads should not enter modal execution unnecessarily.
 
 ## Verification
 
-Every change to `src` must satisfy these checks:
-
-- `src/webview` has no imports from `src/uxp`
-- `src/uxp` has no imports from `src/webview`
-- `src/webview/index.ts` exports `configWebviewBridge` and direct namespaces such as `uxp`, `photoshop`, and `os`
-- `src/uxp/index.ts` exports `configUxpBridge` as the only public setup method
-- every bridged module has matching WebView and UXP module directories
-- no module directory contains implementation for more than one module
-- `pnpm typecheck` passes
-
-Run `pnpm build` before publishing or handing off a completed implementation.
-
-## UXP Debugging
-
-This repository uses the local `uxp-cli` binary from `@bubblydoo/uxp-cli` for Chrome DevTools based UXP debugging.
-
-Do not assume Adobe's `uxp` CLI has the same command surface. In this project, UXP debug commands are:
-
-```powershell
-pnpm exec uxp-cli open-devtools
-pnpm exec uxp-cli open-devtools --plugin-path ./path/to/plugin
-pnpm exec uxp-cli create-cdp-url
-pnpm exec uxp-cli create-cdp-url --plugin-path ./path/to/plugin
-```
-
-Use `open-devtools` to open Chrome DevTools for a UXP plugin.
-
-Use `create-cdp-url` when an automated runner needs the Chrome DevTools Protocol URL without opening Chrome.
-
-When adding automated UXP/WebView tests, prefer this flow:
-
-1. Build the bridge package with `pnpm build`.
-2. Build or prepare a minimal UXP fixture plugin.
-3. Start any WebView test server required by the fixture.
-4. Use `pnpm exec uxp-cli create-cdp-url --plugin-path ./path/to/plugin` to obtain the CDP URL.
-5. Drive or observe the real UXP plugin through CDP.
-6. Treat the UXP host and WebView runtime as the source of truth for pass/fail results.
-
-Do not use `uxp open-devtools`; that is not this CLI's command.
+- Every `src` change must pass `pnpm typecheck`.
+- Run `pnpm test:static` for boundary, layout, and import-rule checks.
+- Run `pnpm build` before publishing or handing off a completed implementation.

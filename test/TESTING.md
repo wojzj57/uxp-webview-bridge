@@ -13,7 +13,7 @@ Run `pnpm build` before UXP CDP tests. The fixture plugin must consume the built
 The WebView harness uses the public WebView API:
 
 ```ts
-import { configWebviewBridge, fs, os, photoshop, uxp } from "uxp-webview-bridge/webview";
+import { configWebviewBridge, fs, os, path, uxp } from "uxp-webview-bridge/webview";
 ```
 
 The UXP fixture uses the public UXP API:
@@ -44,11 +44,15 @@ The first version of `test:static` must check:
 
 - `src/webview` does not import from `src/uxp`
 - `src/uxp` does not import from `src/webview`
-- `src/webview/index.ts` exports `configWebviewBridge`, `os`, `fs`, `uxp`, and `photoshop`
+- `src/webview/index.ts` exports `configWebviewBridge`, `fs`, `os`, `path`, and `uxp`
 - `src/uxp/index.ts` exports `configUxpBridge`
 - deprecated setup APIs are not exported or reintroduced
 - `src/webview/uxp-api/modules/*` and `src/uxp/uxp-api/modules/*` directories are symmetric
 - `src/webview/photoshop-api/modules/*` and `src/uxp/photoshop-api/modules/*` directories are symmetric when those roots exist
+- production `src` files do not import `@test/*`
+- colocated WebView CDP tests do not import Node APIs or value-import local implementations
+- colocated WebView CDP case names use their module prefix
+- module namespace cases do not live in `test/cdp/cases`
 
 Keep `pnpm typecheck` as a separate gate. Do not hide TypeScript checking inside `test:static`.
 
@@ -102,11 +106,11 @@ Before starting `uxp-cli create-cdp-url`, the auto wrapper stops stale UXP DevTo
 
 ## CDP Cases
 
-CDP cases are immediate `.mjs` files under `test/cdp/cases`:
+Bridge-level CDP cases are immediate `.mjs` files under `test/cdp/cases`:
 
 ```txt
-test/cdp/cases/os.platform.mjs
-test/cdp/cases/os.release.mjs
+test/cdp/cases/bridge.ping.mjs
+test/cdp/cases/bridge.remote-error-shape.mjs
 ```
 
 The runner executes all case files by default and still allows one case to run directly for debugging:
@@ -116,28 +120,75 @@ pnpm test:uxp
 pnpm test:uxp -- --case os.platform
 ```
 
-Each immediate `test/cdp/cases/*.mjs` file is automatically available as a runnable case. The case name is the filename without `.mjs`, so `test/cdp/cases/os.platform.mjs` is run as `os.platform`.
+WebView module CDP cases live next to the WebView module as `src/webview/**/*.test.ts`:
 
-The auto runner copies case files into the WebView fixture and generates `test/uxp-plugin/webview/generated/case-registry.js`. Generated fixture files are not committed.
+```txt
+src/webview/uxp-api/modules/os/os.test.ts
+src/webview/uxp-api/modules/fs/fs.test.ts
+src/webview/uxp-api/modules/uxp/uxp.test.ts
+src/webview/uxp-api/global-members/path/path.test.ts
+```
+
+Colocated test files export a default `defineWebviewCdpCases([...])` array from `@test/cdp/webview-cases.js`. Case names are global and must include the module prefix, such as `os.platform` or `fs.public-shape`.
+
+Example:
+
+```ts
+import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
+
+export default defineWebviewCdpCases([
+  {
+    name: "fs.text-file-roundtrip",
+    async run({ bridge, assert }) {
+      bridge.ensureConfigured();
+
+      const filePath = `plugin-data:/example-${Date.now()}.txt`;
+
+      try {
+        await bridge.fs.writeFile(filePath, "hello", { encoding: "utf-8" });
+        const value = await bridge.fs.readFile(filePath, { encoding: "utf-8" });
+
+        assert.equal(value, "hello", "fs.readFile should return written text.");
+        return { filePath };
+      } finally {
+        try {
+          await bridge.fs.unlink(filePath);
+        } catch {
+          // Best-effort cleanup; assertions own pass/fail.
+        }
+      }
+    }
+  }
+]);
+```
+
+Colocated WebView CDP tests must:
+
+- test through `ctx.bridge`, not by importing package entrypoints or local implementation files
+- avoid Node APIs such as `node:fs`, `node:path`, `fs`, and `path`
+- use `import type` only when they need local types
+- use best-effort cleanup for filesystem paths, documents, resource handles, and descriptors
+- use `skip(reason, diagnostics?)` when the runtime environment cannot support the case
+
+The auto runner copies bridge case files into the WebView fixture, compiles colocated WebView module cases, and generates `test/uxp-plugin/webview/generated/case-registry.js`. Generated fixture files are not committed.
 
 ## Assertion Boundary
 
-Case assertions belong in modular files under `test/cdp/cases`. The WebView harness loads generated case registry entries, injects a test context, and standardizes results. The UXP plugin fixture should configure the bridge host and expose only necessary diagnostics; the CDP runner should select all cases or one case, poll results, handle timeout, and print structured output.
+Case assertions belong either in bridge-level files under `test/cdp/cases` or colocated WebView module files under `src/webview/**/*.test.ts`. The WebView harness loads generated case registry entries, injects a test context, and standardizes results. The UXP plugin fixture should configure the bridge host and expose only necessary diagnostics; the CDP runner should select all cases or one case, poll results, handle timeout, and print structured output.
 
 If a case needs to observe host-side facts, expose test diagnostics from `test/uxp-plugin` and include them in the case `diagnostics`.
 
-Case modules export one default function:
+Bridge-level `test/cdp/cases/*.mjs` files export one default function:
 
 ```js
-export default async function osPlatform({ bridge, assert, skip, payload }) {
-  bridge.ensureConfigured();
+export default async function bridgePing({ bridge, assert }) {
+  assert.ok(typeof bridge.ensureConfigured === "function", "bridge.ensureConfigured must be available.");
 
-  const platform = await bridge.os.platform();
-  assert.nonEmptyString(platform, "os.platform()");
-
-  return { platform };
+  return { ok: true };
 }
 ```
+
+Colocated `src/webview/**/*.test.ts` files export a default `defineWebviewCdpCases([...])` array. Each entry has a globally unique `name` and a `run(context)` function.
 
 Use `skip(reason, diagnostics?)` when the runtime environment cannot support a case. Skipped cases do not fail a suite.
 
@@ -183,7 +234,8 @@ Put behavior in CDP tests when it requires a real UXP plugin, real WebView messa
 - bridge configuration and communication through the real WebView message bridge
 - public WebView namespaces calling UXP side host adapters
 - origin and source validation under real WebView message events
-- UXP-only APIs such as plugin-scheme filesystem access, Photoshop modal execution, `batchPlay`, imaging, and resource handles
+- UXP-only APIs such as Photoshop modal execution, `batchPlay`, imaging, and resource handles
+- UXP filesystem behavior that needs real plugin URL schemes such as `plugin-data:/`
 - WebView runtime restrictions that mocks cannot prove
 
 Do not use CDP as the primary coverage for static or mockable behavior:
@@ -204,10 +256,14 @@ Useful diagnostics include observed message origins, resource handle counts, mod
 The initial CDP case set is:
 
 - `bridge.ping`: proves the CDP runner, UXP panel, WebView harness, and result return path are alive.
-- `bridge.public-api-loads`: imports `configWebviewBridge`, `os`, `fs`, `uxp`, and `photoshop` from the built WebView subpath and confirms the public entrypoint shape.
+- `bridge.public-api-loads`: imports `configWebviewBridge`, `fs`, `os`, `path`, and `uxp` from the built WebView subpath and confirms the public entrypoint shape.
 - `bridge.config-connects`: configures both sides through public APIs and completes a real request/response.
-- `os.platform`: calls the public `os` namespace through the real UXP adapter.
-- `fs.plugin-data-roundtrip`: writes, reads, and removes a small text file under `plugin-data:`.
+- `os.platform`: calls the public `os` namespace through the real UXP adapter from the colocated `os.test.ts`.
+- `uxp.versions`: reads the public `uxp.versions.uxp` and `uxp.versions.plugin` Promise properties through the real UXP adapter.
+- `fs.public-shape`: confirms the public WebView `fs` namespace shape from the colocated `fs.test.ts`.
+- `fs.text-file-roundtrip`: writes, reads, stats, and removes a real `plugin-data:/` text file.
+- `fs.directory-operations`: creates a real plugin-data directory and verifies readdir, rename, copyFile, lstat, and cleanup.
+- `fs.file-descriptor-binary-roundtrip`: verifies open, read, write, close, and binary transport through a real file descriptor.
 - `bridge.remote-error-shape`: triggers a real remote error and confirms the WebView side receives the bridge remote error fields.
 
 Keep Photoshop coverage out of the initial all-case default until the fixture can create and clean up document state safely.

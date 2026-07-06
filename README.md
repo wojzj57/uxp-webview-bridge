@@ -6,7 +6,7 @@ This package is intentionally split by subpath exports:
 
 ```ts
 import { configUxpBridge } from "uxp-webview-bridge/uxp";
-import { configWebviewBridge, os, photoshop, uxp } from "uxp-webview-bridge/webview";
+import { configWebviewBridge, fs, os, path, uxp } from "uxp-webview-bridge/webview";
 ```
 
-Current status: scaffold only. See `CONTEXT.md` and `docs/uxp-webview-bridge-design.md` for the implementation contract.
+Current WebView namespaces include `fs`, `os`, `path`, and `uxp.versions`. See `CONTEXT.md` and `docs/uxp-webview-bridge-design.md` for the implementation contract.
