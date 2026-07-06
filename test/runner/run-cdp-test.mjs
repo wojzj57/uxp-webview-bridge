@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatCdpResult } from "./cdp-reporter.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cliOptions = parseCliOptions(process.argv.slice(2));
@@ -9,6 +10,9 @@ const caseName = process.env.UXP_TEST_CASE ?? cliOptions.caseName;
 const suiteName = process.env.UXP_TEST_SUITE ?? cliOptions.suiteName;
 const timeoutMs = Number(process.env.UXP_TEST_TIMEOUT_MS ?? 15_000);
 const shouldReload = cliOptions.reload === true;
+const outputFormat = process.env.UXP_TEST_OUTPUT ?? cliOptions.outputFormat;
+const colorMode = process.env.UXP_TEST_COLOR ?? cliOptions.color;
+const allowExternalOpen = process.env.UXP_TEST_ALLOW_EXTERNAL_OPEN === "1" || cliOptions.allowExternalOpen === true;
 
 if (!cdpUrl) {
   console.error("Missing CDP URL. Pass --cdp-url, argv[2], or set UXP_CDP_URL.");
@@ -29,25 +33,34 @@ try {
 
   if (suiteName) {
     const result = await runSuite(client, suiteName);
-    console.log(JSON.stringify(result, null, 2));
+    printResult(result);
     if (result.status !== "passed") {
       process.exit(1);
     }
   } else if (caseName) {
     const result = await runSingleCase(client, caseName ?? "bridge.ping", timeoutMs);
-    console.log(JSON.stringify(result, null, 2));
+    printResult(result);
     if (result.status === "failed") {
       process.exit(1);
     }
   } else {
     const result = await runAllCases(client);
-    console.log(JSON.stringify(result, null, 2));
+    printResult(result);
     if (result.status !== "passed") {
       process.exit(1);
     }
   }
 } finally {
   client.close();
+}
+
+function printResult(result) {
+  if (outputFormat === "json") {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  process.stdout.write(formatCdpResult(result, { color: colorMode, detail: outputFormat }));
 }
 
 async function runAllCases(client) {
@@ -112,7 +125,10 @@ async function readSuite(name) {
 
 async function runSingleCase(client, name, timeout) {
   await client.evaluate(
-    `window.__runUxpBridgeTest(${JSON.stringify(name)}, ${JSON.stringify({ from: "cdp-runner" })})`
+    `window.__runUxpBridgeTest(${JSON.stringify(name)}, ${JSON.stringify({
+      from: "cdp-runner",
+      allowExternalOpen
+    })})`
   );
 
   return pollForResult(client, name, timeout);
@@ -299,6 +315,9 @@ function parseCliOptions(args) {
   let caseName;
   let suiteName;
   let reload = false;
+  let outputFormat;
+  let color;
+  let allowExternalOpen = false;
   const positional = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -329,6 +348,36 @@ function parseCliOptions(args) {
       continue;
     }
 
+    if (arg === "--json") {
+      outputFormat = "json";
+      continue;
+    }
+
+    if (arg === "--pretty") {
+      outputFormat = "compact";
+      continue;
+    }
+
+    if (arg === "--verbose") {
+      outputFormat = "verbose";
+      continue;
+    }
+
+    if (arg === "--color") {
+      color = "always";
+      continue;
+    }
+
+    if (arg === "--allow-external-open") {
+      allowExternalOpen = true;
+      continue;
+    }
+
+    if (arg === "--no-color") {
+      color = "never";
+      continue;
+    }
+
     positional.push(arg);
   }
 
@@ -336,6 +385,9 @@ function parseCliOptions(args) {
     cdpUrl: cdpUrl ?? positional[0],
     caseName: caseName ?? positional[1],
     suiteName,
-    reload
+    reload,
+    outputFormat,
+    color,
+    allowExternalOpen
   };
 }

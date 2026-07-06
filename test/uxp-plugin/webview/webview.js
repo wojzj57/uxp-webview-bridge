@@ -1,4 +1,4 @@
-import { configWebviewBridge, fs, os, path, photoshop, uxp } from "../dist/webview/index.js";
+import { configWebviewBridge, fs, os, path, uxp } from "../dist/webview/index.js";
 import { cases } from "./generated/case-registry.js";
 
 const READY_TYPE = "uxp-webview-bridge:webview-ready";
@@ -95,7 +95,6 @@ function createCaseContext(request) {
       fs,
       os,
       path,
-      photoshop,
       uxp
     },
     assert: createAssert(),
@@ -142,6 +141,18 @@ function createAssert() {
       for (const key of keys) {
         if (!(key in value)) {
           throw new AssertionError(`${label} must include key ${key}.`);
+        }
+      }
+    },
+
+    functions(value, names, label = "object") {
+      if (!value || typeof value !== "object") {
+        throw new AssertionError(`${label} must be an object.`);
+      }
+
+      for (const name of names) {
+        if (typeof value[name] !== "function") {
+          throw new AssertionError(`${label}.${name} must be a function.`);
         }
       }
     }

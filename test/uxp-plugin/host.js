@@ -26,7 +26,12 @@
       throw new Error("No UXP webview element was found.");
     }
 
-    bridgeRuntime = configUxpBridge({ webview });
+    bridgeRuntime = configUxpBridge({
+      webview,
+      capabilities: {
+        fs: true
+      }
+    });
     window.__UXP_BRIDGE_TEST_DIAGNOSTICS__ = {
       ...window.__UXP_BRIDGE_TEST_DIAGNOSTICS__,
       bridgeConfigured: true

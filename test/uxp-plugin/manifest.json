@@ -60,6 +60,7 @@
 			"domains": "all"
 		},
 		"clipboard": "readAndWrite",
+		"enableUserInfo": true,
 		"webview": {
 			"allow": "yes",
 			"allowLocalRendering": "yes",
