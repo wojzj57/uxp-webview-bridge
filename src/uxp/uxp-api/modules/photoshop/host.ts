@@ -1,0 +1,641 @@
+/**
+ * UXP host adapter for the `photoshop` module.
+ *
+ * Owns the real `require('photoshop')` calls: it validates method names and arguments, resolves
+ * reference envelopes to real DOM objects via its own handle registry, wraps mutating operations in
+ * `core.executeAsModal`, and serializes results back into the shared transport shapes (references
+ * for Document/Layer, six-field `ImagingBounds`, id-array snapshots for `Layers`). Identity dedup is
+ * done by keying the registry on the real object's DOM id (`Document:${id}` / `Layer:${id}`), so the
+ * same object always yields the same reference id and the WebView cache can resolve two references
+ * to one `===` proxy. `src/uxp` must never import `src/webview` (AGENTS.md).
+ *
+ * See docs/adr/0004 (handle registry), docs/adr/0005 (identity dedup), docs/adr/0007 (executeAsModal).
+ */
+
+import {
+  assertPhotoshopProtocolMethodName,
+  IMAGING_BOUNDS_FIELDS,
+  PHOTOSHOP_MODULE_ID,
+  PHOTOSHOP_REMOTE_TYPE,
+  type ImagingBoundsTransport,
+  type PhotoshopProtocolMethodName
+} from "@shared/uxp-api/photoshop-protocol.js";
+import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
+import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
+import type {
+  PhotoshopDocumentLike,
+  PhotoshopHandleType,
+  PhotoshopHostModule,
+  PhotoshopLayerLike
+} from "./types.js";
+
+declare const require: (moduleName: "photoshop") => PhotoshopHostModule;
+
+const LAYERS_SNAPSHOT_KIND = "uxp.photoshop.layersSnapshot";
+
+/** Transport shape the WebView decodes into a `Layers` collection (must match the webview side). */
+interface LayersSnapshotTransport {
+  readonly kind: typeof LAYERS_SNAPSHOT_KIND;
+  readonly owner: RemoteReference;
+  readonly layerIds: readonly string[];
+}
+
+/** Document scalar properties that are readable (keyed `document.propertyGet`). */
+const DOCUMENT_SCALARS = new Set([
+  "id",
+  "saved",
+  "name",
+  "title",
+  "path",
+  "width",
+  "height",
+  "resolution",
+  "cloudDocument",
+  "cloudWorkAreaDirectory",
+  "pixelAspectRatio"
+]);
+
+/** Document properties whose value is a `Layers` collection. */
+const DOCUMENT_COLLECTION_PROPS = new Set(["layers", "activeLayers", "artboards"]);
+
+/** Document properties whose value is a single Layer reference (or null). */
+const DOCUMENT_LAYER_REF_PROPS = new Set(["backgroundLayer"]);
+
+/** Layer properties that are readable scalars (keyed `layer.propertyGet`). */
+const LAYER_SCALARS = new Set([
+  "id",
+  "locked",
+  "isBackgroundLayer",
+  "kind",
+  "name",
+  "opacity",
+  "fillOpacity",
+  "visible",
+  "blendMode",
+  "allLocked",
+  "pixelsLocked",
+  "positionLocked",
+  "transparentPixelsLocked",
+  "isClippingMask",
+  "filterMaskDensity",
+  "filterMaskFeather",
+  "layerMaskDensity",
+  "layerMaskFeather",
+  "vectorMaskDensity",
+  "vectorMaskFeather",
+  "selected"
+]);
+
+/** Writable Layer scalars (each set is a modal-wrapped mutation). */
+const LAYER_WRITABLE_SCALARS = new Set([
+  "name",
+  "opacity",
+  "fillOpacity",
+  "visible",
+  "blendMode",
+  "allLocked",
+  "pixelsLocked",
+  "positionLocked",
+  "transparentPixelsLocked",
+  "isClippingMask",
+  "filterMaskDensity",
+  "filterMaskFeather",
+  "layerMaskDensity",
+  "layerMaskFeather",
+  "vectorMaskDensity",
+  "vectorMaskFeather",
+  "selected"
+]);
+
+/** Writable Document scalars (non-mutating; a `pixelAspectRatio` write does not enter modal). */
+const DOCUMENT_WRITABLE_SCALARS = new Set(["pixelAspectRatio"]);
+
+/** Layer properties whose value is an `ImagingBounds`. */
+const LAYER_BOUNDS_PROPS = new Set(["bounds", "boundsNoEffects"]);
+
+/** Layer properties whose value is a `Layers` collection. */
+const LAYER_COLLECTION_PROPS = new Set(["linkedLayers"]);
+
+/** Layer reference-valued properties: name -> the referenced object's remote type. */
+const LAYER_REF_PROPS = new Map<string, PhotoshopHandleType>([
+  ["document", PHOTOSHOP_REMOTE_TYPE.Document],
+  ["parent", PHOTOSHOP_REMOTE_TYPE.Layer]
+]);
+
+/** Non-mutating Document methods (called directly, never in a modal scope). */
+const DOCUMENT_READ_METHODS = new Set(["duplicate"]);
+
+/** Mutating Document methods (wrapped in executeAsModal). */
+const DOCUMENT_MUTATING_METHODS = new Set([
+  "close",
+  "closeWithoutSaving",
+  "flatten",
+  "mergeVisibleLayers",
+  "revealAll",
+  "rasterizeAllLayers",
+  "crop",
+  "resizeCanvas",
+  "resizeImage",
+  "trim",
+  "rotate",
+  "save",
+  "createLayer",
+  "createPixelLayer",
+  "createTextLayer",
+  "createLayerGroup",
+  "groupLayers",
+  "duplicateLayers",
+  "linkLayers",
+  "paste"
+]);
+
+/** Document methods that return a single Layer. */
+const DOCUMENT_METHODS_RETURNING_LAYER = new Set([
+  "mergeVisibleLayers",
+  "createLayer",
+  "createPixelLayer",
+  "createTextLayer",
+  "createLayerGroup",
+  "groupLayers",
+  "paste"
+]);
+
+/** Document methods that return a Document. */
+const DOCUMENT_METHODS_RETURNING_DOCUMENT = new Set(["duplicate"]);
+
+/** Document methods that return a `Layers` collection. */
+const DOCUMENT_METHODS_RETURNING_LAYERS = new Set(["duplicateLayers", "linkLayers"]);
+
+/** Mutating Layer methods (all Layer methods here mutate). */
+const LAYER_MUTATING_METHODS = new Set([
+  "delete",
+  "duplicate",
+  "link",
+  "unlink",
+  "move",
+  "translate",
+  "flip",
+  "scale",
+  "rotate",
+  "merge",
+  "rasterize"
+]);
+
+/** Layer methods that return a single Layer. */
+const LAYER_METHODS_RETURNING_LAYER = new Set(["duplicate", "merge"]);
+
+/** Layer methods that return a `Layers` collection. */
+const LAYER_METHODS_RETURNING_LAYERS = new Set(["link"]);
+
+const photoshopRegistry = createRemoteHandleRegistry();
+
+export const photoshopModuleAdapter: UxpModuleAdapter = {
+  moduleId: PHOTOSHOP_MODULE_ID,
+  capability: "photoshop",
+  dispatch: (method, args) => dispatchPhotoshopCall(method, args),
+  destroy: destroyPhotoshopHandles
+};
+
+export function dispatchPhotoshopCall(method: string, args: readonly unknown[]): unknown | Promise<unknown> {
+  assertPhotoshopProtocolMethodName(method);
+  photoshopRegistry.prune();
+
+  if (method.startsWith("app.")) {
+    return dispatchAppCall(method, args);
+  }
+  if (method.startsWith("document.")) {
+    return dispatchDocumentCall(method, args);
+  }
+  if (method.startsWith("layer.")) {
+    return dispatchLayerCall(method, args);
+  }
+  if (method.startsWith("layers.")) {
+    return dispatchLayersCall(method, args);
+  }
+  throw new Error(`Unsupported photoshop method: ${method}`);
+}
+
+export function destroyPhotoshopHandles(): void {
+  photoshopRegistry.clear();
+}
+
+// ---------------------------------------------------------------------------- app.*
+
+function dispatchAppCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
+  const app = getPhotoshop().app;
+
+  switch (method) {
+    case "app.activeDocument":
+      return serializeDocument(app.activeDocument);
+    case "app.documents": {
+      const documents = Array.from({ length: app.documents.length }, (_, index) => app.documents[index]);
+      return documents.map((document) => serializeDocument(document as PhotoshopDocumentLike));
+    }
+    case "app.open": {
+      const decoded = decodeArgs(args);
+      const result = callMethod(app, "open", decoded);
+      return resolveMaybePromise(result, (document) => serializeDocument(document as PhotoshopDocumentLike));
+    }
+    default:
+      throw new Error(`Unsupported photoshop app method: ${method}`);
+  }
+}
+
+// ---------------------------------------------------------------------------- document.*
+
+function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "document.dispose") {
+    const [reference] = expectReferenceArgs(args, 1, 1, method);
+    photoshopRegistry.dispose(reference);
+    return undefined;
+  }
+
+  if (method === "document.propertyGet") {
+    const [reference, key] = expectReferenceArgs(args, 2, 2, method);
+    const name = assertString(key, `${method} property`);
+    const document = getDocument(reference);
+    return serializeDocumentProperty(reference, name, document[name]);
+  }
+
+  if (method === "document.propertySet") {
+    const [reference, key, value] = expectReferenceArgs(args, 3, 3, method);
+    const name = assertString(key, `${method} property`);
+    if (!DOCUMENT_WRITABLE_SCALARS.has(name)) {
+      throw new Error(`Document property is not writable: ${name}`);
+    }
+    const document = getDocument(reference);
+    document[name] = decodeValue(value);
+    return undefined;
+  }
+
+  if (method === "document.batchGet") {
+    const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
+    const document = getDocument(reference);
+    const names = assertStringArray(propertyNames, method);
+    const result: Record<string, unknown> = {};
+    for (const name of names) {
+      result[name] = serializeDocumentProperty(reference, name, document[name]);
+    }
+    return result;
+  }
+
+  if (method === "document.batchSet") {
+    const [reference, values] = expectReferenceArgs(args, 2, 2, method);
+    const document = getDocument(reference);
+    const props = assertPropertyMap(values, method);
+    for (const name of Object.keys(props)) {
+      if (!DOCUMENT_WRITABLE_SCALARS.has(name)) {
+        throw new Error(`Document property is not writable: ${name}`);
+      }
+      document[name] = decodeValue(props[name]);
+    }
+    return undefined;
+  }
+
+  // Methods
+  const methodName = method.slice("document.".length);
+  const [reference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
+  const document = getDocument(reference);
+  const methodArgs = decodeArgs(rest);
+
+  const invoke = (): unknown => callMethod(document, methodName, methodArgs);
+  const run = DOCUMENT_MUTATING_METHODS.has(methodName)
+    ? executeAsModal(methodName, invoke)
+    : DOCUMENT_READ_METHODS.has(methodName)
+      ? invoke()
+      : unsupported(method);
+
+  return resolveMaybePromise(run, (value) => serializeDocumentMethodResult(reference, methodName, value));
+}
+
+function serializeDocumentProperty(ownerReference: RemoteReference, name: string, value: unknown): unknown {
+  if (DOCUMENT_SCALARS.has(name)) {
+    return value;
+  }
+  if (DOCUMENT_COLLECTION_PROPS.has(name)) {
+    return serializeLayersSnapshot(ownerReference, value);
+  }
+  if (DOCUMENT_LAYER_REF_PROPS.has(name)) {
+    return value == null ? null : serializeLayer(value as PhotoshopLayerLike);
+  }
+  throw new Error(`Unknown document property: ${name}`);
+}
+
+function serializeDocumentMethodResult(ownerReference: RemoteReference, methodName: string, value: unknown): unknown {
+  if (DOCUMENT_METHODS_RETURNING_DOCUMENT.has(methodName)) {
+    return serializeDocument(value as PhotoshopDocumentLike);
+  }
+  if (DOCUMENT_METHODS_RETURNING_LAYER.has(methodName)) {
+    return serializeLayer(value as PhotoshopLayerLike);
+  }
+  if (DOCUMENT_METHODS_RETURNING_LAYERS.has(methodName)) {
+    return serializeLayersSnapshot(ownerReference, value);
+  }
+  return value ?? undefined;
+}
+
+// ---------------------------------------------------------------------------- layer.*
+
+function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "layer.dispose") {
+    const [reference] = expectReferenceArgs(args, 1, 1, method);
+    photoshopRegistry.dispose(reference);
+    return undefined;
+  }
+
+  if (method === "layer.propertyGet") {
+    const [reference, key] = expectReferenceArgs(args, 2, 2, method);
+    const name = assertString(key, `${method} property`);
+    const layer = getLayer(reference);
+    return serializeLayerProperty(reference, name, layer[name]);
+  }
+
+  if (method === "layer.propertySet") {
+    const [reference, key, value] = expectReferenceArgs(args, 3, 3, method);
+    const name = assertString(key, `${method} property`);
+    if (!LAYER_WRITABLE_SCALARS.has(name)) {
+      throw new Error(`Layer property is not writable: ${name}`);
+    }
+    const layer = getLayer(reference);
+    const decoded = decodeValue(value);
+    return executeAsModal(`layer.set.${name}`, () => {
+      layer[name] = decoded;
+      return undefined;
+    });
+  }
+
+  if (method === "layer.batchGet") {
+    const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
+    const layer = getLayer(reference);
+    const names = assertStringArray(propertyNames, method);
+    const result: Record<string, unknown> = {};
+    for (const name of names) {
+      result[name] = serializeLayerProperty(reference, name, layer[name]);
+    }
+    return result;
+  }
+
+  if (method === "layer.batchSet") {
+    const [reference, values] = expectReferenceArgs(args, 2, 2, method);
+    const layer = getLayer(reference);
+    const props = assertPropertyMap(values, method);
+    for (const name of Object.keys(props)) {
+      if (!LAYER_WRITABLE_SCALARS.has(name)) {
+        throw new Error(`Layer property is not writable: ${name}`);
+      }
+    }
+    // All writable layer scalars mutate: apply the whole batch under a single modal scope.
+    return executeAsModal("layer.batchSet", () => {
+      for (const name of Object.keys(props)) {
+        layer[name] = decodeValue(props[name]);
+      }
+      return undefined;
+    });
+  }
+
+  // Methods (all mutating)
+  const methodName = method.slice("layer.".length);
+  if (!LAYER_MUTATING_METHODS.has(methodName)) {
+    return unsupported(method);
+  }
+  const [reference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
+  const layer = getLayer(reference);
+  const methodArgs = decodeArgs(rest);
+  const run = executeAsModal(methodName, () => callMethod(layer, methodName, methodArgs));
+  return resolveMaybePromise(run, (value) => serializeLayerMethodResult(reference, methodName, value));
+}
+
+function serializeLayerProperty(ownerReference: RemoteReference, name: string, value: unknown): unknown {
+  if (LAYER_SCALARS.has(name)) {
+    return value;
+  }
+  if (LAYER_BOUNDS_PROPS.has(name)) {
+    return serializeImagingBounds(value);
+  }
+  if (LAYER_COLLECTION_PROPS.has(name)) {
+    return serializeLayersSnapshot(ownerReference, value);
+  }
+  const refType = LAYER_REF_PROPS.get(name);
+  if (refType !== undefined) {
+    if (value == null) {
+      return null;
+    }
+    return refType === PHOTOSHOP_REMOTE_TYPE.Document
+      ? serializeDocument(value as PhotoshopDocumentLike)
+      : serializeLayer(value as PhotoshopLayerLike);
+  }
+  throw new Error(`Unknown layer property: ${name}`);
+}
+
+function serializeLayerMethodResult(ownerReference: RemoteReference, methodName: string, value: unknown): unknown {
+  if (LAYER_METHODS_RETURNING_LAYER.has(methodName)) {
+    return serializeLayer(value as PhotoshopLayerLike);
+  }
+  if (LAYER_METHODS_RETURNING_LAYERS.has(methodName)) {
+    return serializeLayersSnapshot(ownerReference, value);
+  }
+  return value ?? undefined;
+}
+
+// ---------------------------------------------------------------------------- layers.*
+
+function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "layers.snapshot") {
+    const [reference, collectionKey] = expectReferenceArgs(args, 1, 2, method);
+    const owner = resolveOwner(reference);
+    const collection = collectionKey === undefined ? owner : (owner as Record<string, unknown>)[assertString(collectionKey, method)];
+    return serializeLayersSnapshot(reference, collection);
+  }
+
+  if (method === "layers.getByName") {
+    const [reference, name] = expectReferenceArgs(args, 2, 2, method);
+    const layerName = assertString(name, `${method} name`);
+    const collection = getLayersArray(resolveOwnerLayers(reference));
+    const match = collection.find((layer) => (layer as PhotoshopLayerLike).name === layerName);
+    return match == null ? null : serializeLayer(match as PhotoshopLayerLike);
+  }
+
+  if (method === "layers.add") {
+    const [reference, options] = expectReferenceArgs(args, 1, 2, method);
+    const owner = resolveOwner(reference) as Record<string, unknown>;
+    const decodedOptions = decodeValue(options);
+    const run = executeAsModal("layers.add", () => callMethod(owner, "createLayer", [decodedOptions]));
+    return resolveMaybePromise(run, (value) => serializeLayer(value as PhotoshopLayerLike));
+  }
+
+  throw new Error(`Unsupported photoshop layers method: ${method}`);
+}
+
+/** The owner of a `Layers` collection is either a Document or a Layer (group). */
+function resolveOwner(reference: RemoteReference): PhotoshopDocumentLike | PhotoshopLayerLike {
+  if (reference.type === PHOTOSHOP_REMOTE_TYPE.Document) {
+    return getDocument(reference);
+  }
+  if (reference.type === PHOTOSHOP_REMOTE_TYPE.Layer) {
+    return getLayer(reference);
+  }
+  throw new Error(`Invalid layers owner reference type: ${reference.type}`);
+}
+
+/**
+ * Resolve the owner's default `Layers` collection. A `Layers` snapshot is captured from an owner's
+ * `.layers` collection (a Document or a Layer group both expose `.layers`), so name/index lookups
+ * that carry only the owner reference must iterate that `.layers` collection — never the owner
+ * object itself, which is not layer-array-shaped.
+ */
+function resolveOwnerLayers(reference: RemoteReference): unknown {
+  const owner = resolveOwner(reference) as { layers?: unknown };
+  return owner.layers ?? owner;
+}
+
+// ---------------------------------------------------------------------------- serialization
+
+function serializeDocument(document: PhotoshopDocumentLike): RemoteReference {
+  const key = `${PHOTOSHOP_REMOTE_TYPE.Document}:${document.id}`;
+  return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.Document, key, () => document);
+}
+
+function serializeLayer(layer: PhotoshopLayerLike): RemoteReference {
+  const key = `${PHOTOSHOP_REMOTE_TYPE.Layer}:${layer.id}`;
+  return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.Layer, key, () => layer);
+}
+
+function serializeLayersSnapshot(ownerReference: RemoteReference, collection: unknown): LayersSnapshotTransport {
+  const layers = getLayersArray(collection);
+  const layerIds = layers.map((layer) => serializeLayer(layer as PhotoshopLayerLike).id);
+  return { kind: LAYERS_SNAPSHOT_KIND, owner: ownerReference, layerIds };
+}
+
+function getLayersArray(collection: unknown): readonly unknown[] {
+  if (Array.isArray(collection)) {
+    return collection;
+  }
+  if (collection && typeof (collection as ArrayLike<unknown>).length === "number") {
+    const arrayLike = collection as ArrayLike<unknown>;
+    return Array.from({ length: arrayLike.length }, (_, index) => arrayLike[index]);
+  }
+  throw new Error("Expected a layer collection.");
+}
+
+function serializeImagingBounds(value: unknown): ImagingBoundsTransport {
+  if (!value || typeof value !== "object") {
+    throw new Error("Expected an ImagingBounds object.");
+  }
+  const source = value as Record<string, unknown>;
+  const result: Record<string, number> = {};
+  for (const field of IMAGING_BOUNDS_FIELDS) {
+    const fieldValue = source[field];
+    result[field] = typeof fieldValue === "number" ? fieldValue : Number(readMaybeUnit(fieldValue));
+  }
+  return result as unknown as ImagingBoundsTransport;
+}
+
+/** Photoshop bounds fields may be `UnitValue`-like `{ _value }`; unwrap to a number. */
+function readMaybeUnit(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (value && typeof value === "object" && typeof (value as { _value?: unknown })._value === "number") {
+    return (value as { _value: number })._value;
+  }
+  return Number(value);
+}
+
+// ---------------------------------------------------------------------------- modal execution
+
+function executeAsModal<T>(commandName: string, fn: () => T | Promise<T>): Promise<T> {
+  return getPhotoshop().core.executeAsModal(async () => fn(), { commandName });
+}
+
+// ---------------------------------------------------------------------------- handles & args
+
+function getDocument(reference: RemoteReference): PhotoshopDocumentLike {
+  return photoshopRegistry.resolve(reference, PHOTOSHOP_REMOTE_TYPE.Document) as PhotoshopDocumentLike;
+}
+
+function getLayer(reference: RemoteReference): PhotoshopLayerLike {
+  return photoshopRegistry.resolve(reference, PHOTOSHOP_REMOTE_TYPE.Layer) as PhotoshopLayerLike;
+}
+
+function decodeArgs(args: readonly unknown[]): unknown[] {
+  return args.map((arg) => decodeValue(arg));
+}
+
+function decodeValue(value: unknown): unknown {
+  if (isRemoteReference(value)) {
+    return photoshopRegistry.resolve(value, value.type);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => decodeValue(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, decodeValue(nested)]));
+  }
+  return value;
+}
+
+function callMethod(target: unknown, methodName: string, args: readonly unknown[]): unknown {
+  const method = (target as Record<string, unknown>)[methodName];
+  if (typeof method !== "function") {
+    throw new Error(`photoshop target does not implement ${methodName}.`);
+  }
+  return (method as (...callArgs: unknown[]) => unknown).apply(target, [...args]);
+}
+
+function resolveMaybePromise(value: unknown, serialize: (resolved: unknown) => unknown): unknown | Promise<unknown> {
+  if (value && typeof (value as Promise<unknown>).then === "function") {
+    return (value as Promise<unknown>).then(serialize);
+  }
+  return serialize(value);
+}
+
+function expectReferenceArgs(
+  args: readonly unknown[],
+  minLength: number,
+  maxLength: number,
+  method: string
+): [RemoteReference, ...unknown[]] {
+  expectArgs(args, minLength, maxLength, method);
+  const reference = args[0];
+  if (!isRemoteReference(reference)) {
+    throw new Error(`${method} requires a photoshop remote reference as its first argument.`);
+  }
+  return args as [RemoteReference, ...unknown[]];
+}
+
+function expectArgs(args: readonly unknown[], minLength: number, maxLength: number, method: string): void {
+  if (args.length < minLength || args.length > maxLength) {
+    const range = maxLength === Number.POSITIVE_INFINITY ? `at least ${minLength}` : minLength === maxLength ? `${minLength}` : `${minLength}-${maxLength}`;
+    throw new Error(`${method} expects ${range} arguments.`);
+  }
+}
+
+function assertString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function assertStringArray(value: unknown, method: string): readonly string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${method} requires an array of property names.`);
+  }
+  return value.map((name) => assertString(name, `${method} property`));
+}
+
+function assertPropertyMap(value: unknown, method: string): Record<string, unknown> {
+  if (!value || typeof value !== "object") {
+    throw new Error(`${method} requires a property map.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function unsupported(method: string): never {
+  throw new Error(`Unsupported photoshop method: ${method}`);
+}
+
+function getPhotoshop(): PhotoshopHostModule {
+  return require("photoshop");
+}

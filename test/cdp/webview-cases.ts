@@ -15,6 +15,7 @@ export interface WebviewCdpBridge {
   localStorage: any;
   os: any;
   path: any;
+  photoshop: any;
   sessionStorage: any;
   uxp: any;
 }

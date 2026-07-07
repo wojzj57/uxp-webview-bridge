@@ -6,6 +6,7 @@ import {
   localStorage,
   os,
   path,
+  photoshop,
   sessionStorage,
   uxp
 } from "../dist/webview/index.js";
@@ -108,6 +109,7 @@ function createCaseContext(request) {
       localStorage,
       os,
       path,
+      photoshop,
       sessionStorage,
       uxp
     },

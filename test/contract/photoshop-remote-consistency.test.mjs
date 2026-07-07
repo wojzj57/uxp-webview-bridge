@@ -1,0 +1,157 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+// Reach into the built module internals directly (contract tests run against dist). The factories are
+// not part of the public `photoshop` namespace surface, so we import them from their own dist files.
+const documentModule = "../../dist/webview/uxp-api/modules/photoshop/document.js";
+const layerModule = "../../dist/webview/uxp-api/modules/photoshop/layer.js";
+
+/**
+ * A recording rpc that resolves every call to a benign value and never throws. The only way a member
+ * access can fail is the RemoteClass base's own "No RPC method name configured" guard — exactly the
+ * descriptor <-> declare (and descriptor <-> methodNames) drift RFC-0007 mandates catching.
+ */
+function createRecordingRpc() {
+  const calls = [];
+  return {
+    calls,
+    call(module, method, args) {
+      calls.push({ module, method, args });
+      // batchGet decodes each requested property off the returned map, so hand back an object.
+      return Promise.resolve(method.endsWith(".batchGet") ? {} : null);
+    }
+  };
+}
+
+const reference = (type) => ({ kind: "uxp.remote.ref", type, id: `${type}-1` });
+
+/**
+ * Minimal PhotoshopContext for the class factories. The decoders decline everything (return
+ * undefined) so raw values pass through untouched; the getOrCreate/createLayers members are never
+ * reached by these smoke reads because the decoders decline the benign `null` returns.
+ */
+function createStubContext(rpc) {
+  const decline = () => undefined;
+  const context = {
+    rpc,
+    getOrCreateDocument: () => {
+      throw new Error("getOrCreateDocument should not be called by consistency smoke reads.");
+    },
+    getOrCreateLayer: () => {
+      throw new Error("getOrCreateLayer should not be called by consistency smoke reads.");
+    },
+    createLayers: () => {
+      throw new Error("createLayers should not be called by consistency smoke reads.");
+    },
+    documentDecoder: decline,
+    layerDecoder: decline,
+    layersDecoder: decline,
+    boundsDecoder: decline
+  };
+  return context;
+}
+
+function ownMemberNames(instance) {
+  const names = new Set();
+  for (let target = instance; target && target !== Object.prototype; target = Object.getPrototypeOf(target)) {
+    for (const name of Object.getOwnPropertyNames(target)) {
+      if (name !== "constructor") {
+        names.add(name);
+      }
+    }
+  }
+  return [...names];
+}
+
+function findDescriptor(instance, name) {
+  for (let target = instance; target && target !== Object.prototype; target = Object.getPrototypeOf(target)) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, name);
+    if (descriptor) {
+      return descriptor;
+    }
+  }
+  return undefined;
+}
+
+async function exerciseMember(instance, name) {
+  const descriptor = findDescriptor(instance, name);
+  if (descriptor?.get) {
+    await instance[name];
+    return;
+  }
+  const value = instance[name];
+  if (typeof value === "function") {
+    await value.call(instance);
+  }
+}
+
+// Base members that RemoteClass provides and that are exercised by their own dedicated cases below.
+const BASE_MEMBERS = new Set(["toRemoteReference", "batchGet", "batchSet", "dispose"]);
+
+const CASES = [
+  {
+    name: "WebviewPsDocument",
+    async build() {
+      const { createDocumentClass } = await import(documentModule);
+      const rpc = createRecordingRpc();
+      const DocumentClass = createDocumentClass(createStubContext(rpc));
+      return { rpc, instance: new DocumentClass(reference("Document")) };
+    }
+  },
+  {
+    name: "WebviewPsLayer",
+    async build() {
+      const { createLayerClass } = await import(layerModule);
+      const rpc = createRecordingRpc();
+      const LayerClass = createLayerClass(createStubContext(rpc));
+      return { rpc, instance: new LayerClass(reference("Layer")) };
+    }
+  }
+];
+
+for (const testCase of CASES) {
+  test(`${testCase.name} exposes only members backed by a configured RPC method`, async () => {
+    const { instance } = await testCase.build();
+
+    const members = ownMemberNames(instance).filter((name) => !BASE_MEMBERS.has(name));
+    assert.ok(members.length > 0, `${testCase.name} should define at least one member.`);
+
+    for (const name of members) {
+      await assert.doesNotReject(
+        () => exerciseMember(instance, name),
+        new RegExp("No RPC method name configured"),
+        `${testCase.name}.${name} must be backed by a configured RPC method name.`
+      );
+    }
+  });
+
+  test(`${testCase.name} batch operations use the wired batch RPC names`, async () => {
+    const { rpc, instance } = await testCase.build();
+    const type = testCase.name === "WebviewPsDocument" ? "Document" : "Layer";
+    const module = "uxp-api/modules/photoshop";
+    const batchGetName = type === "Document" ? "document.batchGet" : "layer.batchGet";
+    const batchSetName = type === "Document" ? "document.batchSet" : "layer.batchSet";
+    const writableProp = type === "Document" ? "pixelAspectRatio" : "opacity";
+
+    await instance.batchGet(["id"]);
+    const batchGetCall = rpc.calls.find((call) => call.method === batchGetName);
+    assert.ok(batchGetCall, `batchGet should call ${batchGetName}.`);
+    assert.equal(batchGetCall.module, module, "batchGet should target the photoshop module.");
+    assert.deepEqual(batchGetCall.args, [reference(type), ["id"]]);
+
+    instance.batchSet({ [writableProp]: 1 });
+    await instance.toRemoteReference();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const batchSetCall = rpc.calls.find((call) => call.method === batchSetName);
+    assert.ok(batchSetCall, `batchSet should call ${batchSetName}.`);
+    assert.equal(batchSetCall.args[0].type, type, "batchSet reference type");
+    assert.deepEqual(batchSetCall.args[1], { [writableProp]: 1 });
+  });
+
+  test(`${testCase.name} rejects a batchSet of a read-only property at runtime`, async () => {
+    const { instance } = await testCase.build();
+    // `id` is read-only on both proxies; the base guard should reject it even though the compile-time
+    // signature already forbids it (belt and suspenders — see photoshop.test.ts @ts-expect-error).
+    assert.throws(() => instance.batchSet({ id: 1 }), /Cannot batchSet non-writable property: id/);
+  });
+}
