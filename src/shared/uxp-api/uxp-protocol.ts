@@ -96,6 +96,8 @@ export const UXP_METHOD_NAMES = [
   "xmp.dateTime.dispose",
   "xmp.dateTime.getProperty",
   "xmp.dateTime.setProperty",
+  "xmp.dateTime.batchGet",
+  "xmp.dateTime.batchSet",
   "xmp.dateTime.compareTo",
   "xmp.dateTime.convertToLocalTime",
   "xmp.dateTime.convertToUTCTime",

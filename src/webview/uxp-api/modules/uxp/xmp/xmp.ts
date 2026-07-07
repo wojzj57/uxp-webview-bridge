@@ -1,5 +1,20 @@
 import { getBridgeRpcClient } from "@webview/runtime.js";
 import { UXP_MODULE_ID } from "@shared/uxp-api/uxp-protocol.js";
+import {
+  createIdentityCache,
+  encodeRemoteArgs,
+  isRemoteReference,
+  RemoteClass,
+  type IdentityCache,
+  type RemoteArgEncoder,
+  type RemoteClassConfig,
+  type RemoteConstructionRequest,
+  type RemoteMethodNames,
+  type RemotePropertyDescriptor,
+  type RemoteReference,
+  type RemoteRpc,
+  type RemoteValueDecoder
+} from "@webview/uxp-api/remote/index.js";
 import { XMP_CONST } from "./constants.js";
 import type {
   UxpXmp,
@@ -11,31 +26,15 @@ import type {
   XMPNativeDateEnvelope,
   XMPPacketInfo,
   XMPProperty,
-  XMPRemoteReference,
   XMPSerializedProperty,
   XMPSerializedValue,
   XMPUtils,
   XMPValue
 } from "./types.js";
 
-interface XmpRpc {
-  call<T>(module: string, method: string, args?: readonly unknown[]): Promise<T>;
-}
+type XmpRpc = RemoteRpc;
 
-type XmpHandleType = XMPRemoteReference["type"];
-type DateTimePropertyName =
-  | "year"
-  | "month"
-  | "day"
-  | "hour"
-  | "minute"
-  | "second"
-  | "nanosecond"
-  | "tzSign"
-  | "tzHour"
-  | "tzMinute";
-
-const DATE_TIME_PROPERTIES: readonly DateTimePropertyName[] = [
+const DATE_TIME_PROPERTY_NAMES = [
   "year",
   "month",
   "day",
@@ -46,38 +45,256 @@ const DATE_TIME_PROPERTIES: readonly DateTimePropertyName[] = [
   "tzSign",
   "tzHour",
   "tzMinute"
-];
+] as const;
 
 let defaultXmpNamespace: UxpXmp | undefined;
 
 export function createUxpXmpNamespace(rpc: XmpRpc): UxpXmp {
-  const XMPMetaProxy = createXMPMetaClass(rpc);
-  const XMPFileProxy = createXMPFileClass(rpc);
-  const XMPDateTimeProxy = createXMPDateTimeClass(rpc);
-  const XMPIteratorProxy = createXMPIteratorClass();
-  const XMPUtilsProxy = createXMPUtils(rpc);
+  const context = createXmpContext(rpc);
 
   return {
     get XMPConst() {
       return XMP_CONST;
     },
-    XMPDateTime: XMPDateTimeProxy,
-    XMPFile: XMPFileProxy,
-    XMPMeta: XMPMetaProxy,
-    XMPIterator: XMPIteratorProxy as unknown as { new (): never },
-    XMPUtils: XMPUtilsProxy
+    XMPDateTime: context.XMPDateTime,
+    XMPFile: context.XMPFile,
+    XMPMeta: context.XMPMeta,
+    XMPIterator: context.XMPIterator as unknown as { new (): never },
+    XMPUtils: context.XMPUtils
   };
 }
 
-function createXMPMetaClass(rpc: XmpRpc) {
-  return class WebviewXMPMeta implements XMPMeta {
-    readonly #referencePromise: Promise<XMPRemoteReference>;
-    #queue: Promise<unknown> = Promise.resolve();
+/**
+ * Per-namespace state: the reference->instance identity caches and the four remote classes, all
+ * sharing one rpc client and the module-neutral remote codec.
+ */
+interface XmpContext {
+  readonly XMPMeta: WebviewXMPMetaConstructor;
+  readonly XMPFile: WebviewXMPFileConstructor;
+  readonly XMPDateTime: WebviewXMPDateTimeConstructor;
+  readonly XMPIterator: { new (): never };
+  readonly XMPUtils: XMPUtils;
+}
 
-    constructor(packet?: string, buffer?: string | number[], reference?: XMPRemoteReference) {
-      this.#referencePromise = reference
-        ? Promise.resolve(reference)
-        : rpc.call<XMPRemoteReference>(UXP_MODULE_ID, "xmp.meta.create", encodeImmediateArgs([packet, buffer]));
+interface WebviewXMPMetaConstructor {
+  new (packet?: string, buffer?: string | number[], reference?: RemoteReference): XMPMeta;
+  deleteNamespace(namespaceURI: string): Promise<void>;
+  dumpNamespaces(): Promise<string>;
+  getNamespacePrefix(namespaceURI: string): Promise<string>;
+  getNamespaceURI(namespacePrefix: string): Promise<string>;
+  registerNamespace(namespaceURI: string, suggestedPrefix: string): Promise<string>;
+}
+
+interface WebviewXMPFileConstructor {
+  new (filePath?: string, format?: number, openFlags?: number, reference?: RemoteReference): XMPFile;
+  getFormatInfo(format: number): Promise<number>;
+}
+
+interface WebviewXMPDateTimeConstructor {
+  new (date?: Date | string, reference?: RemoteReference): XMPDateTime;
+}
+
+function createXmpContext(rpc: XmpRpc): XmpContext {
+  const metaCache = createIdentityCache<XMPMeta>();
+  const dateTimeCache = createIdentityCache<XMPDateTime>();
+  const iteratorCache = createIdentityCache<XMPIterator>();
+
+  // The XMP native-Date envelope is a domain-specific transport form; kept out of the generic base.
+  const nativeDateEncoder: RemoteArgEncoder = (value) => {
+    if (value instanceof Date) {
+      return { kind: "uxp.xmp.nativeDate", iso: value.toISOString() } satisfies XMPNativeDateEnvelope;
+    }
+    return undefined;
+  };
+  const argEncoders = [nativeDateEncoder];
+
+  // Decodes an XMPDateTime reference envelope that appears as a property value into an instance.
+  const dateTimeValueDecoder: RemoteValueDecoder = (value) => {
+    if (isRemoteReference(value) && value.type === "XMPDateTime") {
+      return getOrCreateDateTime(value);
+    }
+    return undefined;
+  };
+
+  const metaMethodNames: RemoteMethodNames = {
+    propertyGet: {},
+    propertySet: {},
+    method: {
+      appendArrayItem: "xmp.meta.appendArrayItem",
+      countArrayItems: "xmp.meta.countArrayItems",
+      deleteArrayItem: "xmp.meta.deleteArrayItem",
+      deleteProperty: "xmp.meta.deleteProperty",
+      deleteStructField: "xmp.meta.deleteStructField",
+      deleteQualifier: "xmp.meta.deleteQualifier",
+      doesArrayItemExist: "xmp.meta.doesArrayItemExist",
+      doesPropertyExist: "xmp.meta.doesPropertyExist",
+      doesStructFieldExist: "xmp.meta.doesStructFieldExist",
+      doesQualifierExist: "xmp.meta.doesQualifierExist",
+      dumpObject: "xmp.meta.dumpObject",
+      getArrayItem: "xmp.meta.getArrayItem",
+      getLocalizedText: "xmp.meta.getLocalizedText",
+      getProperty: "xmp.meta.getProperty",
+      getStructField: "xmp.meta.getStructField",
+      getQualifier: "xmp.meta.getQualifier",
+      insertArrayItem: "xmp.meta.insertArrayItem",
+      iterator: "xmp.meta.iterator",
+      serialize: "xmp.meta.serialize",
+      serializeToArray: "xmp.meta.serializeToArray",
+      setArrayItem: "xmp.meta.setArrayItem",
+      setLocalizedText: "xmp.meta.setLocalizedText",
+      setStructField: "xmp.meta.setStructField",
+      setQualifier: "xmp.meta.setQualifier",
+      setProperty: "xmp.meta.setProperty",
+      sort: "xmp.meta.sort"
+    },
+    dispose: "xmp.meta.dispose"
+  };
+
+  const propertyDecoder: RemoteValueDecoder = (value) =>
+    deserializeProperty(value as XMPSerializedProperty | null | undefined, dateTimeValueDecoder);
+  const iteratorDecoder: RemoteValueDecoder = (value) =>
+    isRemoteReference(value) && value.type === "XMPIterator" ? getOrCreateIterator(value) : undefined;
+
+  const metaMethods = {
+    appendArrayItem: {},
+    countArrayItems: {},
+    deleteArrayItem: {},
+    deleteProperty: {},
+    deleteStructField: {},
+    deleteQualifier: {},
+    doesArrayItemExist: {},
+    doesPropertyExist: {},
+    doesStructFieldExist: {},
+    doesQualifierExist: {},
+    dumpObject: {},
+    getArrayItem: { decode: propertyDecoder },
+    getLocalizedText: { decode: propertyDecoder },
+    getProperty: { decode: propertyDecoder },
+    getStructField: { decode: propertyDecoder },
+    getQualifier: { decode: propertyDecoder },
+    insertArrayItem: {},
+    iterator: { decode: iteratorDecoder },
+    serialize: {},
+    serializeToArray: {},
+    setArrayItem: {},
+    setLocalizedText: {},
+    setStructField: {},
+    setQualifier: {},
+    setProperty: {},
+    sort: {}
+  } as const;
+
+  const metaConfigBase: Omit<RemoteClassConfig, never> = {
+    rpc,
+    moduleId: UXP_MODULE_ID,
+    methodNames: metaMethodNames,
+    properties: {},
+    methods: metaMethods,
+    argEncoders
+  };
+
+  class WebviewXMPMeta extends RemoteClass implements XMPMeta {
+    declare appendArrayItem: (
+      schemaNS: string,
+      arrayName: string,
+      itemValue: XMPValue,
+      itemOptions?: number,
+      arrayOptions?: number
+    ) => Promise<void>;
+    declare countArrayItems: (schemaNS: string, arrayName: string) => Promise<number>;
+    declare deleteArrayItem: (schemaNS: string, arrayName: string, itemIndex: number) => Promise<void>;
+    declare deleteProperty: (schemaNS: string, propName: string) => Promise<void>;
+    declare deleteStructField: (schemaNS: string, structName: string, fieldNS: string, fieldName: string) => Promise<void>;
+    declare deleteQualifier: (schemaNS: string, propName: string, qualNS: string, qualName: string) => Promise<void>;
+    declare doesArrayItemExist: (schemaNS: string, arrayName: string, itemIndex: number) => Promise<boolean>;
+    declare doesPropertyExist: (schemaNS: string, propName: string) => Promise<boolean>;
+    declare doesStructFieldExist: (schemaNS: string, structName: string, fieldNS: string, fieldName: string) => Promise<boolean>;
+    declare doesQualifierExist: (schemaNS: string, propName: string, qualNS: string, qualName: string) => Promise<boolean>;
+    declare dumpObject: () => Promise<string>;
+    declare getArrayItem: (schemaNS: string, arrayName: string, itemIndex: number) => Promise<XMPProperty | null>;
+    declare getLocalizedText: (
+      schemaNS: string,
+      altTextName: string,
+      genericLang: string,
+      specificLang: string
+    ) => Promise<XMPProperty | null>;
+    declare getProperty: (schemaNS: string, propName: string, valueType?: string) => Promise<XMPProperty | null>;
+    declare getStructField: (
+      schemaNS: string,
+      structName: string,
+      fieldNS: string,
+      fieldName: string
+    ) => Promise<XMPProperty | null>;
+    declare getQualifier: (
+      schemaNS: string,
+      propName: string,
+      qualNS: string,
+      qualName: string
+    ) => Promise<XMPProperty | null>;
+    declare insertArrayItem: (
+      schemaNS: string,
+      arrayName: string,
+      itemIndex: number,
+      itemValue: XMPValue,
+      itemOptions?: number
+    ) => Promise<void>;
+    declare iterator: (options?: number, schemaNS?: string, propName?: string) => Promise<XMPIterator>;
+    declare serialize: (
+      options?: number,
+      padding?: number,
+      indent?: string,
+      newline?: string,
+      baseIndent?: number
+    ) => Promise<string>;
+    declare serializeToArray: (
+      options?: number,
+      padding?: number,
+      indent?: string,
+      newline?: string,
+      baseIndent?: number
+    ) => Promise<number[]>;
+    declare setArrayItem: (
+      schemaNS: string,
+      arrayName: string,
+      itemIndex: number,
+      itemValue: XMPValue,
+      itemOptions?: number
+    ) => Promise<void>;
+    declare setLocalizedText: (
+      schemaNS: string,
+      altTextName: string,
+      genericLang: string,
+      specificLang: string,
+      itemValue: XMPValue,
+      setOptions?: number
+    ) => Promise<void>;
+    declare setStructField: (
+      schemaNS: string,
+      structName: string,
+      fieldNS: string,
+      fieldName: string,
+      fieldValue: XMPValue,
+      options?: number
+    ) => Promise<void>;
+    declare setQualifier: (
+      schemaNS: string,
+      propName: string,
+      qualNS: string,
+      qualName: string,
+      qualValue: XMPValue,
+      options?: number
+    ) => Promise<void>;
+    declare setProperty: (
+      schemaNS: string,
+      propName: string,
+      propValue: XMPValue,
+      setOptions?: number,
+      valueType?: string
+    ) => Promise<void>;
+    declare sort: () => Promise<void>;
+
+    constructor(packet?: string, buffer?: string | number[], reference?: RemoteReference) {
+      super(metaConfigBase, reference ?? metaConstruction(packet, buffer));
     }
 
     static deleteNamespace(namespaceURI: string): Promise<void> {
@@ -99,435 +316,215 @@ function createXMPMetaClass(rpc: XmpRpc) {
     static registerNamespace(namespaceURI: string, suggestedPrefix: string): Promise<string> {
       return rpc.call<string>(UXP_MODULE_ID, "xmp.meta.registerNamespace", [namespaceURI, suggestedPrefix]);
     }
+  }
 
-    appendArrayItem(
-      schemaNS: string,
-      arrayName: string,
-      itemValue: XMPValue,
-      itemOptions?: number,
-      arrayOptions?: number
-    ): Promise<void> {
-      return this.#call<void>("xmp.meta.appendArrayItem", [schemaNS, arrayName, itemValue, itemOptions, arrayOptions]);
-    }
-
-    countArrayItems(schemaNS: string, arrayName: string): Promise<number> {
-      return this.#call<number>("xmp.meta.countArrayItems", [schemaNS, arrayName]);
-    }
-
-    deleteArrayItem(schemaNS: string, arrayName: string, itemIndex: number): Promise<void> {
-      return this.#call<void>("xmp.meta.deleteArrayItem", [schemaNS, arrayName, itemIndex]);
-    }
-
-    deleteProperty(schemaNS: string, propName: string): Promise<void> {
-      return this.#call<void>("xmp.meta.deleteProperty", [schemaNS, propName]);
-    }
-
-    deleteStructField(schemaNS: string, structName: string, fieldNS: string, fieldName: string): Promise<void> {
-      return this.#call<void>("xmp.meta.deleteStructField", [schemaNS, structName, fieldNS, fieldName]);
-    }
-
-    deleteQualifier(schemaNS: string, propName: string, qualNS: string, qualName: string): Promise<void> {
-      return this.#call<void>("xmp.meta.deleteQualifier", [schemaNS, propName, qualNS, qualName]);
-    }
-
-    doesArrayItemExist(schemaNS: string, arrayName: string, itemIndex: number): Promise<boolean> {
-      return this.#call<boolean>("xmp.meta.doesArrayItemExist", [schemaNS, arrayName, itemIndex]);
-    }
-
-    doesPropertyExist(schemaNS: string, propName: string): Promise<boolean> {
-      return this.#call<boolean>("xmp.meta.doesPropertyExist", [schemaNS, propName]);
-    }
-
-    doesStructFieldExist(schemaNS: string, structName: string, fieldNS: string, fieldName: string): Promise<boolean> {
-      return this.#call<boolean>("xmp.meta.doesStructFieldExist", [schemaNS, structName, fieldNS, fieldName]);
-    }
-
-    doesQualifierExist(schemaNS: string, propName: string, qualNS: string, qualName: string): Promise<boolean> {
-      return this.#call<boolean>("xmp.meta.doesQualifierExist", [schemaNS, propName, qualNS, qualName]);
-    }
-
-    dumpObject(): Promise<string> {
-      return this.#call<string>("xmp.meta.dumpObject");
-    }
-
-    async getArrayItem(schemaNS: string, arrayName: string, itemIndex: number): Promise<XMPProperty | null> {
-      return deserializeProperty(rpc, await this.#call<XMPSerializedProperty | null>("xmp.meta.getArrayItem", [schemaNS, arrayName, itemIndex]));
-    }
-
-    async getLocalizedText(
-      schemaNS: string,
-      altTextName: string,
-      genericLang: string,
-      specificLang: string
-    ): Promise<XMPProperty | null> {
-      return deserializeProperty(
-        rpc,
-        await this.#call<XMPSerializedProperty | null>("xmp.meta.getLocalizedText", [
-          schemaNS,
-          altTextName,
-          genericLang,
-          specificLang
-        ])
-      );
-    }
-
-    async getProperty(schemaNS: string, propName: string, valueType?: string): Promise<XMPProperty | null> {
-      return deserializeProperty(
-        rpc,
-        await this.#call<XMPSerializedProperty | null>("xmp.meta.getProperty", [schemaNS, propName, valueType])
-      );
-    }
-
-    async getStructField(schemaNS: string, structName: string, fieldNS: string, fieldName: string): Promise<XMPProperty | null> {
-      return deserializeProperty(
-        rpc,
-        await this.#call<XMPSerializedProperty | null>("xmp.meta.getStructField", [schemaNS, structName, fieldNS, fieldName])
-      );
-    }
-
-    async getQualifier(schemaNS: string, propName: string, qualNS: string, qualName: string): Promise<XMPProperty | null> {
-      return deserializeProperty(
-        rpc,
-        await this.#call<XMPSerializedProperty | null>("xmp.meta.getQualifier", [schemaNS, propName, qualNS, qualName])
-      );
-    }
-
-    insertArrayItem(schemaNS: string, arrayName: string, itemIndex: number, itemValue: XMPValue, itemOptions?: number): Promise<void> {
-      return this.#call<void>("xmp.meta.insertArrayItem", [schemaNS, arrayName, itemIndex, itemValue, itemOptions]);
-    }
-
-    async iterator(options?: number, schemaNS?: string, propName?: string): Promise<XMPIterator> {
-      const reference = await this.#call<XMPRemoteReference>("xmp.meta.iterator", [options, schemaNS, propName]);
-      return createIteratorFromReference(rpc, reference);
-    }
-
-    serialize(options?: number, padding?: number, indent?: string, newline?: string, baseIndent?: number): Promise<string> {
-      return this.#call<string>("xmp.meta.serialize", [options, padding, indent, newline, baseIndent]);
-    }
-
-    serializeToArray(options?: number, padding?: number, indent?: string, newline?: string, baseIndent?: number): Promise<number[]> {
-      return this.#call<number[]>("xmp.meta.serializeToArray", [options, padding, indent, newline, baseIndent]);
-    }
-
-    setArrayItem(schemaNS: string, arrayName: string, itemIndex: number, itemValue: XMPValue, itemOptions?: number): Promise<void> {
-      return this.#call<void>("xmp.meta.setArrayItem", [schemaNS, arrayName, itemIndex, itemValue, itemOptions]);
-    }
-
-    setLocalizedText(
-      schemaNS: string,
-      altTextName: string,
-      genericLang: string,
-      specificLang: string,
-      itemValue: XMPValue,
-      setOptions?: number
-    ): Promise<void> {
-      return this.#call<void>("xmp.meta.setLocalizedText", [
-        schemaNS,
-        altTextName,
-        genericLang,
-        specificLang,
-        itemValue,
-        setOptions
-      ]);
-    }
-
-    setStructField(
-      schemaNS: string,
-      structName: string,
-      fieldNS: string,
-      fieldName: string,
-      fieldValue: XMPValue,
-      options?: number
-    ): Promise<void> {
-      return this.#call<void>("xmp.meta.setStructField", [schemaNS, structName, fieldNS, fieldName, fieldValue, options]);
-    }
-
-    setQualifier(schemaNS: string, propName: string, qualNS: string, qualName: string, qualValue: XMPValue, options?: number): Promise<void> {
-      return this.#call<void>("xmp.meta.setQualifier", [schemaNS, propName, qualNS, qualName, qualValue, options]);
-    }
-
-    setProperty(schemaNS: string, propName: string, propValue: XMPValue, setOptions?: number, valueType?: string): Promise<void> {
-      return this.#call<void>("xmp.meta.setProperty", [schemaNS, propName, propValue, setOptions, valueType]);
-    }
-
-    sort(): Promise<void> {
-      return this.#call<void>("xmp.meta.sort");
-    }
-
-    async dispose(): Promise<void> {
-      const reference = await this.#referencePromise;
-      await rpc.call<void>(UXP_MODULE_ID, "xmp.meta.dispose", [reference]);
-    }
-
-    async toXmpRemoteReference(): Promise<XMPRemoteReference> {
-      return this.#referencePromise;
-    }
-
-    async #call<T>(method: string, args: readonly unknown[] = []): Promise<T> {
-      const reference = await this.#referencePromise;
-      await this.#queue;
-      return rpc.call<T>(UXP_MODULE_ID, method, [reference, ...(await encodeArgs(args))]);
-    }
+  const fileMethodNames: RemoteMethodNames = {
+    propertyGet: {},
+    propertySet: {},
+    method: {
+      canPutXMP: "xmp.file.canPutXMP",
+      closeFile: "xmp.file.closeFile",
+      getXMP: "xmp.file.getXMP",
+      getPacketInfo: "xmp.file.getPacketInfo",
+      getFileInfo: "xmp.file.getFileInfo",
+      putXMP: "xmp.file.putXMP"
+    },
+    dispose: "xmp.file.dispose"
   };
-}
 
-function createXMPFileClass(rpc: XmpRpc) {
-  return class WebviewXMPFile implements XMPFile {
-    readonly #referencePromise: Promise<XMPRemoteReference>;
-    #queue: Promise<unknown> = Promise.resolve();
+  const metaReferenceDecoder: RemoteValueDecoder = (value) =>
+    isRemoteReference(value) && value.type === "XMPMeta" ? getOrCreateMeta(value) : undefined;
 
-    constructor(filePath?: string, format?: number, openFlags?: number, reference?: XMPRemoteReference) {
-      this.#referencePromise = reference
-        ? Promise.resolve(reference)
-        : rpc.call<XMPRemoteReference>(UXP_MODULE_ID, "xmp.file.create", encodeImmediateArgs([filePath, format, openFlags]));
+  const fileMethods = {
+    canPutXMP: {},
+    closeFile: {},
+    getXMP: { decode: metaReferenceDecoder },
+    getPacketInfo: {},
+    getFileInfo: {},
+    putXMP: {}
+  } as const;
+
+  const fileConfig: RemoteClassConfig = {
+    rpc,
+    moduleId: UXP_MODULE_ID,
+    methodNames: fileMethodNames,
+    properties: {},
+    methods: fileMethods,
+    argEncoders
+  };
+
+  class WebviewXMPFile extends RemoteClass implements XMPFile {
+    declare canPutXMP: (xmpData: XMPMeta | string) => Promise<boolean>;
+    declare closeFile: (closeFlags: number) => Promise<void>;
+    declare getXMP: () => Promise<XMPMeta>;
+    declare getPacketInfo: () => Promise<XMPPacketInfo>;
+    declare getFileInfo: () => Promise<XMPFileInfo>;
+    declare putXMP: (xmpData: XMPMeta | string) => Promise<void>;
+
+    constructor(filePath?: string, format?: number, openFlags?: number, reference?: RemoteReference) {
+      super(fileConfig, reference ?? fileConstruction(filePath, format, openFlags));
     }
 
     static getFormatInfo(format: number): Promise<number> {
       return rpc.call<number>(UXP_MODULE_ID, "xmp.file.getFormatInfo", [format]);
     }
+  }
 
-    canPutXMP(xmpData: XMPMeta | string): Promise<boolean> {
-      return this.#call<boolean>("xmp.file.canPutXMP", [xmpData]);
-    }
-
-    closeFile(closeFlags: number): Promise<void> {
-      return this.#call<void>("xmp.file.closeFile", [closeFlags]);
-    }
-
-    async getXMP(): Promise<XMPMeta> {
-      const reference = await this.#call<XMPRemoteReference>("xmp.file.getXMP");
-      return createMetaFromReference(rpc, reference);
-    }
-
-    getPacketInfo(): Promise<XMPPacketInfo> {
-      return this.#call<XMPPacketInfo>("xmp.file.getPacketInfo");
-    }
-
-    getFileInfo(): Promise<XMPFileInfo> {
-      return this.#call<XMPFileInfo>("xmp.file.getFileInfo");
-    }
-
-    putXMP(xmpData: XMPMeta | string): Promise<void> {
-      return this.#call<void>("xmp.file.putXMP", [xmpData]);
-    }
-
-    async dispose(): Promise<void> {
-      const reference = await this.#referencePromise;
-      await rpc.call<void>(UXP_MODULE_ID, "xmp.file.dispose", [reference]);
-    }
-
-    async toXmpRemoteReference(): Promise<XMPRemoteReference> {
-      return this.#referencePromise;
-    }
-
-    async #call<T>(method: string, args: readonly unknown[] = []): Promise<T> {
-      const reference = await this.#referencePromise;
-      await this.#queue;
-      return rpc.call<T>(UXP_MODULE_ID, method, [reference, ...(await encodeArgs(args))]);
-    }
-  };
-}
-
-function createXMPIteratorClass() {
-  return class WebviewXMPIterator {
-    constructor() {
-      throw new Error("uxp.xmp.XMPIterator cannot be constructed directly. Use XMPMeta.iterator().");
-    }
-  };
-}
-
-function createIteratorFromReference(rpc: XmpRpc, reference: XMPRemoteReference): XMPIterator {
-  return {
-    async next() {
-      return deserializeProperty(
-        rpc,
-        await rpc.call<XMPSerializedProperty | null>(UXP_MODULE_ID, "xmp.iterator.next", [reference])
-      );
+  const iteratorMethodNames: RemoteMethodNames = {
+    propertyGet: {},
+    propertySet: {},
+    method: {
+      next: "xmp.iterator.next",
+      skipSiblings: "xmp.iterator.skipSiblings",
+      skipSubtree: "xmp.iterator.skipSubtree"
     },
-    skipSiblings: () => rpc.call<void>(UXP_MODULE_ID, "xmp.iterator.skipSiblings", [reference]),
-    skipSubtree: () => rpc.call<void>(UXP_MODULE_ID, "xmp.iterator.skipSubtree", [reference]),
-    dispose: () => rpc.call<void>(UXP_MODULE_ID, "xmp.iterator.dispose", [reference]),
-    toXmpRemoteReference: () => Promise.resolve(reference)
-  } as XMPIterator;
-}
+    dispose: "xmp.iterator.dispose"
+  };
 
-function createXMPDateTimeClass(rpc: XmpRpc) {
-  return class WebviewXMPDateTime implements XMPDateTime {
-    readonly #referencePromise: Promise<XMPRemoteReference>;
-    #queue: Promise<unknown> = Promise.resolve();
+  const iteratorMethods = {
+    next: { decode: propertyDecoder },
+    skipSiblings: {},
+    skipSubtree: {}
+  } as const;
 
-    constructor(date?: Date | string, reference?: XMPRemoteReference) {
-      this.#referencePromise = reference
-        ? Promise.resolve(reference)
-        : rpc.call<XMPRemoteReference>(UXP_MODULE_ID, "xmp.dateTime.create", encodeImmediateArgs([date]));
+  const iteratorConfig: RemoteClassConfig = {
+    rpc,
+    moduleId: UXP_MODULE_ID,
+    methodNames: iteratorMethodNames,
+    properties: {},
+    methods: iteratorMethods,
+    argEncoders
+  };
 
-      for (const property of DATE_TIME_PROPERTIES) {
-        Object.defineProperty(this, property, {
-          get: () => this.#getProperty(property),
-          set: (value: number) => {
-            this.#queue = this.#queue.then(async () => {
-              const ref = await this.#referencePromise;
-              await rpc.call<void>(UXP_MODULE_ID, "xmp.dateTime.setProperty", [ref, property, value]);
-            });
-            void this.#queue.catch(() => undefined);
-          },
-          enumerable: true
-        });
-      }
-    }
+  class WebviewXMPIterator extends RemoteClass implements XMPIterator {
+    declare next: () => Promise<XMPProperty | null>;
+    declare skipSiblings: () => Promise<void>;
+    declare skipSubtree: () => Promise<void>;
 
-    get year(): Promise<number> {
-      return this.#getProperty("year");
+    constructor(reference: RemoteReference) {
+      super(iteratorConfig, reference);
     }
-    set year(value: number) {
-      this.#setProperty("year", value);
-    }
-    get month(): Promise<number> {
-      return this.#getProperty("month");
-    }
-    set month(value: number) {
-      this.#setProperty("month", value);
-    }
-    get day(): Promise<number> {
-      return this.#getProperty("day");
-    }
-    set day(value: number) {
-      this.#setProperty("day", value);
-    }
-    get hour(): Promise<number> {
-      return this.#getProperty("hour");
-    }
-    set hour(value: number) {
-      this.#setProperty("hour", value);
-    }
-    get minute(): Promise<number> {
-      return this.#getProperty("minute");
-    }
-    set minute(value: number) {
-      this.#setProperty("minute", value);
-    }
-    get second(): Promise<number> {
-      return this.#getProperty("second");
-    }
-    set second(value: number) {
-      this.#setProperty("second", value);
-    }
-    get nanosecond(): Promise<number> {
-      return this.#getProperty("nanosecond");
-    }
-    set nanosecond(value: number) {
-      this.#setProperty("nanosecond", value);
-    }
-    get tzSign(): Promise<number> {
-      return this.#getProperty("tzSign");
-    }
-    set tzSign(value: number) {
-      this.#setProperty("tzSign", value);
-    }
-    get tzHour(): Promise<number> {
-      return this.#getProperty("tzHour");
-    }
-    set tzHour(value: number) {
-      this.#setProperty("tzHour", value);
-    }
-    get tzMinute(): Promise<number> {
-      return this.#getProperty("tzMinute");
-    }
-    set tzMinute(value: number) {
-      this.#setProperty("tzMinute", value);
-    }
+  }
 
-    compareTo(dateTime: XMPDateTime): Promise<number> {
-      return this.#call<number>("xmp.dateTime.compareTo", [dateTime]);
-    }
+  const dateTimeProperties: Readonly<Record<(typeof DATE_TIME_PROPERTY_NAMES)[number], RemotePropertyDescriptor>> =
+    Object.fromEntries(
+      DATE_TIME_PROPERTY_NAMES.map((name) => [name, { writable: true, mutating: false, remoteKey: name }])
+    ) as Readonly<Record<(typeof DATE_TIME_PROPERTY_NAMES)[number], RemotePropertyDescriptor>>;
 
-    convertToLocalTime(): Promise<void> {
-      return this.#call<void>("xmp.dateTime.convertToLocalTime");
-    }
+  const dateTimeMethodNames: RemoteMethodNames = {
+    propertyGet: Object.fromEntries(DATE_TIME_PROPERTY_NAMES.map((name) => [name, "xmp.dateTime.getProperty"])),
+    propertySet: Object.fromEntries(DATE_TIME_PROPERTY_NAMES.map((name) => [name, "xmp.dateTime.setProperty"])),
+    method: {
+      compareTo: "xmp.dateTime.compareTo",
+      convertToLocalTime: "xmp.dateTime.convertToLocalTime",
+      convertToUTCTime: "xmp.dateTime.convertToUTCTime",
+      getDate: "xmp.dateTime.getDate",
+      setLocalTimeZone: "xmp.dateTime.setLocalTimeZone",
+      hasDate: "xmp.dateTime.hasDate",
+      hasTime: "xmp.dateTime.hasTime",
+      hasTimeZone: "xmp.dateTime.hasTimeZone",
+      toString: "xmp.dateTime.toString"
+    },
+    batchGet: "xmp.dateTime.batchGet",
+    batchSet: "xmp.dateTime.batchSet",
+    dispose: "xmp.dateTime.dispose"
+  };
 
-    convertToUTCTime(): Promise<void> {
-      return this.#call<void>("xmp.dateTime.convertToUTCTime");
-    }
+  const isoToDateDecoder: RemoteValueDecoder = (value) => (typeof value === "string" ? new Date(value) : undefined);
 
-    async getDate(): Promise<Date> {
-      const iso = await this.#call<string>("xmp.dateTime.getDate");
-      return new Date(iso);
-    }
+  const dateTimeMethods = {
+    compareTo: {},
+    convertToLocalTime: {},
+    convertToUTCTime: {},
+    getDate: { decode: isoToDateDecoder },
+    setLocalTimeZone: {},
+    hasDate: {},
+    hasTime: {},
+    hasTimeZone: {},
+    toString: {}
+  } as const;
 
-    setLocalTimeZone(): Promise<void> {
-      return this.#call<void>("xmp.dateTime.setLocalTimeZone");
-    }
+  const dateTimeConfig: RemoteClassConfig = {
+    rpc,
+    moduleId: UXP_MODULE_ID,
+    methodNames: dateTimeMethodNames,
+    properties: dateTimeProperties,
+    methods: dateTimeMethods,
+    argEncoders
+  };
 
-    hasDate(): Promise<boolean> {
-      return this.#call<boolean>("xmp.dateTime.hasDate");
-    }
+  class WebviewXMPDateTime extends RemoteClass implements XMPDateTime {
+    declare year: Promise<number>;
+    declare month: Promise<number>;
+    declare day: Promise<number>;
+    declare hour: Promise<number>;
+    declare minute: Promise<number>;
+    declare second: Promise<number>;
+    declare nanosecond: Promise<number>;
+    declare tzSign: Promise<number>;
+    declare tzHour: Promise<number>;
+    declare tzMinute: Promise<number>;
+    declare compareTo: (dateTime: XMPDateTime) => Promise<number>;
+    declare convertToLocalTime: () => Promise<void>;
+    declare convertToUTCTime: () => Promise<void>;
+    declare getDate: () => Promise<Date>;
+    declare setLocalTimeZone: () => Promise<void>;
+    declare hasDate: () => Promise<boolean>;
+    declare hasTime: () => Promise<boolean>;
+    declare hasTimeZone: () => Promise<boolean>;
+    declare toString: () => Promise<string>;
 
-    hasTime(): Promise<boolean> {
-      return this.#call<boolean>("xmp.dateTime.hasTime");
+    constructor(date?: Date | string, reference?: RemoteReference) {
+      super(dateTimeConfig, reference ?? dateTimeConstruction(date));
     }
+  }
 
-    hasTimeZone(): Promise<boolean> {
-      return this.#call<boolean>("xmp.dateTime.hasTimeZone");
-    }
+  function getOrCreateMeta(reference: RemoteReference): XMPMeta {
+    return metaCache.getOrCreate(reference.id, () => new WebviewXMPMeta(undefined, undefined, reference));
+  }
 
-    toString(): Promise<string> {
-      return this.#call<string>("xmp.dateTime.toString");
-    }
+  function getOrCreateDateTime(reference: RemoteReference): XMPDateTime {
+    return dateTimeCache.getOrCreate(reference.id, () => new WebviewXMPDateTime(undefined, reference));
+  }
 
-    async dispose(): Promise<void> {
-      const reference = await this.#referencePromise;
-      await rpc.call<void>(UXP_MODULE_ID, "xmp.dateTime.dispose", [reference]);
-    }
+  function getOrCreateIterator(reference: RemoteReference): XMPIterator {
+    return iteratorCache.getOrCreate(reference.id, () => new WebviewXMPIterator(reference));
+  }
 
-    async toXmpRemoteReference(): Promise<XMPRemoteReference> {
-      return this.#referencePromise;
-    }
+  const XMPUtilsProxy = createXMPUtils(rpc, argEncoders);
 
-    async #getProperty(name: DateTimePropertyName): Promise<number> {
-      const reference = await this.#referencePromise;
-      await this.#queue;
-      return rpc.call<number>(UXP_MODULE_ID, "xmp.dateTime.getProperty", [reference, name]);
-    }
-
-    #setProperty(name: DateTimePropertyName, value: number): void {
-      this.#queue = this.#queue.then(async () => {
-        const reference = await this.#referencePromise;
-        await rpc.call<void>(UXP_MODULE_ID, "xmp.dateTime.setProperty", [reference, name, value]);
-      });
-      void this.#queue.catch(() => undefined);
-    }
-
-    async #call<T>(method: string, args: readonly unknown[] = []): Promise<T> {
-      const reference = await this.#referencePromise;
-      await this.#queue;
-      return rpc.call<T>(UXP_MODULE_ID, method, [reference, ...(await encodeArgs(args))]);
-    }
+  return {
+    XMPMeta: WebviewXMPMeta,
+    XMPFile: WebviewXMPFile,
+    XMPDateTime: WebviewXMPDateTime,
+    XMPIterator: WebviewXMPIterator as unknown as { new (): never },
+    XMPUtils: XMPUtilsProxy
   };
 }
 
-function createXMPUtils(rpc: XmpRpc): XMPUtils {
+function metaConstruction(packet?: string, buffer?: string | number[]): RemoteConstructionRequest {
+  return { method: "xmp.meta.create", args: encodeImmediateArgs([packet, buffer]) };
+}
+
+function fileConstruction(filePath?: string, format?: number, openFlags?: number): RemoteConstructionRequest {
+  return { method: "xmp.file.create", args: trimTrailingUndefined([filePath, format, openFlags]) };
+}
+
+function dateTimeConstruction(date?: Date | string): RemoteConstructionRequest {
+  return { method: "xmp.dateTime.create", args: encodeImmediateArgs([date]) };
+}
+
+function createXMPUtils(rpc: XmpRpc, argEncoders: readonly RemoteArgEncoder[]): XMPUtils {
+  const call = <T>(method: string, args: readonly unknown[]): Promise<T> => callWithEncodedArgs<T>(rpc, method, args, argEncoders);
+
   return {
-    appendProperties: (source, dest, options) =>
-      callWithEncodedArgs<void>(rpc, "xmp.utils.appendProperties", [source, dest, options]),
+    appendProperties: (source, dest, options) => call<void>("xmp.utils.appendProperties", [source, dest, options]),
     catenateArrayItems: (xmpObj, schemaNS, arrayName, separator, quotes, options) =>
-      callWithEncodedArgs<string>(rpc, "xmp.utils.catenateArrayItems", [
-        xmpObj,
-        schemaNS,
-        arrayName,
-        separator,
-        quotes,
-        options
-      ]),
+      call<string>("xmp.utils.catenateArrayItems", [xmpObj, schemaNS, arrayName, separator, quotes, options]),
     composeArrayItemPath: (schemaNS, arrayName, itemIndex) =>
       rpc.call<string>(UXP_MODULE_ID, "xmp.utils.composeArrayItemPath", [schemaNS, arrayName, itemIndex]),
     composeFieldSelector: (schemaNS, arrayName, fieldNS, fieldName, fieldValue) =>
-      rpc.call<string>(UXP_MODULE_ID, "xmp.utils.composeFieldSelector", [
-        schemaNS,
-        arrayName,
-        fieldNS,
-        fieldName,
-        fieldValue
-      ]),
+      rpc.call<string>(UXP_MODULE_ID, "xmp.utils.composeFieldSelector", [schemaNS, arrayName, fieldNS, fieldName, fieldValue]),
     composeLangSelector: (schemaNS, arrayName, locale) =>
       rpc.call<string>(UXP_MODULE_ID, "xmp.utils.composeLangSelector", [schemaNS, arrayName, locale]),
     composeStructFieldPath: (schemaNS, structName, fieldNS, fieldName) =>
@@ -535,44 +532,23 @@ function createXMPUtils(rpc: XmpRpc): XMPUtils {
     composeQualifierPath: (schemaNS, propName, qualNS, qualName) =>
       rpc.call<string>(UXP_MODULE_ID, "xmp.utils.composeQualifierPath", [schemaNS, propName, qualNS, qualName]),
     duplicateSubtree: (source, dest, sourceNS, sourceRoot, destNS, destRoot, options) =>
-      callWithEncodedArgs<void>(rpc, "xmp.utils.duplicateSubtree", [
-        source,
-        dest,
-        sourceNS,
-        sourceRoot,
-        destNS,
-        destRoot,
-        options
-      ]),
+      call<void>("xmp.utils.duplicateSubtree", [source, dest, sourceNS, sourceRoot, destNS, destRoot, options]),
     removeProperties: (xmpObj, schemaNS, propName, options) =>
-      callWithEncodedArgs<void>(rpc, "xmp.utils.removeProperties", [xmpObj, schemaNS, propName, options]),
+      call<void>("xmp.utils.removeProperties", [xmpObj, schemaNS, propName, options]),
     separateArrayItems: (xmpObj, schemaNS, arrayName, arrayOptions, concatString) =>
-      callWithEncodedArgs<void>(rpc, "xmp.utils.separateArrayItems", [
-        xmpObj,
-        schemaNS,
-        arrayName,
-        arrayOptions,
-        concatString
-      ])
+      call<void>("xmp.utils.separateArrayItems", [xmpObj, schemaNS, arrayName, arrayOptions, concatString])
   };
 }
 
-function createMetaFromReference(rpc: XmpRpc, reference: XMPRemoteReference): XMPMeta {
-  const XMPMetaProxy = createXMPMetaClass(rpc);
-  return new XMPMetaProxy(undefined, undefined, reference);
-}
-
-function createDateTimeFromReference(rpc: XmpRpc, reference: XMPRemoteReference): XMPDateTime {
-  const XMPDateTimeProxy = createXMPDateTimeClass(rpc);
-  return new XMPDateTimeProxy(undefined, reference);
-}
-
-function deserializeProperty(rpc: XmpRpc, value: XMPSerializedProperty | null | undefined): XMPProperty | null {
+function deserializeProperty(
+  value: XMPSerializedProperty | null | undefined,
+  dateTimeValueDecoder: RemoteValueDecoder
+): XMPProperty | null {
   if (!value) {
     return null;
   }
 
-  const deserializedValue = deserializeValue(rpc, value.value);
+  const deserializedValue = deserializeValue(value.value, dateTimeValueDecoder);
   return {
     locale: value.locale ?? "",
     namespace: value.namespace ?? "",
@@ -583,12 +559,12 @@ function deserializeProperty(rpc: XmpRpc, value: XMPSerializedProperty | null | 
   };
 }
 
-function deserializeValue(rpc: XmpRpc, value: XMPSerializedValue | undefined): XMPValue | null {
-  if (isXmpReference(value) && value.type === "XMPDateTime") {
-    return createDateTimeFromReference(rpc, value);
+function deserializeValue(value: XMPSerializedValue | undefined, dateTimeValueDecoder: RemoteValueDecoder): XMPValue | null {
+  if (isRemoteReference(value) && value.type === "XMPDateTime") {
+    return dateTimeValueDecoder(value) as XMPValue;
   }
 
-  if (isXmpReference(value)) {
+  if (isRemoteReference(value)) {
     return null;
   }
 
@@ -599,69 +575,23 @@ function deserializeValue(rpc: XmpRpc, value: XMPSerializedValue | undefined): X
   return value ?? null;
 }
 
-async function callWithEncodedArgs<T>(rpc: XmpRpc, method: string, args: readonly unknown[]): Promise<T> {
-  return rpc.call<T>(UXP_MODULE_ID, method, await encodeArgs(args));
+async function callWithEncodedArgs<T>(
+  rpc: XmpRpc,
+  method: string,
+  args: readonly unknown[],
+  argEncoders: readonly RemoteArgEncoder[]
+): Promise<T> {
+  return rpc.call<T>(UXP_MODULE_ID, method, await encodeRemoteArgs(args, argEncoders));
 }
 
 function encodeImmediateArgs(args: readonly unknown[]): unknown[] {
-  return trimTrailingUndefined(args.map((arg) => {
-    if (arg instanceof Date) {
-      const envelope: XMPNativeDateEnvelope = {
-        kind: "uxp.xmp.nativeDate",
-        iso: arg.toISOString()
-      };
-      return envelope;
-    }
-    return arg;
-  }));
-}
-
-async function encodeArgs(args: readonly unknown[]): Promise<unknown[]> {
-  return trimTrailingUndefined(await Promise.all(args.map((arg) => encodeValue(arg))));
-}
-
-async function encodeValue(value: unknown): Promise<unknown> {
-  if (isRemoteProxy(value)) {
-    return value.toXmpRemoteReference();
-  }
-
-  if (value instanceof Date) {
-    const envelope: XMPNativeDateEnvelope = {
-      kind: "uxp.xmp.nativeDate",
-      iso: value.toISOString()
-    };
-    return envelope;
-  }
-
-  if (Array.isArray(value)) {
-    return Promise.all(value.map((item) => encodeValue(item)));
-  }
-
-  if (value && typeof value === "object") {
-    const entries = await Promise.all(
-      Object.entries(value).map(async ([key, nestedValue]) => [key, await encodeValue(nestedValue)] as const)
-    );
-    return Object.fromEntries(entries);
-  }
-
-  return value;
-}
-
-function isRemoteProxy(value: unknown): value is { toXmpRemoteReference(): Promise<XMPRemoteReference> } {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    "toXmpRemoteReference" in value &&
-    typeof (value as { toXmpRemoteReference?: unknown }).toXmpRemoteReference === "function"
-  );
-}
-
-function isXmpReference(value: unknown): value is XMPRemoteReference {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    (value as { kind?: unknown }).kind === "uxp.xmp.ref" &&
-    typeof (value as { id?: unknown }).id === "string"
+  return trimTrailingUndefined(
+    args.map((arg) => {
+      if (arg instanceof Date) {
+        return { kind: "uxp.xmp.nativeDate", iso: arg.toISOString() } satisfies XMPNativeDateEnvelope;
+      }
+      return arg;
+    })
   );
 }
 

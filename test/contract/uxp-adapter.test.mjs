@@ -711,7 +711,7 @@ test("UXP xmp adapter dispatches XMPMeta handles", async () => {
 
   try {
     const metaRef = await dispatchUxpCall("xmp.meta.create", ["packet"]);
-    assert.equal(metaRef.kind, "uxp.xmp.ref");
+    assert.equal(metaRef.kind, "uxp.remote.ref");
     assert.equal(metaRef.type, "XMPMeta");
 
     assert.equal(

@@ -212,6 +212,61 @@ export default defineWebviewCdpCases([
     }
   },
   {
+    name: "uxp.xmp-datetime-and-iterator-roundtrip",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const { XMPConst, XMPDateTime, XMPMeta } = bridge.uxp.xmp;
+      const schema = XMPConst.NS_XMP;
+      if (typeof schema !== "string" || schema.length === 0) {
+        return skip("uxp.xmp.XMPConst.NS_XMP is unavailable in this UXP host.");
+      }
+
+      const iso = "2026-07-07T08:30:00.000Z";
+      const dateTime = new XMPDateTime(new Date(iso));
+      const meta = new XMPMeta();
+      try {
+        // remoteKey-backed property getters round-trip through xmp.dateTime.getProperty.
+        const year = await dateTime.year;
+        assert.equal(year, 2026, "XMPDateTime.year via remoteKey getter");
+
+        // batchGet aggregates several remoteKey properties in one RPC.
+        const batch = await dateTime.batchGet(["year", "month", "day"]);
+        assert.equal(batch.year, 2026, "batchGet year");
+        assert.equal(batch.month, 7, "batchGet month");
+        assert.equal(batch.day, 7, "batchGet day");
+
+        // batchSet queues a single write; a subsequent read reflects it (read-your-writes).
+        dateTime.batchSet({ year: 2030 });
+        assert.equal(await dateTime.year, 2030, "batchSet then read-your-writes");
+
+        // getDate decodes the ISO string envelope back into a Date.
+        const readBack = await dateTime.getDate();
+        assert.ok(readBack instanceof Date, "XMPDateTime.getDate should decode to a Date.");
+
+        // Writing an XMPDateTime as a property value and reading it back returns a property.
+        await meta.setProperty(schema, "CreateDate", dateTime);
+        const dateProperty = await meta.getProperty(schema, "CreateDate");
+        assert.ok(dateProperty, "getProperty(date) should return a property.");
+
+        // Iterator round-trips through xmp.meta.iterator and yields properties.
+        await meta.setProperty(schema, "CreatorTool", "uxp-webview-bridge");
+        const iterator = await meta.iterator();
+        try {
+          const first = await iterator.next();
+          assert.ok(first === null || typeof first === "object", "iterator.next() shape");
+        } finally {
+          await disposeQuietly(iterator);
+        }
+
+        return { year, batchYear: batch.year, readBackIso: readBack.toISOString() };
+      } finally {
+        await disposeQuietly(dateTime);
+        await disposeQuietly(meta);
+      }
+    }
+  },
+  {
     name: "uxp.plugin-manager-plugins",
     async run({ bridge, assert, skip }) {
       bridge.ensureConfigured();
@@ -370,6 +425,14 @@ async function cleanupPath(bridge: { fs: { unlink(path: string): Promise<number>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+async function disposeQuietly(value: { dispose(): Promise<void> }): Promise<void> {
+  try {
+    await value.dispose();
+  } catch {
+    // Best-effort cleanup; assertions own pass/fail.
+  }
 }
 
 function bytesToCsv(value: Uint8Array): string {

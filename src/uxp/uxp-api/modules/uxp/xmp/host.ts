@@ -1,18 +1,25 @@
-import type { UxpXmpHostModule, UxpXmpMethodName, XMPNativeDateEnvelope, XMPRemoteReference, XMPSerializedProperty } from "./types.js";
+import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
+import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
+import type { UxpXmpHostModule, UxpXmpMethodName, XmpHandleType, XMPNativeDateEnvelope, XMPSerializedProperty } from "./types.js";
 
 declare const require: (moduleName: "uxp") => UxpXmpHostModule;
 
-interface XmpHandle {
-  readonly type: XMPRemoteReference["type"];
-  readonly value: unknown;
-  readonly touchedAt: number;
-}
-
 type XmpApi = UxpXmpHostModule["xmp"];
 
-const HANDLES = new Map<string, XmpHandle>();
-const HANDLE_TTL_MS = 10 * 60 * 1000;
-let nextHandleId = 1;
+const registry = createRemoteHandleRegistry();
+
+const DATE_TIME_PROPERTY_NAMES = [
+  "year",
+  "month",
+  "day",
+  "hour",
+  "minute",
+  "second",
+  "nanosecond",
+  "tzSign",
+  "tzHour",
+  "tzMinute"
+] as const;
 
 const META_INSTANCE_METHODS = {
   "xmp.meta.appendArrayItem": { name: "appendArrayItem", min: 3, max: 5 },
@@ -75,7 +82,7 @@ const DATE_TIME_METHODS = {
 } as const;
 
 export function dispatchUxpXmpCall(method: UxpXmpMethodName, args: readonly unknown[]): unknown {
-  pruneExpiredHandles();
+  registry.prune();
 
   if (method === "xmp.meta.create") {
     expectArgs(args, 0, 2, method);
@@ -159,7 +166,7 @@ export function dispatchUxpXmpCall(method: UxpXmpMethodName, args: readonly unkn
 }
 
 export function destroyUxpXmpHandles(): void {
-  HANDLES.clear();
+  registry.clear();
 }
 
 function dispatchFileMethod(method: UxpXmpMethodName, args: readonly unknown[]): unknown {
@@ -230,6 +237,30 @@ function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown
     return result instanceof Date ? result.toISOString() : new Date(result as string | number).toISOString();
   }
 
+  if (method === "xmp.dateTime.batchGet") {
+    const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
+    const dateTime = getHandleValue(reference, "XMPDateTime") as Record<string, unknown>;
+    const names = assertDateTimePropertyNames(propertyNames, method);
+    const result: Record<string, unknown> = {};
+    for (const name of names) {
+      result[name] = dateTime[name];
+    }
+    return result;
+  }
+
+  if (method === "xmp.dateTime.batchSet") {
+    const [reference, values] = expectReferenceArgs(args, 2, 2, method);
+    const dateTime = getHandleValue(reference, "XMPDateTime") as Record<string, unknown>;
+    if (!values || typeof values !== "object") {
+      throw new Error(`${method} requires a property map.`);
+    }
+    for (const [name, value] of Object.entries(values as Record<string, unknown>)) {
+      assertDateTimeProperty(name, method);
+      dateTime[name] = decodeValue(value);
+    }
+    return undefined;
+  }
+
   if (method in DATE_TIME_METHODS) {
     const spec = DATE_TIME_METHODS[method as keyof typeof DATE_TIME_METHODS];
     const [reference, ...methodArgs] = expectReferenceArgs(args, spec.min + 1, spec.max + 1, method);
@@ -250,7 +281,7 @@ function serializeProperty(value: unknown, xmp: XmpApi): XMPSerializedProperty |
     namespace?: string;
     options?: number;
     path?: string;
-    value?: string | number | boolean | XMPRemoteReference | null;
+    value?: string | number | boolean | RemoteReference | null;
     stringValue?: string;
   } = {
     value: serializePropertyValue(property.value, xmp),
@@ -275,7 +306,7 @@ function serializeProperty(value: unknown, xmp: XmpApi): XMPSerializedProperty |
   return result;
 }
 
-function serializePropertyValue(value: unknown, xmp: XmpApi): string | number | boolean | XMPRemoteReference | null {
+function serializePropertyValue(value: unknown, xmp: XmpApi): string | number | boolean | RemoteReference | null {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return value;
   }
@@ -287,37 +318,16 @@ function serializePropertyValue(value: unknown, xmp: XmpApi): string | number | 
   return value == null ? null : String(value);
 }
 
-function createHandle(type: XMPRemoteReference["type"], value: unknown): XMPRemoteReference {
-  const id = `${type}:${Date.now()}:${nextHandleId++}`;
-  HANDLES.set(id, { type, value, touchedAt: Date.now() });
-  return { kind: "uxp.xmp.ref", type, id };
+function createHandle(type: XmpHandleType, value: unknown): RemoteReference {
+  return registry.register(type, value);
 }
 
-function disposeHandle(reference: XMPRemoteReference): void {
-  HANDLES.delete(reference.id);
+function disposeHandle(reference: RemoteReference): void {
+  registry.dispose(reference);
 }
 
-function getHandleValue(reference: XMPRemoteReference, expectedType: XMPRemoteReference["type"]): unknown {
-  if (reference.kind !== "uxp.xmp.ref" || reference.type !== expectedType || typeof reference.id !== "string") {
-    throw new Error(`Invalid ${expectedType} reference.`);
-  }
-
-  const handle = HANDLES.get(reference.id);
-  if (!handle || handle.type !== expectedType) {
-    throw new Error(`Unknown ${expectedType} reference: ${reference.id}`);
-  }
-
-  HANDLES.set(reference.id, { ...handle, touchedAt: Date.now() });
-  return handle.value;
-}
-
-function pruneExpiredHandles(): void {
-  const now = Date.now();
-  for (const [id, handle] of HANDLES) {
-    if (now - handle.touchedAt > HANDLE_TTL_MS) {
-      HANDLES.delete(id);
-    }
-  }
+function getHandleValue(reference: RemoteReference, expectedType: XmpHandleType): unknown {
+  return registry.resolve(reference, expectedType);
 }
 
 function decodeArgs(args: readonly unknown[]): unknown[] {
@@ -326,7 +336,7 @@ function decodeArgs(args: readonly unknown[]): unknown[] {
 
 function decodeValue(value: unknown): unknown {
   if (isReference(value)) {
-    return getHandleValue(value, value.type);
+    return registry.resolve(value, value.type);
   }
 
   if (isNativeDateEnvelope(value)) {
@@ -344,14 +354,8 @@ function decodeValue(value: unknown): unknown {
   return value;
 }
 
-function isReference(value: unknown): value is XMPRemoteReference {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    (value as { kind?: unknown }).kind === "uxp.xmp.ref" &&
-    typeof (value as { type?: unknown }).type === "string" &&
-    typeof (value as { id?: unknown }).id === "string"
-  );
+function isReference(value: unknown): value is RemoteReference {
+  return isRemoteReference(value);
 }
 
 function isNativeDateEnvelope(value: unknown): value is XMPNativeDateEnvelope {
@@ -401,13 +405,13 @@ function expectReferenceArgs(
   minLength: number,
   maxLength: number,
   method: string
-): [XMPRemoteReference, ...unknown[]] {
+): [RemoteReference, ...unknown[]] {
   expectArgs(args, minLength, maxLength, method);
   const reference = args[0];
   if (!isReference(reference)) {
     throw new Error(`${method} requires an XMP remote reference as its first argument.`);
   }
-  return args as [XMPRemoteReference, ...unknown[]];
+  return args as [RemoteReference, ...unknown[]];
 }
 
 function expectArgs(args: readonly unknown[], minLength: number, maxLength: number, method: string): void {
@@ -419,6 +423,22 @@ function expectArgs(args: readonly unknown[], minLength: number, maxLength: numb
 function assertNonEmptyString(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
+  }
+}
+
+function assertDateTimePropertyNames(value: unknown, method: string): readonly string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${method} requires an array of property names.`);
+  }
+  for (const name of value) {
+    assertDateTimeProperty(name, method);
+  }
+  return value as readonly string[];
+}
+
+function assertDateTimeProperty(name: unknown, method: string): asserts name is (typeof DATE_TIME_PROPERTY_NAMES)[number] {
+  if (typeof name !== "string" || !(DATE_TIME_PROPERTY_NAMES as readonly string[]).includes(name)) {
+    throw new Error(`${method} received an unknown XMPDateTime property: ${String(name)}`);
   }
 }
 

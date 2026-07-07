@@ -75,12 +75,19 @@ async function writeUxpClassicBundle() {
 
 function getRelativeImports(source, file) {
   const imports = [];
-  const importPattern = /^\s*import\s+[^"']*["']([^"']+)["'];?\s*$/gm;
+  // Static imports and re-exports (`export { x } from "./y.js"`, `export * from "./y.js"`) both
+  // create load-order dependencies that must be bundled before this module.
+  const patterns = [
+    /^\s*import\s+[^"']*["']([^"']+)["'];?\s*$/gm,
+    /^\s*export\s+(?:\*|\{[^}]*\})\s+from\s+["']([^"']+)["'];?\s*$/gm
+  ];
 
-  for (const match of source.matchAll(importPattern)) {
-    const specifier = match[1];
-    if (specifier.startsWith(".")) {
-      imports.push(path.resolve(path.dirname(file), specifier));
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1];
+      if (specifier.startsWith(".")) {
+        imports.push(path.resolve(path.dirname(file), specifier));
+      }
     }
   }
 
@@ -90,6 +97,7 @@ function getRelativeImports(source, file) {
 function toClassicScript(source) {
   return source
     .replace(/^\s*import\s+[^"']*["'][^"']+["'];?\s*$/gm, "")
+    .replace(/^\s*export\s+(?:\*|\{[^}]*\})\s+from\s+["'][^"']+["'];?\s*$/gm, "")
     .replace(/^\s*export\s+\{[^}]*\};?\s*$/gm, "")
     .replace(/\bexport\s+(?=(?:async\s+)?function\b|class\b|const\b|let\b|var\b)/g, "")
     .replace(/\/\/# sourceMappingURL=.*$/gm, "");

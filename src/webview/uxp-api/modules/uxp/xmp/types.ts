@@ -1,3 +1,4 @@
+import type { RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 import type {
   XMPConst as NativeXMPConst,
   XMPDateTime as NativeXMPDateTime,
@@ -14,13 +15,7 @@ import type {
 export type XMPConst = NativeXMPConst;
 export type XMPPrimitiveValue = string | number | boolean;
 export type XMPValue = XMPPrimitiveValue | XMPDateTime;
-export type XMPSerializedValue = XMPPrimitiveValue | XMPRemoteReference | XMPNativeDateEnvelope | null;
-
-export interface XMPRemoteReference {
-  readonly kind: "uxp.xmp.ref";
-  readonly type: "XMPMeta" | "XMPFile" | "XMPIterator" | "XMPDateTime";
-  readonly id: string;
-}
+export type XMPSerializedValue = XMPPrimitiveValue | RemoteReference | XMPNativeDateEnvelope | null;
 
 export interface XMPNativeDateEnvelope {
   readonly kind: "uxp.xmp.nativeDate";
