@@ -253,6 +253,51 @@ export interface OpenOptions {
   readonly path?: string;
 }
 
+/**
+ * A Photoshop action descriptor: schema-less, arbitrarily-nested JSON with a required `_obj`. It is
+ * transported verbatim across the bridge — never inspected, reference-decoded, or transformed on
+ * either side (ADR 0010). Any `_ref`/`_id` inside use Photoshop's *native* id space, disjoint from
+ * this bridge's handle registry; supplying those ids is the caller's responsibility. Structurally
+ * mirrors Adobe's `ActionDescriptor`.
+ */
+export interface ActionDescriptor {
+  _obj: string;
+  [prop: string]: unknown;
+}
+
+/**
+ * Options for {@link PhotoshopActions.batchPlay}, forwarded verbatim to Adobe's `batchPlay`.
+ * Structurally mirrors Adobe's `BatchPlayCommandOptions`; the host does not interpret these fields,
+ * it passes them through so callers control modal/synchronous behavior.
+ */
+export interface BatchPlayCommandOptions {
+  readonly commandEnablement?: "normal" | "never" | "always";
+  readonly dialogOptions?: "silent" | "dontDisplay" | "display";
+  readonly propagateErrorToDefaultHandler?: boolean;
+  readonly synchronousExecution?: boolean;
+  readonly modalBehavior?: "wait" | "execute" | "fail";
+  readonly useMultiGet?: boolean;
+  readonly suppressPlayLevelIncrease?: boolean;
+  readonly continueOnError?: boolean;
+  readonly immediateRedraw?: boolean;
+}
+
+/**
+ * The `photoshop.action` surface: a low-level passthrough to Photoshop's action system. Only
+ * `batchPlay` is exposed in this batch (ADR 0010 / RFC-0009).
+ */
+export interface PhotoshopActions {
+  /**
+   * Run a batch of action descriptors on the host's real `action.batchPlay`. Commands and the
+   * returned descriptors cross the bridge as verbatim JSON; the host wraps the call in
+   * `executeAsModal` and forwards `options` unchanged. Rejections surface as `BridgeRemoteError`.
+   */
+  batchPlay(
+    commands: readonly ActionDescriptor[],
+    options?: BatchPlayCommandOptions
+  ): Promise<ActionDescriptor[]>;
+}
+
 /** The `photoshop.app` entry surface. */
 export interface PhotoshopApp {
   readonly activeDocument: Promise<PsDocument>;
@@ -263,6 +308,7 @@ export interface PhotoshopApp {
 /** The `photoshop` namespace: app entry plus the transcribed enum tables. */
 export interface PhotoshopNamespace {
   readonly app: PhotoshopApp;
+  readonly action: PhotoshopActions;
   readonly LayerKind: typeof LayerKind;
   readonly BlendMode: typeof BlendMode;
   readonly AnchorPosition: typeof AnchorPosition;

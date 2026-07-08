@@ -39,6 +39,12 @@ import type {
   SaveOptionsValue
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type {
+  ActionDescriptor as AdobeActionDescriptor,
+  BatchPlayCommandOptions as AdobeBatchPlayCommandOptions
+} from "@shared/types/photoshop/internal/dom/CoreModules.js";
+import type {
+  ActionDescriptor,
+  BatchPlayCommandOptions,
   PsDocument,
   PsDocumentReadableKey,
   PsDocumentWritableProps,
@@ -109,6 +115,21 @@ type PsLayerReadableMembers = Exclude<
 >;
 type _LayerReadableKeysLocked = AssertMutual<PsLayerReadableMembers, PsLayerReadableKey>;
 
+/**
+ * batchPlay descriptor/option compatibility (ADR 0010 / RFC-0009).
+ *
+ * `photoshop.action.batchPlay` transports descriptors verbatim to Adobe's real `batchPlay`, so our
+ * locally-declared shapes must stay assignable to Adobe's `ActionDescriptor` / `BatchPlayCommandOptions`
+ * (reached through the working `@shared/*` alias, since the `@shared-types/photoshop/*` alias is
+ * broken — same strategy as the enum checks above). If a field drifts so our value would no longer
+ * satisfy Adobe's API, these fail to compile. `ActionDescriptor` is checked both ways because a
+ * host result descriptor we return must also be usable as an input descriptor.
+ */
+type Assignable<From, To> = [From] extends [To] ? true : never;
+type _DescriptorToAdobe = Assignable<ActionDescriptor, AdobeActionDescriptor>;
+type _DescriptorFromAdobe = Assignable<AdobeActionDescriptor, ActionDescriptor>;
+type _OptionsToAdobe = Assignable<BatchPlayCommandOptions, AdobeBatchPlayCommandOptions>;
+
 // Reference the compile-time-only aliases so `noUnusedLocals`-style tools (should they ever be
 // enabled) do not strip them; `type` aliases are erased regardless.
 export type _StaticConsistencyProof = [
@@ -120,7 +141,10 @@ export type _StaticConsistencyProof = [
   _FlipAxisCompatible,
   _DocWritableIsExactlyWritable,
   _DocReadableKeysLocked,
-  _LayerReadableKeysLocked
+  _LayerReadableKeysLocked,
+  _DescriptorToAdobe,
+  _DescriptorFromAdobe,
+  _OptionsToAdobe
 ];
 
 // ---------------------------------------------------------------------------------------------------
@@ -139,6 +163,9 @@ export default defineWebviewCdpCases([
       assert.functions(photoshop.app, ["open"], "photoshop.app");
       assert.ok("activeDocument" in photoshop.app, "photoshop.app.activeDocument must exist.");
       assert.ok("documents" in photoshop.app, "photoshop.app.documents must exist.");
+
+      assert.ok(typeof photoshop.action === "object" && photoshop.action !== null, "photoshop.action must be an object.");
+      assert.functions(photoshop.action, ["batchPlay"], "photoshop.action");
 
       for (const name of ["LayerKind", "BlendMode", "AnchorPosition", "ElementPlacement", "SaveOptions", "FlipAxis"]) {
         assert.ok(typeof photoshop[name] === "object" && photoshop[name] !== null, `photoshop.${name} must be an object.`);
@@ -360,6 +387,54 @@ export default defineWebviewCdpCases([
       await layer.opacity;
 
       return { batchKeys: 4, target };
+    }
+  },
+  {
+    name: "photoshop.batchplay-roundtrip",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const layer = await getActiveLayer(bridge, skip);
+      if (isSkip(layer)) {
+        return layer;
+      }
+
+      // Read-style descriptor: get the target layer property set. batchPlay returns a descriptor array.
+      const [layerDescriptor] = await bridge.photoshop.action.batchPlay([
+        { _obj: "get", _target: [{ _ref: "layer", _enum: "ordinal", _value: "targetEnum" }] }
+      ]);
+      assert.ok(typeof layerDescriptor === "object" && layerDescriptor !== null, "batchPlay read should return a descriptor.");
+      const nativeLayerId = layerDescriptor.layerID as number;
+      assert.ok(typeof nativeLayerId === "number", "the read descriptor should carry a native layerID.");
+
+      // The bridge proxy id must agree with the native id batchPlay reports (proves the disjoint id
+      // spaces still refer to the same layer — the "caller supplies native id" workflow).
+      const proxyId = await layer.id;
+      assert.equal(nativeLayerId, proxyId, "batchPlay's native layerID should match the proxy layer id.");
+
+      // Write-style descriptor: flip visibility of that layer by its native id, then restore it. This
+      // proves a caller can target a specific layer with a native id obtained from the DOM proxy.
+      const originalVisible = await layer.visible;
+      const setVisible = (visible: boolean) =>
+        bridge.photoshop.action.batchPlay([
+          {
+            _obj: "set",
+            _target: [{ _ref: "layer", _id: nativeLayerId }],
+            to: { _obj: "layer", visible }
+          }
+        ]);
+
+      const writeResult = await setVisible(!originalVisible);
+      assert.ok(Array.isArray(writeResult), "batchPlay write should return a descriptor array.");
+      const afterWrite = await layer.visible;
+      assert.equal(afterWrite, !originalVisible, "batchPlay set should have flipped the layer visibility.");
+
+      // Restore.
+      await setVisible(originalVisible);
+      const restored = await layer.visible;
+      assert.equal(restored, originalVisible, "batchPlay should have restored the original visibility.");
+
+      return { nativeLayerId, proxyId, roundTripped: true };
     }
   }
 ]);

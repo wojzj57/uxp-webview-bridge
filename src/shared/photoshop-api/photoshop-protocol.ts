@@ -159,6 +159,7 @@ export function photoshopMethodResultKind(remoteType: string, method: string): P
  * - `document.*` / `layer.*` — shared property get/set (keyed by property name via `remoteKey`),
  *   per-method calls, `batchGet`/`batchSet`, and `dispose`.
  * - `layers.*` — collection snapshot / lookup / mutation.
+ * - `action.*` — low-level batchPlay passthrough (verbatim JSON, no reference mapping; ADR 0010).
  */
 export const PHOTOSHOP_METHOD_NAMES = [
   // app namespace
@@ -217,7 +218,10 @@ export const PHOTOSHOP_METHOD_NAMES = [
   // Layers collection (WebView-local wrapper; these RPCs feed/mutate it)
   "layers.snapshot",
   "layers.getByName",
-  "layers.add"
+  "layers.add",
+
+  // action namespace: low-level batchPlay passthrough (verbatim JSON, ADR 0010)
+  "action.batchPlay"
 ] as const;
 
 export type PhotoshopProtocolMethodName = (typeof PHOTOSHOP_METHOD_NAMES)[number];

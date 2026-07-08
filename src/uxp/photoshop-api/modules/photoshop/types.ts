@@ -53,8 +53,21 @@ export interface PhotoshopApp {
   [member: string]: unknown;
 }
 
+/**
+ * The low-level action surface of `require('photoshop').action`. `batchPlay` takes an array of
+ * opaque action descriptors and returns an array of opaque result descriptors — both plain JSON,
+ * passed through verbatim (ADR 0010). The adapter does not model descriptor internals.
+ */
+export interface PhotoshopActionModule {
+  batchPlay(
+    commands: readonly unknown[],
+    options?: Record<string, unknown>
+  ): Promise<readonly unknown[]>;
+}
+
 /** The subset of `require('photoshop')` the adapter uses. */
 export interface PhotoshopHostModule {
   readonly app: PhotoshopApp;
   readonly core: PhotoshopCore;
+  readonly action: PhotoshopActionModule;
 }

@@ -21,7 +21,15 @@ import type { PhotoshopContext } from "./context.js";
 import { createDocumentClass } from "./document.js";
 import { createLayerClass } from "./layer.js";
 import { createPhotoshopTypeRegistry } from "./registry.js";
-import type { OpenOptions, PhotoshopApp, PhotoshopNamespace, PsDocument } from "./types.js";
+import type {
+  ActionDescriptor,
+  BatchPlayCommandOptions,
+  OpenOptions,
+  PhotoshopActions,
+  PhotoshopApp,
+  PhotoshopNamespace,
+  PsDocument
+} from "./types.js";
 
 type PhotoshopRpc = RemoteRpc;
 
@@ -42,8 +50,18 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
     }
   };
 
+  const action: PhotoshopActions = {
+    batchPlay(
+      commands: readonly ActionDescriptor[],
+      options?: BatchPlayCommandOptions
+    ): Promise<ActionDescriptor[]> {
+      return batchPlay(context, commands, options);
+    }
+  };
+
   return {
     app,
+    action,
     LayerKind,
     BlendMode,
     AnchorPosition,
@@ -98,6 +116,19 @@ async function getDocuments(context: PhotoshopContext): Promise<readonly PsDocum
 async function openDocument(context: PhotoshopContext, options?: OpenOptions): Promise<PsDocument> {
   const raw = await context.rpc.call<unknown>(PHOTOSHOP_MODULE_ID, "app.open", [options]);
   return decodeDocument(context, raw);
+}
+
+/**
+ * Verbatim `batchPlay` passthrough (ADR 0010): one RPC carrying `[commands, options]` as plain JSON;
+ * the host's result descriptor array is returned unchanged. No arg-encoding and no reference decode
+ * happen here — descriptors are opaque and any native `_ref`/`_id` inside them is the caller's.
+ */
+function batchPlay(
+  context: PhotoshopContext,
+  commands: readonly ActionDescriptor[],
+  options?: BatchPlayCommandOptions
+): Promise<ActionDescriptor[]> {
+  return context.rpc.call<ActionDescriptor[]>(PHOTOSHOP_MODULE_ID, "action.batchPlay", [commands, options]);
 }
 
 export const photoshop: PhotoshopNamespace =

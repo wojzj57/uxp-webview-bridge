@@ -22,11 +22,14 @@ export type { CpuInfo, OsNamespace } from "./uxp-api/modules/os/index.js";
 export { path } from "./uxp-api/global-members/path/index.js";
 export { photoshop } from "./photoshop-api/modules/photoshop/index.js";
 export type {
+  ActionDescriptor,
+  BatchPlayCommandOptions,
   DocumentCloseOptions,
   ImagingBounds,
   LayerCreateOptions,
   Layers,
   OpenOptions,
+  PhotoshopActions,
   PhotoshopApp,
   PhotoshopNamespace,
   PsDocument,

@@ -12,8 +12,12 @@
  * so the same object always yields the same reference id and the WebView cache can resolve two
  * references to one `===` proxy.
  *
+ * The `action.*` branch is the exception to all of this: `batchPlay` is a verbatim JSON passthrough
+ * (ADR 0010) — no reference decoding, no result serialization, just a shape check and an unconditional
+ * modal wrap around the caller's descriptors and options.
+ *
  * See docs/adr/0004 (handle registry), docs/adr/0005 (identity dedup), docs/adr/0007 (executeAsModal),
- * docs/adr/0009 (declarative type/value/collection registries).
+ * docs/adr/0009 (declarative type/value/collection registries), docs/adr/0010 (batchPlay passthrough).
  */
 
 import {
@@ -169,6 +173,9 @@ export function dispatchPhotoshopCall(method: string, args: readonly unknown[]):
   }
   if (method.startsWith("layers.")) {
     return dispatchLayersCall(method, args);
+  }
+  if (method.startsWith("action.")) {
+    return dispatchActionCall(method, args);
   }
   throw new Error(`Unsupported photoshop method: ${method}`);
 }
@@ -388,6 +395,33 @@ function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly 
   }
 
   throw new Error(`Unsupported photoshop layers method: ${method}`);
+}
+
+// ---------------------------------------------------------------------------- action.*
+
+/**
+ * Low-level `batchPlay` passthrough (ADR 0010). Descriptors are opaque JSON: the host validates only
+ * shape (`commands` is an array, `options` is an object or absent), never walks or rewrites them, and
+ * never runs them through the handle registry (that would corrupt native `_ref`/`_id`, which live in
+ * Photoshop's own id space). The call is wrapped in `executeAsModal` unconditionally; the caller's
+ * `options` are forwarded verbatim so `modalBehavior`/`synchronousExecution`/`commandName` are
+ * honored by Adobe's own API. The raw result descriptor array is returned unchanged.
+ */
+function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): Promise<unknown> {
+  if (method !== "action.batchPlay") {
+    throw new Error(`Unsupported photoshop action method: ${method}`);
+  }
+  expectArgs(args, 1, 2, method);
+  const [commands, options] = args;
+  if (!Array.isArray(commands)) {
+    throw new Error(`${method} requires an array of command descriptors.`);
+  }
+  if (options !== undefined && (typeof options !== "object" || options === null)) {
+    throw new Error(`${method} options must be an object when provided.`);
+  }
+  const commandOptions = options as Record<string, unknown> | undefined;
+  const commandName = typeof commandOptions?.commandName === "string" ? commandOptions.commandName : method;
+  return executeAsModal(commandName, () => getPhotoshop().action.batchPlay(commands, commandOptions));
 }
 
 /** The owner of a `Layers` collection is either a Document or a Layer (group). */
