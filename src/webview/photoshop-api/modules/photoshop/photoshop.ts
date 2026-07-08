@@ -10,6 +10,7 @@ import { getBridgeRpcClient } from "@webview/runtime.js";
 import {
   AnchorPosition,
   BlendMode,
+  ChannelType,
   ElementPlacement,
   FlipAxis,
   LayerKind,
@@ -17,6 +18,7 @@ import {
 } from "@shared/photoshop-api/photoshop-constants.js";
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import type { RemoteRpc } from "@webview/uxp-api/remote/index.js";
+import { createChannelClass } from "./channel.js";
 import type { PhotoshopContext } from "./context.js";
 import { createDocumentClass } from "./document.js";
 import { createLayerClass } from "./layer.js";
@@ -67,7 +69,8 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
     AnchorPosition,
     ElementPlacement,
     SaveOptions,
-    FlipAxis
+    FlipAxis,
+    ChannelType
   };
 }
 
@@ -84,12 +87,18 @@ function createPhotoshopContext(rpc: PhotoshopRpc): PhotoshopContext {
 
   const DocumentClass = createDocumentClass(context);
   const LayerClass = createLayerClass(context);
+  const ChannelClass = createChannelClass(context);
 
   registry.register(PHOTOSHOP_REMOTE_TYPE.Document, (reference) => new DocumentClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Layer, (reference) => new LayerClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Channel, (reference) => new ChannelClass(reference));
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
     getByName: "layers.getByName",
     add: "layers.add"
+  });
+  // Channels support name lookup but not `add` in this batch (Channels.add is out of scope).
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Channel, {
+    getByName: "channels.getByName"
   });
 
   return context;

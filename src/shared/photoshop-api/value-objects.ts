@@ -155,3 +155,68 @@ registerValueObject({
   valueKind: IMAGING_BOUNDS_VALUE_KIND,
   fields: IMAGING_BOUNDS_FIELDS
 });
+
+/** Canonical value-kind name for `SolidColor`. */
+export const SOLID_COLOR_VALUE_KIND = "SolidColor";
+
+/**
+ * Transport (and WebView value) shape of a `SolidColor`. Photoshop's `SolidColor` implicitly
+ * switches its base color model as views are accessed, so instead of leaking that statefulness the
+ * envelope carries *every* model view plus the base `typename` at read time (ADR 0009 value object,
+ * not a remote handle — `new SolidColor()` is synchronous and disposable-free). Each nested view is
+ * a plain number bag; `rgb.hexValue` is the sole string field.
+ */
+export interface SolidColorTransport {
+  readonly rgb: { readonly red: number; readonly green: number; readonly blue: number; readonly hexValue: string };
+  readonly hsb: { readonly hue: number; readonly saturation: number; readonly brightness: number };
+  readonly cmyk: { readonly cyan: number; readonly magenta: number; readonly yellow: number; readonly black: number };
+  readonly lab: { readonly l: number; readonly a: number; readonly b: number };
+  readonly gray: { readonly gray: number };
+  readonly typename: string;
+}
+
+function readColorView(source: unknown, fields: readonly string[]): Record<string, number> {
+  if (!source || typeof source !== "object") {
+    throw new Error("Expected a SolidColor color-model view object.");
+  }
+  const view = source as Record<string, unknown>;
+  const result: Record<string, number> = {};
+  for (const field of fields) {
+    result[field] = readMaybeUnit(view[field]);
+  }
+  return result;
+}
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+registerValueObject<SolidColorTransport>({
+  valueKind: SOLID_COLOR_VALUE_KIND,
+  // Host side: read each color-model view off the live `SolidColor` into a plain bag. Accessing a
+  // view converts the color in Photoshop, but since we read them all the returned envelope is a
+  // complete, model-independent snapshot. `typename` is captured last as the base model at read time.
+  serialize(hostObject: unknown): SolidColorTransport {
+    if (!hostObject || typeof hostObject !== "object") {
+      throw new Error("Expected a SolidColor host object.");
+    }
+    const color = hostObject as Record<string, unknown>;
+    const rgbView = readColorView(color.rgb, ["red", "green", "blue"]);
+    return {
+      rgb: {
+        ...(rgbView as { red: number; green: number; blue: number }),
+        hexValue: readString((color.rgb as Record<string, unknown> | undefined)?.hexValue)
+      },
+      hsb: readColorView(color.hsb, ["hue", "saturation", "brightness"]) as SolidColorTransport["hsb"],
+      cmyk: readColorView(color.cmyk, ["cyan", "magenta", "yellow", "black"]) as SolidColorTransport["cmyk"],
+      lab: readColorView(color.lab, ["l", "a", "b"]) as SolidColorTransport["lab"],
+      gray: readColorView(color.gray, ["gray"]) as SolidColorTransport["gray"],
+      typename: readString(color.typename)
+    };
+  },
+  // WebView side: the payload is already the plain views object; pass it through unchanged so the
+  // WebView `PsSolidColor` is exactly the transport shape (no RPC, no methods — like ImagingBounds).
+  deserialize(data: unknown): SolidColorTransport {
+    return data as SolidColorTransport;
+  }
+});

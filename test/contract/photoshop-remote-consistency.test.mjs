@@ -5,6 +5,7 @@ import { test } from "node:test";
 // not part of the public `photoshop` namespace surface, so we import them from their own dist files.
 const documentModule = "../../dist/webview/photoshop-api/modules/photoshop/document.js";
 const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js";
+const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
 
 /**
  * A recording rpc that resolves every call to a benign value and never throws. The only way a member
@@ -43,9 +44,13 @@ async function createStubContext(rpc) {
   const placeholder = (ref) => ({ toRemoteReference: () => Promise.resolve(ref) });
   registry.register(PHOTOSHOP_REMOTE_TYPE.Document, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.Layer, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Channel, placeholder);
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
     getByName: "layers.getByName",
     add: "layers.add"
+  });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Channel, {
+    getByName: "channels.getByName"
   });
   return { rpc, registry };
 }
@@ -101,6 +106,10 @@ const BASE_MEMBERS = new Set(["toRemoteReference", "batchGet", "batchSet", "disp
 const CASES = [
   {
     name: "WebviewPsDocument",
+    type: "Document",
+    batchGetName: "document.batchGet",
+    batchSetName: "document.batchSet",
+    writableProp: "pixelAspectRatio",
     async build() {
       const { createDocumentClass } = await import(documentModule);
       const rpc = createRecordingRpc();
@@ -110,11 +119,28 @@ const CASES = [
   },
   {
     name: "WebviewPsLayer",
+    type: "Layer",
+    batchGetName: "layer.batchGet",
+    batchSetName: "layer.batchSet",
+    writableProp: "opacity",
     async build() {
       const { createLayerClass } = await import(layerModule);
       const rpc = createRecordingRpc();
       const LayerClass = createLayerClass(await createStubContext(rpc));
       return { rpc, instance: new LayerClass(reference("Layer")) };
+    }
+  },
+  {
+    name: "WebviewPsChannel",
+    type: "Channel",
+    batchGetName: "channel.batchGet",
+    batchSetName: "channel.batchSet",
+    writableProp: "opacity",
+    async build() {
+      const { createChannelClass } = await import(channelModule);
+      const rpc = createRecordingRpc();
+      const ChannelClass = createChannelClass(await createStubContext(rpc));
+      return { rpc, instance: new ChannelClass(reference("Channel")) };
     }
   }
 ];
@@ -140,17 +166,16 @@ for (const testCase of CASES) {
 
   test(`${testCase.name} batch operations use the wired batch RPC names`, async () => {
     const { rpc, instance } = await testCase.build();
-    const type = testCase.name === "WebviewPsDocument" ? "Document" : "Layer";
+    const { type, batchGetName, batchSetName, writableProp } = testCase;
     const module = "photoshop-api/modules/photoshop";
-    const batchGetName = type === "Document" ? "document.batchGet" : "layer.batchGet";
-    const batchSetName = type === "Document" ? "document.batchSet" : "layer.batchSet";
-    const writableProp = type === "Document" ? "pixelAspectRatio" : "opacity";
+    // Channel has no `id` scalar; read a property it actually exposes for the batchGet probe.
+    const readableProp = type === "Channel" ? "name" : "id";
 
-    await instance.batchGet(["id"]);
+    await instance.batchGet([readableProp]);
     const batchGetCall = rpc.calls.find((call) => call.method === batchGetName);
     assert.ok(batchGetCall, `batchGet should call ${batchGetName}.`);
     assert.equal(batchGetCall.module, module, "batchGet should target the photoshop module.");
-    assert.deepEqual(batchGetCall.args, [reference(type), ["id"]]);
+    assert.deepEqual(batchGetCall.args, [reference(type), [readableProp]]);
 
     instance.batchSet({ [writableProp]: 1 });
     await instance.toRemoteReference();
@@ -163,8 +188,13 @@ for (const testCase of CASES) {
 
   test(`${testCase.name} rejects a batchSet of a read-only property at runtime`, async () => {
     const { instance } = await testCase.build();
-    // `id` is read-only on both proxies; the base guard should reject it even though the compile-time
+    // A read-only property on each proxy; the base guard should reject it even though the compile-time
     // signature already forbids it (belt and suspenders — see photoshop.test.ts @ts-expect-error).
-    assert.throws(() => instance.batchSet({ id: 1 }), /Cannot batchSet non-writable property: id/);
+    // Channel has no `id`, so use its read-only `histogram` instead.
+    const readOnlyProp = testCase.type === "Channel" ? "histogram" : "id";
+    assert.throws(
+      () => instance.batchSet({ [readOnlyProp]: 1 }),
+      new RegExp(`Cannot batchSet non-writable property: ${readOnlyProp}`)
+    );
   });
 }

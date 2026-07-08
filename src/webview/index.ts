@@ -24,21 +24,32 @@ export { photoshop } from "./photoshop-api/modules/photoshop/index.js";
 export type {
   ActionDescriptor,
   BatchPlayCommandOptions,
+  Channels,
+  CmykColorView,
   DocumentCloseOptions,
+  GrayColorView,
+  HsbColorView,
   ImagingBounds,
+  LabColorView,
   LayerCreateOptions,
   Layers,
   OpenOptions,
   PhotoshopActions,
   PhotoshopApp,
   PhotoshopNamespace,
+  PsChannel,
+  PsChannelReadableKey,
+  PsChannelWritableProps,
   PsDocument,
   PsDocumentReadableKey,
   PsDocumentWritableProps,
   PsLayer,
   PsLayerReadableKey,
   PsLayerWritableProps,
-  ResizeOptions
+  PsSolidColor,
+  ResizeOptions,
+  RgbColorView,
+  SolidColorInput
 } from "./photoshop-api/modules/photoshop/index.js";
 export type { PathFlavor, PathFormatInput, PathInput, PathNamespace, PathParsed } from "./uxp-api/global-members/path/index.js";
 export { sessionStorage } from "./uxp-api/global-members/session-storage/index.js";

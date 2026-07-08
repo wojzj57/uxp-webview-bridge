@@ -130,3 +130,16 @@ export const FlipAxis = {
   BOTH: "both"
 } as const;
 export type FlipAxisValue = (typeof FlipAxis)[keyof typeof FlipAxis];
+
+/**
+ * Kind of a channel ({@link Channel.kind}).
+ * Source: Constants.d.ts `enum ChannelType` (note MASKEDAREA='maskedAreas',
+ * SELECTEDAREA='selectedAreas', SPOTCOLOR='spot').
+ */
+export const ChannelType = {
+  COMPONENT: "component",
+  MASKEDAREA: "maskedAreas",
+  SELECTEDAREA: "selectedAreas",
+  SPOTCOLOR: "spot"
+} as const;
+export type ChannelTypeValue = (typeof ChannelType)[keyof typeof ChannelType];

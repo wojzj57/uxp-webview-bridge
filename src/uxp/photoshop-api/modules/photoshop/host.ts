@@ -36,6 +36,7 @@ import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-
 import type { UxpModuleAdapter } from "@uxp/module-registry.js";
 import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
 import type {
+  PhotoshopChannelLike,
   PhotoshopDocumentLike,
   PhotoshopHostModule,
   PhotoshopLayerLike
@@ -149,6 +150,21 @@ const LAYER_MUTATING_METHODS = new Set([
   "rasterize"
 ]);
 
+/**
+ * Channel scalar properties that are readable (keyed `channel.propertyGet`). `histogram` is a raw
+ * `number[]` scalar; `color`/`parent` are value/ref and dispatched via the result-kind table.
+ */
+const CHANNEL_SCALARS = new Set(["name", "opacity", "visible", "kind", "histogram"]);
+
+/**
+ * Writable Channel scalars (each set is a modal-wrapped mutation). `color` is writable too but is a
+ * value object, not a scalar, so it is handled separately in the propertySet branch.
+ */
+const CHANNEL_WRITABLE_SCALARS = new Set(["name", "opacity", "visible", "kind"]);
+
+/** Mutating Channel methods (all Channel methods here mutate). */
+const CHANNEL_MUTATING_METHODS = new Set(["duplicate", "merge", "remove"]);
+
 const photoshopRegistry = createRemoteHandleRegistry();
 
 export const photoshopModuleAdapter: UxpModuleAdapter = {
@@ -173,6 +189,12 @@ export function dispatchPhotoshopCall(method: string, args: readonly unknown[]):
   }
   if (method.startsWith("layers.")) {
     return dispatchLayersCall(method, args);
+  }
+  if (method.startsWith("channels.")) {
+    return dispatchChannelsCall(method, args);
+  }
+  if (method.startsWith("channel.")) {
+    return dispatchChannelCall(method, args);
   }
   if (method.startsWith("action.")) {
     return dispatchActionCall(method, args);
@@ -397,6 +419,151 @@ function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly 
   throw new Error(`Unsupported photoshop layers method: ${method}`);
 }
 
+// ---------------------------------------------------------------------------- channel.*
+
+function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "channel.dispose") {
+    const [reference] = expectReferenceArgs(args, 1, 1, method);
+    photoshopRegistry.dispose(reference);
+    return undefined;
+  }
+
+  if (method === "channel.propertyGet") {
+    const [reference, key] = expectReferenceArgs(args, 2, 2, method);
+    const name = assertString(key, `${method} property`);
+    const channel = getChannel(reference);
+    return serializeChannelProperty(reference, name, channel[name]);
+  }
+
+  if (method === "channel.propertySet") {
+    const [reference, key, value] = expectReferenceArgs(args, 3, 3, method);
+    const name = assertString(key, `${method} property`);
+    const channel = getChannel(reference);
+    return executeAsModal(`channel.set.${name}`, () => {
+      assignChannelProperty(channel, name, value);
+      return undefined;
+    });
+  }
+
+  if (method === "channel.batchGet") {
+    const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
+    const channel = getChannel(reference);
+    const names = assertStringArray(propertyNames, method);
+    const result: Record<string, unknown> = {};
+    for (const name of names) {
+      result[name] = serializeChannelProperty(reference, name, channel[name]);
+    }
+    return result;
+  }
+
+  if (method === "channel.batchSet") {
+    const [reference, values] = expectReferenceArgs(args, 2, 2, method);
+    const channel = getChannel(reference);
+    const props = assertPropertyMap(values, method);
+    // All writable channel members mutate: apply the whole batch under a single modal scope.
+    return executeAsModal("channel.batchSet", () => {
+      for (const name of Object.keys(props)) {
+        assignChannelProperty(channel, name, props[name]);
+      }
+      return undefined;
+    });
+  }
+
+  // Methods (all mutating)
+  const methodName = method.slice("channel.".length);
+  if (!CHANNEL_MUTATING_METHODS.has(methodName)) {
+    return unsupported(method);
+  }
+  const [reference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
+  const channel = getChannel(reference);
+  const methodArgs = decodeArgs(rest);
+  const run = executeAsModal(methodName, () => callMethod(channel, methodName, methodArgs));
+  return resolveMaybePromise(run, (value) => serializeChannelMethodResult(reference, methodName, value));
+}
+
+/**
+ * Assign a writable Channel property. Scalars pass through `decodeValue`; `color` accepts a
+ * `SolidColorInput` (a plain single-model bag such as `{ rgb: { red, green, blue } }` or a full
+ * `PsSolidColor`) — never a value envelope, since the WebView write path does not value-encode
+ * (ADR 0003 write queue + RemoteClass `#setProperty`). The host builds a live `SolidColor` from it.
+ */
+function assignChannelProperty(channel: PhotoshopChannelLike, name: string, value: unknown): void {
+  if (name === "color") {
+    channel.color = buildSolidColor(decodeValue(value));
+    return;
+  }
+  if (!CHANNEL_WRITABLE_SCALARS.has(name)) {
+    throw new Error(`Channel property is not writable: ${name}`);
+  }
+  channel[name] = decodeValue(value);
+}
+
+function serializeChannelProperty(ownerReference: RemoteReference, name: string, value: unknown): unknown {
+  const resultKind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.Channel, name);
+  if (resultKind.kind === "scalar" && !CHANNEL_SCALARS.has(name)) {
+    throw new Error(`Unknown channel property: ${name}`);
+  }
+  return serializeResult(resultKind, ownerReference, value);
+}
+
+function serializeChannelMethodResult(ownerReference: RemoteReference, methodName: string, value: unknown): unknown {
+  return serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.Channel, methodName), ownerReference, value);
+}
+
+/**
+ * Build a live Photoshop `SolidColor` from a `SolidColorInput`. The input is a plain bag carrying
+ * one or more color-model views (`rgb`/`hsb`/`cmyk`/`lab`/`gray`); each present model is copied onto
+ * the corresponding sub-model, matching Adobe's model-switch-on-write behavior (RFC-0011 OQ#3). At
+ * least one model must be present.
+ */
+function buildSolidColor(input: unknown): unknown {
+  if (!input || typeof input !== "object") {
+    throw new Error("channel.color requires a SolidColorInput object.");
+  }
+  const source = input as Record<string, unknown>;
+  const SolidColorCtor = getPhotoshop().app.SolidColor as { new (): Record<string, unknown> } | undefined;
+  if (typeof SolidColorCtor !== "function") {
+    throw new Error("photoshop.app.SolidColor constructor is unavailable.");
+  }
+  const color = new SolidColorCtor();
+  let applied = false;
+  for (const model of ["rgb", "hsb", "cmyk", "lab", "gray"] as const) {
+    const view = source[model];
+    if (view && typeof view === "object") {
+      Object.assign(color[model] as Record<string, unknown>, view);
+      applied = true;
+    }
+  }
+  if (!applied) {
+    throw new Error("channel.color requires at least one color-model view (rgb/hsb/cmyk/lab/gray).");
+  }
+  return color;
+}
+
+// ---------------------------------------------------------------------------- channels.*
+
+function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "channels.snapshot") {
+    const [reference, collectionKey] = expectReferenceArgs(args, 1, 2, method);
+    const document = getDocument(reference);
+    const collection =
+      collectionKey === undefined
+        ? (document as Record<string, unknown>).channels
+        : (document as Record<string, unknown>)[assertString(collectionKey, method)];
+    return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.Channel, reference, collection);
+  }
+
+  if (method === "channels.getByName") {
+    const [reference, name] = expectReferenceArgs(args, 2, 2, method);
+    const channelName = assertString(name, `${method} name`);
+    const collection = getMemberArray((getDocument(reference) as Record<string, unknown>).channels);
+    const match = collection.find((channel) => (channel as PhotoshopChannelLike).name === channelName);
+    return match == null ? null : serializeChannel(match as PhotoshopChannelLike);
+  }
+
+  throw new Error(`Unsupported photoshop channels method: ${method}`);
+}
+
 // ---------------------------------------------------------------------------- action.*
 
 /**
@@ -459,6 +626,15 @@ function serializeLayer(layer: PhotoshopLayerLike): RemoteReference {
 }
 
 /**
+ * Serialize a native `Channel`. Unlike Document/Layer, a Channel has no stable DOM id, so identity
+ * is non-deduped (RFC-0011 OQ#1): `register` mints a fresh unique handle id per read, and two reads
+ * of the same channel yield distinct references with no `===` guarantee on the WebView side.
+ */
+function serializeChannel(channel: PhotoshopChannelLike): RemoteReference {
+  return photoshopRegistry.register(PHOTOSHOP_REMOTE_TYPE.Channel, channel);
+}
+
+/**
  * Serialize a native DOM result per its shared {@link PhotoshopResultKind} classification (ADR 0009).
  * The kind table (in the shared protocol) is the single source of truth; the host never
  * hand-maintains reference/collection/value property sets. `ownerReference` is threaded so a
@@ -486,6 +662,9 @@ function serializeReference(refType: string, value: unknown): RemoteReference {
   }
   if (refType === PHOTOSHOP_REMOTE_TYPE.Layer) {
     return serializeLayer(value as PhotoshopLayerLike);
+  }
+  if (refType === PHOTOSHOP_REMOTE_TYPE.Channel) {
+    return serializeChannel(value as PhotoshopChannelLike);
   }
   throw new Error(`Unknown photoshop reference type: ${refType}`);
 }
@@ -521,6 +700,10 @@ function getDocument(reference: RemoteReference): PhotoshopDocumentLike {
 
 function getLayer(reference: RemoteReference): PhotoshopLayerLike {
   return photoshopRegistry.resolve(reference, PHOTOSHOP_REMOTE_TYPE.Layer) as PhotoshopLayerLike;
+}
+
+function getChannel(reference: RemoteReference): PhotoshopChannelLike {
+  return photoshopRegistry.resolve(reference, PHOTOSHOP_REMOTE_TYPE.Channel) as PhotoshopChannelLike;
 }
 
 function decodeArgs(args: readonly unknown[]): unknown[] {

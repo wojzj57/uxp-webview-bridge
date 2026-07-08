@@ -18,7 +18,8 @@ export const PHOTOSHOP_MODULE_ID = "photoshop-api/modules/photoshop";
 /** Remote-reference `type` discriminators for the stateful DOM objects in this batch. */
 export const PHOTOSHOP_REMOTE_TYPE = {
   Document: "Document",
-  Layer: "Layer"
+  Layer: "Layer",
+  Channel: "Channel"
 } as const;
 export type PhotoshopRemoteType = (typeof PHOTOSHOP_REMOTE_TYPE)[keyof typeof PHOTOSHOP_REMOTE_TYPE];
 
@@ -110,7 +111,10 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       layers: collection(PHOTOSHOP_REMOTE_TYPE.Layer),
       activeLayers: collection(PHOTOSHOP_REMOTE_TYPE.Layer),
       artboards: collection(PHOTOSHOP_REMOTE_TYPE.Layer),
-      backgroundLayer: ref(PHOTOSHOP_REMOTE_TYPE.Layer)
+      backgroundLayer: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
+      channels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
+      componentChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
+      activeChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel)
     },
     methods: {
       duplicate: ref(PHOTOSHOP_REMOTE_TYPE.Document),
@@ -138,6 +142,15 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       merge: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
       link: collection(PHOTOSHOP_REMOTE_TYPE.Layer)
     }
+  },
+  [PHOTOSHOP_REMOTE_TYPE.Channel]: {
+    properties: {
+      // `histogram` is a raw `number[]` — a scalar, so it is omitted (defaults to scalar).
+      color: value("SolidColor"),
+      parent: ref(PHOTOSHOP_REMOTE_TYPE.Document)
+    },
+    // duplicate/merge/remove all return void → scalar (omitted).
+    methods: {}
   }
 };
 
@@ -219,6 +232,22 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "layers.snapshot",
   "layers.getByName",
   "layers.add",
+
+  // Channel: shared property accessors + lifecycle
+  "channel.propertyGet",
+  "channel.propertySet",
+  "channel.batchGet",
+  "channel.batchSet",
+  "channel.dispose",
+  // Channel: methods (all mutating)
+  "channel.duplicate",
+  "channel.merge",
+  "channel.remove",
+
+  // Channels collection (WebView-local wrapper; these RPCs feed/mutate it)
+  "channels.snapshot",
+  "channels.getByName",
+  "channels.add",
 
   // action namespace: low-level batchPlay passthrough (verbatim JSON, ADR 0010)
   "action.batchPlay"

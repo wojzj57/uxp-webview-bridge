@@ -24,6 +24,7 @@ import {
 } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopContext } from "./context.js";
 import type {
+  Channels,
   DocumentCloseOptions,
   ImagingBounds,
   LayerCreateOptions,
@@ -56,7 +57,7 @@ const DOCUMENT_WRITABLE_SCALARS = ["pixelAspectRatio"] as const;
  * in sync with the shared `PHOTOSHOP_RESULT_KINDS` table without constructing an instance.
  */
 export function createDocumentProperties(): Record<string, RemotePropertyDescriptor> {
-  const { Layer } = PHOTOSHOP_REMOTE_TYPE;
+  const { Layer, Channel } = PHOTOSHOP_REMOTE_TYPE;
   const properties: Record<string, RemotePropertyDescriptor> = {};
   for (const name of DOCUMENT_READONLY_SCALARS) {
     properties[name] = { writable: false, mutating: false, remoteKey: name };
@@ -69,6 +70,9 @@ export function createDocumentProperties(): Record<string, RemotePropertyDescrip
   properties.activeLayers = { writable: false, mutating: false, remoteKey: "activeLayers", collectionOf: Layer };
   properties.artboards = { writable: false, mutating: false, remoteKey: "artboards", collectionOf: Layer };
   properties.backgroundLayer = { writable: false, mutating: false, remoteKey: "backgroundLayer", refType: Layer };
+  properties.channels = { writable: false, mutating: false, remoteKey: "channels", collectionOf: Channel };
+  properties.componentChannels = { writable: false, mutating: false, remoteKey: "componentChannels", collectionOf: Channel };
+  properties.activeChannels = { writable: false, mutating: false, remoteKey: "activeChannels", collectionOf: Channel };
   return properties;
 }
 
@@ -170,6 +174,9 @@ export function createDocumentClass(context: PhotoshopContext): {
     declare readonly activeLayers: Promise<Layers>;
     declare readonly artboards: Promise<Layers>;
     declare readonly backgroundLayer: Promise<PsLayer | null>;
+    declare readonly channels: Promise<Channels>;
+    declare readonly componentChannels: Promise<Channels>;
+    declare readonly activeChannels: Promise<Channels>;
 
     declare duplicate: (name?: string, mergeLayersOnly?: boolean) => Promise<PsDocument>;
     declare close: (options?: DocumentCloseOptions) => Promise<void>;

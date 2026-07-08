@@ -11,6 +11,7 @@ const valueObjectsModule = "../../dist/shared/photoshop-api/value-objects.js";
 const registryModule = "../../dist/webview/photoshop-api/modules/photoshop/registry.js";
 const documentModule = "../../dist/webview/photoshop-api/modules/photoshop/document.js";
 const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js";
+const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
 
 const reference = (type, id) => ({ kind: "uxp.remote.ref", type, id });
 
@@ -78,6 +79,7 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
   const { PHOTOSHOP_RESULT_KINDS, PHOTOSHOP_REMOTE_TYPE } = await import(protocolModule);
   const { createDocumentProperties, createDocumentMethods } = await import(documentModule);
   const { createLayerProperties, createLayerMethods } = await import(layerModule);
+  const { createChannelProperties, createChannelMethods } = await import(channelModule);
 
   const cases = [
     {
@@ -89,6 +91,11 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
       type: PHOTOSHOP_REMOTE_TYPE.Layer,
       properties: declaredResultKinds(createLayerProperties()),
       methods: declaredResultKinds(createLayerMethods())
+    },
+    {
+      type: PHOTOSHOP_REMOTE_TYPE.Channel,
+      properties: declaredResultKinds(createChannelProperties()),
+      methods: declaredResultKinds(createChannelMethods())
     }
   ];
 
@@ -113,4 +120,5 @@ test("the value-object registry has unique value kinds", async () => {
   const kinds = registeredValueKinds();
   assert.equal(new Set(kinds).size, kinds.length, "duplicate value kinds registered.");
   assert.ok(kinds.includes("ImagingBounds"), "ImagingBounds must be registered.");
+  assert.ok(kinds.includes("SolidColor"), "SolidColor must be registered.");
 });

@@ -25,6 +25,7 @@ import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
 import type {
   AnchorPosition as AdobeAnchorPosition,
   BlendMode as AdobeBlendMode,
+  ChannelType as AdobeChannelType,
   ElementPlacement as AdobeElementPlacement,
   FlipAxis as AdobeFlipAxis,
   LayerKind as AdobeLayerKind,
@@ -33,6 +34,7 @@ import type {
 import type {
   AnchorPositionValue,
   BlendModeValue,
+  ChannelTypeValue,
   ElementPlacementValue,
   FlipAxisValue,
   LayerKindValue,
@@ -45,6 +47,9 @@ import type {
 import type {
   ActionDescriptor,
   BatchPlayCommandOptions,
+  PsChannel,
+  PsChannelReadableKey,
+  PsChannelWritableProps,
   PsDocument,
   PsDocumentReadableKey,
   PsDocumentWritableProps,
@@ -75,6 +80,7 @@ type _BlendModeCompatible = AssertMutual<BlendModeValue, `${AdobeBlendMode}`>;
 type _LayerKindCompatible = AssertMutual<LayerKindValue, `${AdobeLayerKind}`>;
 type _ElementPlacementCompatible = AssertMutual<ElementPlacementValue, `${AdobeElementPlacement}`>;
 type _FlipAxisCompatible = AssertMutual<FlipAxisValue, `${AdobeFlipAxis}`>;
+type _ChannelTypeCompatible = AssertMutual<ChannelTypeValue, `${AdobeChannelType}`>;
 
 // SaveOptions is a numeric enum; its value union is numeric, so compare against the numeric enum
 // value union directly rather than a template-literal (which only applies to string enums).
@@ -103,7 +109,8 @@ type PsDocumentReadableMembers = Exclude<
   "rasterizeAllLayers" | "crop" | "resizeCanvas" | "resizeImage" | "trim" | "rotate" | "save" |
   "createLayer" | "createPixelLayer" | "createTextLayer" | "createLayerGroup" | "groupLayers" |
   "duplicateLayers" | "linkLayers" | "paste" | "batchGet" | "batchSet" | "dispose" |
-  "layers" | "activeLayers" | "artboards" | "backgroundLayer"
+  "layers" | "activeLayers" | "artboards" | "backgroundLayer" |
+  "channels" | "componentChannels" | "activeChannels"
 >;
 type _DocReadableKeysLocked = AssertMutual<PsDocumentReadableMembers, PsDocumentReadableKey>;
 
@@ -114,6 +121,18 @@ type PsLayerReadableMembers = Exclude<
   "document" | "parent" | "linkedLayers"
 >;
 type _LayerReadableKeysLocked = AssertMutual<PsLayerReadableMembers, PsLayerReadableKey>;
+
+type PsChannelReadableMembers = Exclude<
+  keyof PsChannel,
+  "duplicate" | "merge" | "remove" | "batchGet" | "batchSet" | "dispose" | "parent"
+>;
+type _ChannelReadableKeysLocked = AssertMutual<PsChannelReadableMembers, PsChannelReadableKey>;
+
+// `color` is the sole non-scalar writable; assert the writable key set matches the declared props.
+type _ChannelWritableIsExactlyWritable = AssertMutual<
+  keyof PsChannelWritableProps,
+  "name" | "opacity" | "visible" | "kind" | "color"
+>;
 
 /**
  * batchPlay descriptor/option compatibility (ADR 0010 / RFC-0009).
@@ -139,9 +158,12 @@ export type _StaticConsistencyProof = [
   _LayerKindCompatible,
   _ElementPlacementCompatible,
   _FlipAxisCompatible,
+  _ChannelTypeCompatible,
   _DocWritableIsExactlyWritable,
   _DocReadableKeysLocked,
   _LayerReadableKeysLocked,
+  _ChannelReadableKeysLocked,
+  _ChannelWritableIsExactlyWritable,
   _DescriptorToAdobe,
   _DescriptorFromAdobe,
   _OptionsToAdobe
@@ -390,6 +412,130 @@ export default defineWebviewCdpCases([
     }
   },
   {
+    name: "photoshop.channels-collection",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const document = await getActiveDocument(bridge, skip);
+      if (isSkip(document)) {
+        return document;
+      }
+
+      const channels = await document.channels;
+      assert.ok(typeof channels.length === "number", "channels.length should be a number.");
+      assert.ok(channels.length >= 1, "an open document should expose at least one channel.");
+
+      const first = channels[0];
+      if (!first) {
+        return skip("the active document reported no channels.");
+      }
+
+      // Re-reading the collection yields a fresh wrapper. Unlike layers, channel *members* are NOT
+      // ===-deduped (no stable native id → non-deduped RemoteObject), so we assert only the wrapper
+      // is distinct and that name-based lookup resolves a channel or null.
+      const channelsAgain = await document.channels;
+      assert.ok(channelsAgain !== channels, "re-reading document.channels should yield a new wrapper.");
+
+      const componentChannels = await document.componentChannels;
+      assert.ok(typeof componentChannels.length === "number", "componentChannels.length should be a number.");
+
+      const byName = await channels.getByName(await first.name);
+      assert.ok(byName === null || typeof byName === "object", "channels.getByName should return a channel or null.");
+
+      return { length: channels.length, componentLength: componentChannels.length };
+    }
+  },
+  {
+    name: "photoshop.channel-read-write",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const channel = await getFirstChannel(bridge, skip);
+      if (isSkip(channel)) {
+        return channel;
+      }
+
+      const [name, visible, kind] = await Promise.all([channel.name, channel.visible, channel.kind]);
+      assert.nonEmptyString(name, "channel.name");
+      assert.ok(typeof visible === "boolean", "channel.visible should resolve to a boolean.");
+      assert.nonEmptyString(kind, "channel.kind");
+
+      const originalOpacity = await channel.opacity;
+      assert.ok(typeof originalOpacity === "number", "channel.opacity should resolve to a number.");
+
+      const target = originalOpacity >= 50 ? 40 : 60;
+      channel.opacity = target as unknown as Promise<number>;
+      const updated = await channel.opacity;
+      assert.equal(Math.round(updated), target, "channel.opacity read-your-writes should reflect the queued set.");
+
+      // Restore.
+      channel.opacity = originalOpacity as unknown as Promise<number>;
+      await channel.opacity;
+
+      return { name, visible, kind, originalOpacity, updated };
+    }
+  },
+  {
+    name: "photoshop.channel-color-solidcolor",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const channel = await getFirstChannel(bridge, skip);
+      if (isSkip(channel)) {
+        return channel;
+      }
+
+      const color = await channel.color;
+      assert.ok(typeof color === "object" && color !== null, "channel.color should be a plain object.");
+      for (const model of ["rgb", "hsb", "cmyk", "lab", "gray"] as const) {
+        assert.ok(typeof color[model] === "object" && color[model] !== null, `channel.color.${model} should be present.`);
+      }
+      assert.nonEmptyString(color.typename, "channel.color.typename");
+      // A value object carries no remote methods.
+      assert.equal(typeof (color as { dispose?: unknown }).dispose, "undefined", "color should have no dispose().");
+
+      // Write a color via a single-model partial, then read it back. Channels differ in whether a
+      // color write "sticks" (component channels may ignore it), so assert the round-trip is a valid
+      // SolidColor rather than exact channel equality.
+      channel.color = { rgb: { red: 12, green: 34, blue: 56 } } as unknown as Promise<typeof color>;
+      const afterWrite = await channel.color;
+      assert.ok(typeof afterWrite === "object" && afterWrite !== null, "channel.color read-back should be an object.");
+      assert.ok(typeof afterWrite.rgb.red === "number", "channel.color.rgb.red should be a number after write.");
+
+      // Restore the original color.
+      channel.color = color as unknown as Promise<typeof color>;
+      await channel.color;
+
+      const histogram = await channel.histogram;
+      assert.ok(Array.isArray(histogram), "channel.histogram should be an array.");
+
+      return { typename: color.typename, histogramLength: histogram.length };
+    }
+  },
+  {
+    name: "photoshop.channel-parent-document-identity",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const document = await getActiveDocument(bridge, skip);
+      if (isSkip(document)) {
+        return document;
+      }
+      const channels = await document.channels;
+      const channel = channels[0];
+      if (!channel) {
+        return skip("the active document reported no channels.");
+      }
+
+      // The channel's parent must resolve to the SAME === document instance (Document IS deduped by
+      // native id — only channels themselves are non-deduped). This is the identity guarantee we keep.
+      const parent = await channel.parent;
+      assert.equal(parent, document, "channel.parent should resolve to the === owning document instance.");
+
+      return { parentIsOwner: true };
+    }
+  },
+  {
     name: "photoshop.batchplay-roundtrip",
     async run({ bridge, assert, skip }) {
       bridge.ensureConfigured();
@@ -483,6 +629,26 @@ async function getActiveLayer(
     return layer;
   } catch (error) {
     return markSkip(skip("reading document.layers threw.", { error: normalizeError(error) }));
+  }
+}
+
+async function getFirstChannel(
+  bridge: { photoshop: any },
+  skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
+): Promise<PsChannel | SkipMarker> {
+  const document = await getActiveDocument(bridge, skip);
+  if (isSkip(document)) {
+    return document;
+  }
+  try {
+    const channels = await document.channels;
+    const channel = channels[0];
+    if (!channel) {
+      return markSkip(skip("the active document has no channels."));
+    }
+    return channel;
+  } catch (error) {
+    return markSkip(skip("reading document.channels threw.", { error: normalizeError(error) }));
   }
 }
 

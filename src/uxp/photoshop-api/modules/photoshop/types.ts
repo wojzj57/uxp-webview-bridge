@@ -14,7 +14,7 @@ import type { PhotoshopProtocolMethodName } from "@shared/photoshop-api/photosho
 export type PhotoshopMethodName = PhotoshopProtocolMethodName;
 
 /** Concrete remote class names owned by this module's handle registry. */
-export type PhotoshopHandleType = "Document" | "Layer";
+export type PhotoshopHandleType = "Document" | "Layer" | "Channel";
 
 /** Options passed to `core.executeAsModal`. */
 export interface ExecuteAsModalOptions {
@@ -42,6 +42,15 @@ export interface PhotoshopDocumentLike {
 /** Structural Layer shape the adapter reads/mutates. The real object is Adobe's `Layer`. */
 export interface PhotoshopLayerLike {
   readonly id: number;
+  [member: string]: unknown;
+}
+
+/**
+ * Structural Channel shape the adapter reads/mutates. Unlike Document/Layer, Channel has NO
+ * native `id` — remote identity is minted per read (non-deduped, RFC-0011 Open Question #1).
+ * The real object is Adobe's `Channel`.
+ */
+export interface PhotoshopChannelLike {
   [member: string]: unknown;
 }
 

@@ -12,6 +12,7 @@
 import type {
   AnchorPositionValue,
   BlendModeValue,
+  ChannelTypeValue,
   ElementPlacementValue,
   FlipAxisValue,
   LayerKindValue,
@@ -20,6 +21,7 @@ import type {
 import type {
   AnchorPosition,
   BlendMode,
+  ChannelType,
   ElementPlacement,
   FlipAxis,
   LayerKind,
@@ -59,6 +61,80 @@ export interface LayerCreateOptions {
   readonly blendMode?: BlendModeValue;
 }
 
+/** RGB color-model view of a {@link PsSolidColor} (`hexValue` is the sole string field). */
+export interface RgbColorView {
+  readonly red: number;
+  readonly green: number;
+  readonly blue: number;
+  readonly hexValue: string;
+}
+
+/** HSB color-model view of a {@link PsSolidColor}. */
+export interface HsbColorView {
+  readonly hue: number;
+  readonly saturation: number;
+  readonly brightness: number;
+}
+
+/** CMYK color-model view of a {@link PsSolidColor}. */
+export interface CmykColorView {
+  readonly cyan: number;
+  readonly magenta: number;
+  readonly yellow: number;
+  readonly black: number;
+}
+
+/** LAB color-model view of a {@link PsSolidColor}. */
+export interface LabColorView {
+  readonly l: number;
+  readonly a: number;
+  readonly b: number;
+}
+
+/** Grayscale color-model view of a {@link PsSolidColor}. */
+export interface GrayColorView {
+  readonly gray: number;
+}
+
+/**
+ * A Photoshop `SolidColor` as a plain value object — every color-model view plus the base model's
+ * `typename`, decoded synchronously from the transport envelope. No remote handle, no methods, no
+ * `dispose` (mirrors {@link ImagingBounds}); reading a channel's `color` materializes it fully.
+ * `nearestWebColor`/`isEqual` and WebView-side construction are out of scope in this batch.
+ */
+export interface PsSolidColor {
+  readonly rgb: RgbColorView;
+  readonly hsb: HsbColorView;
+  readonly cmyk: CmykColorView;
+  readonly lab: LabColorView;
+  readonly gray: GrayColorView;
+  readonly typename: string;
+}
+
+/**
+ * Input accepted when writing a color (e.g. `channel.color = ...`). Either a previously-read
+ * {@link PsSolidColor} or a single-model partial; the host applies the corresponding sub-model to a
+ * fresh `SolidColor`, matching Adobe's model-switch-on-write behavior.
+ */
+export type SolidColorInput =
+  | PsSolidColor
+  | { readonly rgb: Partial<RgbColorView> }
+  | { readonly hsb: Partial<HsbColorView> }
+  | { readonly cmyk: Partial<CmykColorView> }
+  | { readonly lab: Partial<LabColorView> }
+  | { readonly gray: Partial<GrayColorView> };
+
+/**
+ * WebView-local collection of {@link PsChannel}. Same snapshot semantics as {@link Layers}: an
+ * `Array`-like view over an id snapshot taken at read time, with lazily-resolved members. Because a
+ * channel has no stable native id, member proxies are *not* `===`-deduped across snapshots (each
+ * read yields fresh proxies).
+ */
+export interface Channels extends ReadonlyArray<PsChannel> {
+  /** Resolve the channel with the given name via a single host RPC (`null` if none). */
+  getByName(name: string): Promise<PsChannel | null>;
+}
+
 /** Options for {@link PsDocument.close}. */
 export interface DocumentCloseOptions {
   readonly saveDialogOptions?: SaveOptionsValue;
@@ -95,6 +171,9 @@ export interface PsDocument {
   readonly activeLayers: Promise<Layers>;
   readonly artboards: Promise<Layers>;
   readonly backgroundLayer: Promise<PsLayer | null>;
+  readonly channels: Promise<Channels>;
+  readonly componentChannels: Promise<Channels>;
+  readonly activeChannels: Promise<Channels>;
 
   // Non-mutating method
   duplicate(name?: string, mergeLayersOnly?: boolean): Promise<PsDocument>;
@@ -248,6 +327,56 @@ export type PsLayerReadableKey =
   | "bounds"
   | "boundsNoEffects";
 
+/**
+ * Remote proxy for a Photoshop `Channel`. The first new DOM class built on the batch-0.5 registry
+ * foundation (RFC-0011). `histogram` is a raw `number[]` (scalar); `color` decodes to a
+ * {@link PsSolidColor} value object and accepts a {@link SolidColorInput} on write; `parent`
+ * resolves to the owning {@link PsDocument}. All methods mutate and are host-wrapped in
+ * executeAsModal (ADR 0007). A channel has no stable native id, so channel proxies are not
+ * `===`-deduped (each read yields a fresh proxy).
+ */
+export interface PsChannel {
+  // Read/write scalars
+  name: Promise<string>;
+  opacity: Promise<number>;
+  visible: Promise<boolean>;
+  kind: Promise<ChannelTypeValue>;
+  // Read-only scalar (raw number[256], only valid on a visible channel)
+  readonly histogram: Promise<readonly number[]>;
+  // Value-object property (read/write)
+  color: Promise<PsSolidColor>;
+  // Reference property
+  readonly parent: Promise<PsDocument>;
+
+  // Mutating methods (host wraps in executeAsModal)
+  duplicate(targetDocument?: PsDocument): Promise<void>;
+  merge(): Promise<void>;
+  remove(): Promise<void>;
+
+  // Batch
+  batchGet<K extends PsChannelReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<PsChannelWritableProps>): void;
+  dispose(): Promise<void>;
+}
+
+/** Writable Channel properties (input shape for {@link PsChannel.batchSet}). */
+export interface PsChannelWritableProps {
+  name: string;
+  opacity: number;
+  visible: boolean;
+  kind: ChannelTypeValue;
+  color: SolidColorInput;
+}
+
+/** Every readable Channel property key (input to {@link PsChannel.batchGet}). */
+export type PsChannelReadableKey =
+  | "name"
+  | "opacity"
+  | "visible"
+  | "kind"
+  | "histogram"
+  | "color";
+
 /** Options accepted by {@link PhotoshopApp.open}. */
 export interface OpenOptions {
   readonly path?: string;
@@ -315,4 +444,5 @@ export interface PhotoshopNamespace {
   readonly ElementPlacement: typeof ElementPlacement;
   readonly SaveOptions: typeof SaveOptions;
   readonly FlipAxis: typeof FlipAxis;
+  readonly ChannelType: typeof ChannelType;
 }
