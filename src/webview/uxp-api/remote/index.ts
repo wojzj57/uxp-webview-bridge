@@ -2,9 +2,11 @@ export { RemoteClass } from "./remote-class.js";
 export type {
   RemoteClassConfig,
   RemoteConstructionRequest,
+  RemoteDecodeContext,
   RemoteMethodDescriptor,
   RemoteMethodNames,
   RemotePropertyDescriptor,
+  RemoteResultTyping,
   RemoteRpc
 } from "./remote-class.js";
 export { createIdentityCache } from "./identity-cache.js";

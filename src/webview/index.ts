@@ -20,7 +20,7 @@ export type { LocalStorageNamespace } from "./uxp-api/global-members/local-stora
 export { os } from "./uxp-api/modules/os/os.js";
 export type { CpuInfo, OsNamespace } from "./uxp-api/modules/os/index.js";
 export { path } from "./uxp-api/global-members/path/index.js";
-export { photoshop } from "./uxp-api/modules/photoshop/index.js";
+export { photoshop } from "./photoshop-api/modules/photoshop/index.js";
 export type {
   DocumentCloseOptions,
   ImagingBounds,
@@ -36,7 +36,7 @@ export type {
   PsLayerReadableKey,
   PsLayerWritableProps,
   ResizeOptions
-} from "./uxp-api/modules/photoshop/index.js";
+} from "./photoshop-api/modules/photoshop/index.js";
 export type { PathFlavor, PathFormatInput, PathInput, PathNamespace, PathParsed } from "./uxp-api/global-members/path/index.js";
 export { sessionStorage } from "./uxp-api/global-members/session-storage/index.js";
 export type { SessionStorageNamespace } from "./uxp-api/global-members/session-storage/index.js";

@@ -9,16 +9,18 @@
  * methods here are mutating and are wrapped in executeAsModal host-side (ADR 0007).
  */
 
-import { PHOTOSHOP_MODULE_ID } from "@shared/uxp-api/photoshop-protocol.js";
+import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
+import { IMAGING_BOUNDS_VALUE_KIND } from "@shared/photoshop-api/value-objects.js";
 import {
   RemoteClass,
   type RemoteClassConfig,
   type RemoteConstructionRequest,
+  type RemoteMethodDescriptor,
   type RemoteMethodNames,
   type RemotePropertyDescriptor,
   type RemoteReference
 } from "@webview/uxp-api/remote/index.js";
-import type { AnchorPositionValue, BlendModeValue, ElementPlacementValue, FlipAxisValue, LayerKindValue } from "@shared/uxp-api/photoshop-constants.js";
+import type { AnchorPositionValue, BlendModeValue, ElementPlacementValue, FlipAxisValue, LayerKindValue } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopContext } from "./context.js";
 import type { ImagingBounds, Layers, PsDocument, PsLayer } from "./types.js";
 
@@ -46,11 +48,13 @@ const LAYER_WRITABLE_SCALARS = [
   "selected"
 ] as const;
 
-export function createLayerClass(context: PhotoshopContext): {
-  new (reference: RemoteReference): PsLayer;
-} {
-  const { rpc, documentDecoder, layerDecoder, layersDecoder, boundsDecoder } = context;
-
+/**
+ * Build the Layer property descriptor table. Exported (independently of the class factory) so the
+ * registry static test can assert the declarative typings stay in sync with `PHOTOSHOP_RESULT_KINDS`
+ * without constructing an instance. See {@link createDocumentProperties}.
+ */
+export function createLayerProperties(): Record<string, RemotePropertyDescriptor> {
+  const { Document, Layer } = PHOTOSHOP_REMOTE_TYPE;
   const properties: Record<string, RemotePropertyDescriptor> = {};
   for (const name of LAYER_READONLY_SCALARS) {
     properties[name] = { writable: false, mutating: false, remoteKey: name };
@@ -58,11 +62,38 @@ export function createLayerClass(context: PhotoshopContext): {
   for (const name of LAYER_WRITABLE_SCALARS) {
     properties[name] = { writable: true, mutating: true, remoteKey: name };
   }
-  properties.bounds = { writable: false, mutating: false, remoteKey: "bounds", decode: boundsDecoder };
-  properties.boundsNoEffects = { writable: false, mutating: false, remoteKey: "boundsNoEffects", decode: boundsDecoder };
-  properties.document = { writable: false, mutating: false, remoteKey: "document", decode: documentDecoder };
-  properties.parent = { writable: false, mutating: false, remoteKey: "parent", decode: layerDecoder };
-  properties.linkedLayers = { writable: false, mutating: false, remoteKey: "linkedLayers", decode: layersDecoder };
+  properties.bounds = { writable: false, mutating: false, remoteKey: "bounds", valueKind: IMAGING_BOUNDS_VALUE_KIND };
+  properties.boundsNoEffects = { writable: false, mutating: false, remoteKey: "boundsNoEffects", valueKind: IMAGING_BOUNDS_VALUE_KIND };
+  properties.document = { writable: false, mutating: false, remoteKey: "document", refType: Document };
+  properties.parent = { writable: false, mutating: false, remoteKey: "parent", refType: Layer };
+  properties.linkedLayers = { writable: false, mutating: false, remoteKey: "linkedLayers", collectionOf: Layer };
+  return properties;
+}
+
+/** Build the Layer method descriptor table (see {@link createLayerProperties}). */
+export function createLayerMethods(): Record<string, RemoteMethodDescriptor> {
+  const { Layer } = PHOTOSHOP_REMOTE_TYPE;
+  return {
+    delete: { mutating: true },
+    duplicate: { mutating: true, refType: Layer },
+    link: { mutating: true, collectionOf: Layer },
+    unlink: { mutating: true },
+    move: { mutating: true },
+    translate: { mutating: true },
+    flip: { mutating: true },
+    scale: { mutating: true },
+    rotate: { mutating: true },
+    merge: { mutating: true, refType: Layer },
+    rasterize: { mutating: true }
+  };
+}
+
+export function createLayerClass(context: PhotoshopContext): {
+  new (reference: RemoteReference): PsLayer;
+} {
+  const { rpc, registry } = context;
+
+  const properties = createLayerProperties();
 
   const methodNames: RemoteMethodNames = {
     propertyGet: Object.fromEntries(Object.keys(properties).map((name) => [name, "layer.propertyGet"])),
@@ -85,19 +116,7 @@ export function createLayerClass(context: PhotoshopContext): {
     dispose: "layer.dispose"
   };
 
-  const methods = {
-    delete: { mutating: true },
-    duplicate: { mutating: true, decode: layerDecoder },
-    link: { mutating: true, decode: layersDecoder },
-    unlink: { mutating: true },
-    move: { mutating: true },
-    translate: { mutating: true },
-    flip: { mutating: true },
-    scale: { mutating: true },
-    rotate: { mutating: true },
-    merge: { mutating: true, decode: layerDecoder },
-    rasterize: { mutating: true }
-  } as const;
+  const methods = createLayerMethods();
 
   const config: RemoteClassConfig = {
     rpc,
@@ -105,7 +124,8 @@ export function createLayerClass(context: PhotoshopContext): {
     methodNames,
     properties,
     methods,
-    argEncoders: []
+    argEncoders: [],
+    decodeContext: registry.decodeContext
   };
 
   class WebviewPsLayer extends RemoteClass implements PsLayer {

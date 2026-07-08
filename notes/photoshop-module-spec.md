@@ -10,11 +10,11 @@
 
 ## 0. 模块归属
 
-- 模块目录名:`photoshop`(复用现有 stub `src/uxp/uxp-api/modules/photoshop/`)。
+- 模块目录名:`photoshop`,归属 `photoshop-api` 命名空间(`src/{webview,uxp}/photoshop-api/modules/photoshop/`)。
 - capability:`photoshop`(已存在于 `BridgeCapabilities`)。
-- 目录对称:`src/webview/uxp-api/modules/photoshop/` 与 `src/uxp/uxp-api/modules/photoshop/`。
-- shared protocol:`src/shared/uxp-api/photoshop-protocol.ts`。
-- shared 常量:`src/shared/uxp-api/photoshop-constants.ts`。
+- 目录对称:`src/webview/photoshop-api/modules/photoshop/` 与 `src/uxp/photoshop-api/modules/photoshop/`。
+- shared protocol:`src/shared/photoshop-api/photoshop-protocol.ts`。
+- shared 常量:`src/shared/photoshop-api/photoshop-constants.ts`。
 
 ---
 
@@ -105,7 +105,7 @@ class PsLayer extends RemoteClass {
 
 ## 5. 常量 —— ADR 0006
 
-- **运行时值**:`as const` 对象放 `src/shared/uxp-api/photoshop-constants.ts`,两侧共享 import。例:`LayerKind`、`BlendMode`、`AnchorPosition`、`ElementPlacement`、`SaveOptions` ...
+- **运行时值**:`as const` 对象放 `src/shared/photoshop-api/photoshop-constants.ts`,两侧共享 import。例:`LayerKind`、`BlendMode`、`AnchorPosition`、`ElementPlacement`、`SaveOptions` ...
 - **类型**:对齐 `@shared-types/photoshop` 的 Adobe enum 类型(.d.ts 只有类型,无运行时值,故须手工誊写运行时值)。
 - **暴露**:WebView namespace 上暴露(如 `photoshop.LayerKind`),用户 `photoshop.LayerKind.TEXT` 取值。
 - **按需增量誊写**:只誊当前批次用到的枚举;每个枚举标注 Photoshop 文档来源,并加静态测试断言与 `@shared-types/photoshop` 类型兼容。用不到的不提前誊。
@@ -124,31 +124,38 @@ class PsLayer extends RemoteClass {
 
 ## 7. 目录结构(遵循 module-development-guidelines.md)
 
+Photoshop 相关代码全部归属 `photoshop-api` 命名空间(三层对称:shared / webview / uxp);
+通用远程对象底座(RemoteClass、handle-registry)属于横切基础设施,保留在 `uxp-api/remote/`,**不**放进 photoshop-api。
+
 ```txt
-src/shared/uxp-api/
+src/shared/photoshop-api/       # Photoshop 共享契约(runtime-neutral)
   photoshop-protocol.ts        # module id、方法名、assert helper、引用/序列化 shape
   photoshop-constants.ts       # 枚举运行时值(按需增量)
 
-src/webview/uxp-api/remote/    # 通用(ADR 0008)
+src/webview/uxp-api/remote/    # 通用底座(ADR 0008),非 photoshop 专属
   remote-class.ts              # RemoteClass 基类
   reference.ts                 # 引用编解码
   identity-cache.ts            # WeakRef 身份缓存
 
-src/webview/uxp-api/modules/photoshop/
+src/webview/photoshop-api/modules/photoshop/
   index.ts
   photoshop.ts                 # namespace(app / activeDocument ...)
   document.ts / layer.ts ...   # PsDocument / PsLayer 等 RemoteClass 子类
   types.ts
   photoshop.test.ts            # 共址 CDP case(case name 带 photoshop. 前缀)
 
-src/uxp/uxp-api/remote/        # 通用(ADR 0004)
+src/uxp/uxp-api/remote/        # 通用底座(ADR 0004),非 photoshop 专属
   handle-registry.ts           # createRemoteHandleRegistry()
 
-src/uxp/uxp-api/modules/photoshop/
+src/uxp/photoshop-api/modules/photoshop/
   index.ts
   host.ts                      # adapter + dispatch(先校验 method,再校验 args,再 modal 包裹访问 host API)
   types.ts
 ```
+
+> **模块 id 约定**:`PHOTOSHOP_MODULE_ID = "photoshop-api/modules/photoshop"`,镜像目录路径。
+> **对称约束**:`test/static/check-boundaries.mjs` 对 `photoshop-api` 强制 `src/webview` 与 `src/uxp`
+> 的 `modules/{name}` 目录对称;共址 CDP case 名前缀由目录推导(`photoshop-api/modules/photoshop` → `photoshop.` 前缀)。
 
 ---
 

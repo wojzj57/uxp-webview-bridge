@@ -14,18 +14,51 @@ export interface RemoteRpc {
 }
 
 /**
+ * Declarative result-typing for a property read or method return (ADR 0009). Instead of injecting a
+ * `decode` closure, a photoshop descriptor names *what* the result is; the injected
+ * {@link RemoteDecodeContext} resolves the name at decode time (lazily, which is what breaks the
+ * cyclic-reference and factory-construction-order problems). Exactly one of these may be set.
+ *
+ * `refType`      — a single remote object of this remote type (nullable if the reply is null).
+ * `valueKind`    — a value object resolved via the value-object registry.
+ * `collectionOf` — a snapshot collection whose members are of this remote type.
+ */
+export interface RemoteResultTyping {
+  readonly refType?: string;
+  readonly valueKind?: string;
+  readonly collectionOf?: string;
+}
+
+/**
+ * Resolver injected into a {@link RemoteClass} to decode declarative result typings. A module wires
+ * this once (photoshop builds it from its type/value/collection registries); non-photoshop modules
+ * (xmp) omit it and rely on the `decode` closure escape hatch instead.
+ */
+export interface RemoteDecodeContext {
+  /** Decode a single remote reference envelope (or null) into a `===`-stable instance. */
+  decodeRef(refType: string, raw: unknown): unknown;
+  /** Decode a value-object envelope into a plain value object. */
+  decodeValue(valueKind: string, raw: unknown): unknown;
+  /** Decode a snapshot envelope into a collection of the given member type. */
+  decodeCollection(memberKind: string, raw: unknown): unknown;
+}
+
+/**
  * Runtime descriptor for a single remote property.
  *
  * `writable` controls whether a setter is generated; `mutating` is forwarded to the UXP host so it
- * can decide modal-execution semantics (unused by non-Photoshop modules such as XMP). `decode`
- * transforms the raw RPC return (e.g. a reference envelope into a value-object/instance).
+ * can decide modal-execution semantics (unused by non-Photoshop modules such as XMP).
+ *
+ * Result typing is declarative via {@link RemoteResultTyping} (`refType`/`valueKind`/`collectionOf`,
+ * resolved by the injected {@link RemoteDecodeContext}); `decode` remains as a low-level escape
+ * hatch for modules without a decode context (xmp). At most one mechanism applies per descriptor.
  *
  * `remoteKey` supports a shared getter/setter RPC that dispatches on a property name (e.g. XMP's
  * `xmp.dateTime.getProperty`/`setProperty`): when set, the get call sends `[reference, remoteKey]`
  * and the set call sends `[reference, remoteKey, value]`. When omitted, each property uses its own
  * dedicated RPC method (`[reference]` / `[reference, value]`).
  */
-export interface RemotePropertyDescriptor {
+export interface RemotePropertyDescriptor extends RemoteResultTyping {
   readonly writable: boolean;
   readonly mutating?: boolean;
   readonly decode?: RemoteValueDecoder;
@@ -35,9 +68,10 @@ export interface RemotePropertyDescriptor {
 /**
  * Runtime descriptor for a single remote method.
  *
- * `decode` transforms the raw RPC return; `mutating` is forwarded for host modal semantics.
+ * Result typing is declarative via {@link RemoteResultTyping}; `decode` remains as an escape hatch.
+ * `mutating` is forwarded for host modal semantics.
  */
-export interface RemoteMethodDescriptor {
+export interface RemoteMethodDescriptor extends RemoteResultTyping {
   readonly mutating?: boolean;
   readonly decode?: RemoteValueDecoder;
 }
@@ -58,6 +92,11 @@ export interface RemoteClassConfig {
   readonly methods: Readonly<Record<string, RemoteMethodDescriptor>>;
   /** Domain arg encoders (e.g. XMP native-Date envelope). RemoteClass instances are always encoded. */
   readonly argEncoders?: readonly RemoteArgEncoder[];
+  /**
+   * Resolver for declarative result typings (`refType`/`valueKind`/`collectionOf`). Required when
+   * any descriptor uses them; omitted by modules that rely solely on the `decode` closure.
+   */
+  readonly decodeContext?: RemoteDecodeContext;
 }
 
 export interface RemoteMethodNames {
@@ -195,12 +234,36 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     const method = this.#requireMethodName(this.#config.methodNames.method[name], `call method ${name}`);
     const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
     const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
-    const decode = this.#config.methods[name]?.decode;
-    return decode ? (decode(raw) ?? raw) : raw;
+    return this.#decodeResult(this.#config.methods[name], raw);
   }
 
   #decodeProperty(name: string, raw: unknown): unknown {
-    const decode = this.#config.properties[name]?.decode;
+    return this.#decodeResult(this.#config.properties[name], raw);
+  }
+
+  /**
+   * Decode a raw RPC result per a descriptor's result typing. Declarative names
+   * (`refType`/`valueKind`/`collectionOf`) resolve through the injected decode context; a `decode`
+   * closure is the fallback escape hatch. When neither applies the raw value passes through.
+   */
+  #decodeResult(descriptor: RemoteResultTyping & { decode?: RemoteValueDecoder } | undefined, raw: unknown): unknown {
+    if (!descriptor) {
+      return raw;
+    }
+    if (descriptor.refType !== undefined || descriptor.valueKind !== undefined || descriptor.collectionOf !== undefined) {
+      const context = this.#config.decodeContext;
+      if (!context) {
+        throw new Error("A declarative result typing was used without a decode context.");
+      }
+      if (descriptor.refType !== undefined) {
+        return context.decodeRef(descriptor.refType, raw);
+      }
+      if (descriptor.valueKind !== undefined) {
+        return context.decodeValue(descriptor.valueKind, raw);
+      }
+      return context.decodeCollection(descriptor.collectionOf as string, raw);
+    }
+    const decode = descriptor.decode;
     return decode ? (decode(raw) ?? raw) : raw;
   }
 

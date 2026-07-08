@@ -14,7 +14,7 @@ Per the module boundaries (`AGENTS.md`), `src/shared` owns runtime-neutral proto
 
 ## Design
 
-**Module identity.** `PHOTOSHOP_MODULE_ID = "uxp-api/modules/photoshop"`, matching the existing `uxp-api/modules/*` module-id convention so the boundary checker's `uxp-api` symmetry rule applies unchanged.
+**Module identity.** `PHOTOSHOP_MODULE_ID = "photoshop-api/modules/photoshop"`, living under the dedicated `photoshop-api` namespace so the boundary checker's `photoshop-api` symmetry rule applies.
 
 **Method-name vocabulary.** The bridge dispatches by string method name. This RFC defines the complete set for the core objects as `as const` groups plus a derived union type, organized by owner:
 
@@ -47,8 +47,8 @@ Only enums used by this batch are transcribed; unused enums are deliberately not
 ## Scope
 
 **In scope**
-- `src/shared/uxp-api/photoshop-protocol.ts`: module id, method-name groups + union type, `assertPhotoshopProtocolMethodName`, reference `type` constants, `ImagingBounds` field-list constant + transport type.
-- `src/shared/uxp-api/photoshop-constants.ts`: the six `as const` enums above, each with a documented Adobe source.
+- `src/shared/photoshop-api/photoshop-protocol.ts`: module id, method-name groups + union type, `assertPhotoshopProtocolMethodName`, reference `type` constants, `ImagingBounds` field-list constant + transport type.
+- `src/shared/photoshop-api/photoshop-constants.ts`: the six `as const` enums above, each with a documented Adobe source.
 
 **Out of scope**
 - Any `RemoteClass` subclass, namespace, decoder, or WebView export — RFC-0005.
@@ -60,13 +60,13 @@ Only enums used by this batch are transcribed; unused enums are deliberately not
 
 | Change | Detail |
 | --- | --- |
-| New shared file | `src/shared/uxp-api/photoshop-protocol.ts` |
-| Module id | `PHOTOSHOP_MODULE_ID = "uxp-api/modules/photoshop"` |
+| New shared file | `src/shared/photoshop-api/photoshop-protocol.ts` |
+| Module id | `PHOTOSHOP_MODULE_ID = "photoshop-api/modules/photoshop"` |
 | Method names | `as const` groups (`app`/`document`/`layer`/`layers`) + derived `PhotoshopProtocolMethodName` union |
 | Assert helper | `assertPhotoshopProtocolMethodName(name)` (throwing type guard) |
 | Reference types | `PHOTOSHOP_REMOTE_TYPE = { Document: "Document", Layer: "Layer" } as const` |
 | Value shape | `IMAGING_BOUNDS_FIELDS` constant + `ImagingBoundsTransport` type (`{ left, right, top, bottom, width, height }`) |
-| New shared file | `src/shared/uxp-api/photoshop-constants.ts` |
+| New shared file | `src/shared/photoshop-api/photoshop-constants.ts` |
 | Constants | `LayerKind`, `BlendMode`, `AnchorPosition`, `ElementPlacement`, `SaveOptions`, `FlipAxis` as `as const` objects |
 
 ## Implementation plan

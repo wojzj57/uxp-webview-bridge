@@ -36,9 +36,9 @@ The closed-loop membership for this batch:
 ## Scope
 
 **In scope**
-- `src/webview/uxp-api/modules/photoshop/`: `types.ts`, `bounds.ts`, `layers.ts`, `document.ts`, `layer.ts`, `photoshop.ts` (namespace + identity caches + reference codec + singleton), `index.ts` re-exports.
+- `src/webview/photoshop-api/modules/photoshop/`: `types.ts`, `bounds.ts`, `layers.ts`, `document.ts`, `layer.ts`, `photoshop.ts` (namespace + identity caches + reference codec + singleton), `index.ts` re-exports.
 - Wiring the six transcribed constants (from RFC-0004) onto the namespace object.
-- WebView public export: `export { photoshop } from "./uxp-api/modules/photoshop/index.js"` + type exports in `src/webview/index.ts`.
+- WebView public export: `export { photoshop } from "./photoshop-api/modules/photoshop/index.js"` + type exports in `src/webview/index.ts`.
 - `batchGet(propNames[])` / `batchSet(partialProps)` instance methods on PsDocument/PsLayer, delegating to the RemoteClass base's batch support; `batchSet` input typed as a partial over *writable* props only.
 
 **Out of scope**
@@ -79,7 +79,7 @@ Behavioral verification is owned by RFC-0007, but this RFC is designed to be tes
 
 ## Dependencies
 
-RFC-0004 (shared protocol & constants) must land first. Directory symmetry with RFC-0006's `src/uxp/uxp-api/modules/photoshop/` is enforced by `test/static/check-boundaries.mjs`, so RFC-0005 and RFC-0006 must land together (or the static check will fail on an asymmetric module tree).
+RFC-0004 (shared protocol & constants) must land first. Directory symmetry with RFC-0006's `src/uxp/photoshop-api/modules/photoshop/` is enforced by `test/static/check-boundaries.mjs`, so RFC-0005 and RFC-0006 must land together (or the static check will fail on an asymmetric module tree).
 
 ## Open questions
 

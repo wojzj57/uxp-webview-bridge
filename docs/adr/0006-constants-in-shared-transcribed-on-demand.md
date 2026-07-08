@@ -2,7 +2,7 @@
 
 Photoshop's DOM exposes dozens of enums (`LayerKind`, `BlendMode`, `AnchorPosition`, `ElementPlacement`, `SaveOptions`, ...) whose runtime values must be identical on both bridge sides and must survive being passed from WebView through to the native Photoshop API. We place their runtime values in the shared layer and transcribe them incrementally.
 
-- **Runtime values:** defined as `as const` objects in `src/shared/uxp-api/photoshop-constants.ts` (or per-concern files under the same shared area), imported by BOTH the WebView namespace and the UXP host. Single source of truth; both sides can never drift.
+- **Runtime values:** defined as `as const` objects in `src/shared/photoshop-api/photoshop-constants.ts` (or per-concern files under the same shared area), imported by BOTH the WebView namespace and the UXP host. Single source of truth; both sides can never drift.
 - **Types:** aligned with Adobe's enum types from `@shared-types/photoshop` where possible, so signatures stay compatible with the official DOM.
 - **Exposure:** surfaced on the WebView namespace (e.g. `photoshop.LayerKind`) like XMP's `XMPConst`, so users can write `photoshop.createLayer(LayerKind.TEXT)`.
 - **On-demand transcription:** only the enums needed by the current development batch are transcribed. Each transcribed enum records its Photoshop doc source and ships a static test asserting compile-time compatibility with the `@shared-types/photoshop` type. Unused enums are not transcribed ahead of time.

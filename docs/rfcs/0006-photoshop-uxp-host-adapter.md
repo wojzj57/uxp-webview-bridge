@@ -37,7 +37,7 @@ Deliver the UXP host side of the `photoshop` module: an adapter (`photoshopModul
 ## Scope
 
 **In scope**
-- `src/uxp/uxp-api/modules/photoshop/`: `types.ts` (host module require shape, handle types, method-name types), `host.ts` (`photoshopModuleAdapter` + `dispatchPhotoshopCall` + `ImagingBounds` serializer + identity keys + batch + modal wrapping), `index.ts` re-export.
+- `src/uxp/photoshop-api/modules/photoshop/`: `types.ts` (host module require shape, handle types, method-name types), `host.ts` (`photoshopModuleAdapter` + `dispatchPhotoshopCall` + `ImagingBounds` serializer + identity keys + batch + modal wrapping), `index.ts` re-export.
 - Registering the adapter in `src/uxp/index.ts`'s adapters array.
 - Consuming the existing generic `createRemoteHandleRegistry()` (one instance per adapter).
 
@@ -81,7 +81,7 @@ Behavioral verification is owned by RFC-0007; this RFC is designed to be testabl
 
 ## Dependencies
 
-RFC-0004 (shared protocol & constants) must land first. Directory symmetry with RFC-0005's `src/webview/uxp-api/modules/photoshop/` is enforced by `test/static/check-boundaries.mjs`, so RFC-0006 and RFC-0005 must land together.
+RFC-0004 (shared protocol & constants) must land first. Directory symmetry with RFC-0005's `src/webview/photoshop-api/modules/photoshop/` is enforced by `test/static/check-boundaries.mjs`, so RFC-0006 and RFC-0005 must land together.
 
 ## Open questions
 

@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 // Reach into the built module internals directly (contract tests run against dist). The factories are
 // not part of the public `photoshop` namespace surface, so we import them from their own dist files.
-const documentModule = "../../dist/webview/uxp-api/modules/photoshop/document.js";
-const layerModule = "../../dist/webview/uxp-api/modules/photoshop/layer.js";
+const documentModule = "../../dist/webview/photoshop-api/modules/photoshop/document.js";
+const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js";
 
 /**
  * A recording rpc that resolves every call to a benign value and never throws. The only way a member
@@ -25,30 +25,29 @@ function createRecordingRpc() {
 
 const reference = (type) => ({ kind: "uxp.remote.ref", type, id: `${type}-1` });
 
+const registryModule = "../../dist/webview/photoshop-api/modules/photoshop/registry.js";
+const protocolModule = "../../dist/shared/photoshop-api/photoshop-protocol.js";
+
 /**
- * Minimal PhotoshopContext for the class factories. The decoders decline everything (return
- * undefined) so raw values pass through untouched; the getOrCreate/createLayers members are never
- * reached by these smoke reads because the decoders decline the benign `null` returns.
+ * Build a real PhotoshopContext (`{ rpc, registry }`) for the class factories (ADR 0009). The
+ * registry needs Document and Layer registered so the decode context can resolve their reference /
+ * collection typings; we register lightweight placeholder factories (a bare reference holder) rather
+ * than the real classes, because these smoke reads never decode a concrete envelope — the recording
+ * rpc returns benign `null`/`{}` so ref decodes yield `null` and value/collection decodes surface a
+ * decode error, neither of which is the "No RPC method name configured" drift this test guards.
  */
-function createStubContext(rpc) {
-  const decline = () => undefined;
-  const context = {
-    rpc,
-    getOrCreateDocument: () => {
-      throw new Error("getOrCreateDocument should not be called by consistency smoke reads.");
-    },
-    getOrCreateLayer: () => {
-      throw new Error("getOrCreateLayer should not be called by consistency smoke reads.");
-    },
-    createLayers: () => {
-      throw new Error("createLayers should not be called by consistency smoke reads.");
-    },
-    documentDecoder: decline,
-    layerDecoder: decline,
-    layersDecoder: decline,
-    boundsDecoder: decline
-  };
-  return context;
+async function createStubContext(rpc) {
+  const { createPhotoshopTypeRegistry } = await import(registryModule);
+  const { PHOTOSHOP_REMOTE_TYPE } = await import(protocolModule);
+  const registry = createPhotoshopTypeRegistry(rpc);
+  const placeholder = (ref) => ({ toRemoteReference: () => Promise.resolve(ref) });
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Document, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Layer, placeholder);
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
+    getByName: "layers.getByName",
+    add: "layers.add"
+  });
+  return { rpc, registry };
 }
 
 function ownMemberNames(instance) {
@@ -73,15 +72,26 @@ function findDescriptor(instance, name) {
   return undefined;
 }
 
+/**
+ * Exercise a member and return the error it rejected/threw with, or `undefined` if it resolved. The
+ * caller asserts on the *kind* of failure: a decode-path error (benign here — the recording rpc
+ * returns null, so value/collection decodes reject) is fine; the "No RPC method name configured"
+ * base-class guard is the descriptor<->RPC-name drift this test must catch.
+ */
 async function exerciseMember(instance, name) {
   const descriptor = findDescriptor(instance, name);
-  if (descriptor?.get) {
-    await instance[name];
-    return;
-  }
-  const value = instance[name];
-  if (typeof value === "function") {
-    await value.call(instance);
+  try {
+    if (descriptor?.get) {
+      await instance[name];
+      return undefined;
+    }
+    const value = instance[name];
+    if (typeof value === "function") {
+      await value.call(instance);
+    }
+    return undefined;
+  } catch (error) {
+    return error;
   }
 }
 
@@ -94,7 +104,7 @@ const CASES = [
     async build() {
       const { createDocumentClass } = await import(documentModule);
       const rpc = createRecordingRpc();
-      const DocumentClass = createDocumentClass(createStubContext(rpc));
+      const DocumentClass = createDocumentClass(await createStubContext(rpc));
       return { rpc, instance: new DocumentClass(reference("Document")) };
     }
   },
@@ -103,7 +113,7 @@ const CASES = [
     async build() {
       const { createLayerClass } = await import(layerModule);
       const rpc = createRecordingRpc();
-      const LayerClass = createLayerClass(createStubContext(rpc));
+      const LayerClass = createLayerClass(await createStubContext(rpc));
       return { rpc, instance: new LayerClass(reference("Layer")) };
     }
   }
@@ -117,18 +127,21 @@ for (const testCase of CASES) {
     assert.ok(members.length > 0, `${testCase.name} should define at least one member.`);
 
     for (const name of members) {
-      await assert.doesNotReject(
-        () => exerciseMember(instance, name),
-        new RegExp("No RPC method name configured"),
-        `${testCase.name}.${name} must be backed by a configured RPC method name.`
-      );
+      const error = await exerciseMember(instance, name);
+      if (error) {
+        assert.doesNotMatch(
+          String(error.message ?? error),
+          /No RPC method name configured/,
+          `${testCase.name}.${name} must be backed by a configured RPC method name.`
+        );
+      }
     }
   });
 
   test(`${testCase.name} batch operations use the wired batch RPC names`, async () => {
     const { rpc, instance } = await testCase.build();
     const type = testCase.name === "WebviewPsDocument" ? "Document" : "Layer";
-    const module = "uxp-api/modules/photoshop";
+    const module = "photoshop-api/modules/photoshop";
     const batchGetName = type === "Document" ? "document.batchGet" : "layer.batchGet";
     const batchSetName = type === "Document" ? "document.batchSet" : "layer.batchSet";
     const writableProp = type === "Document" ? "pixelAspectRatio" : "opacity";

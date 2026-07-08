@@ -10,7 +10,7 @@ import { sessionStorageModuleAdapter } from "./uxp-api/global-members/session-st
 import { fetchModuleAdapter } from "./uxp-api/modules/fetch/host.js";
 import { fsModuleAdapter } from "./uxp-api/modules/fs/host.js";
 import { osModuleAdapter } from "./uxp-api/modules/os/host.js";
-import { photoshopModuleAdapter } from "./uxp-api/modules/photoshop/index.js";
+import { photoshopModuleAdapter } from "./photoshop-api/modules/photoshop/index.js";
 import { uxpModuleAdapter } from "./uxp-api/modules/uxp/index.js";
 
 export interface ConfigUxpBridgeOptions {

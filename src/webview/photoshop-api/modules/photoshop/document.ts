@@ -12,11 +12,12 @@
  * semantics (ADR 0007); the WebView is unaware of modal execution.
  */
 
-import { PHOTOSHOP_MODULE_ID } from "@shared/uxp-api/photoshop-protocol.js";
+import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import {
   RemoteClass,
   type RemoteClassConfig,
   type RemoteConstructionRequest,
+  type RemoteMethodDescriptor,
   type RemoteMethodNames,
   type RemotePropertyDescriptor,
   type RemoteReference
@@ -49,11 +50,13 @@ const DOCUMENT_READONLY_SCALARS = [
 /** Read/write scalar Document properties (keyed shared get + set). */
 const DOCUMENT_WRITABLE_SCALARS = ["pixelAspectRatio"] as const;
 
-export function createDocumentClass(context: PhotoshopContext): {
-  new (reference: RemoteReference): PsDocument;
-} {
-  const { rpc, documentDecoder, layerDecoder, layersDecoder } = context;
-
+/**
+ * Build the Document property descriptor table. Exported (independently of the class factory) so the
+ * registry static test can assert the declarative `refType`/`valueKind`/`collectionOf` typings stay
+ * in sync with the shared `PHOTOSHOP_RESULT_KINDS` table without constructing an instance.
+ */
+export function createDocumentProperties(): Record<string, RemotePropertyDescriptor> {
+  const { Layer } = PHOTOSHOP_REMOTE_TYPE;
   const properties: Record<string, RemotePropertyDescriptor> = {};
   for (const name of DOCUMENT_READONLY_SCALARS) {
     properties[name] = { writable: false, mutating: false, remoteKey: name };
@@ -61,11 +64,48 @@ export function createDocumentClass(context: PhotoshopContext): {
   for (const name of DOCUMENT_WRITABLE_SCALARS) {
     properties[name] = { writable: true, mutating: false, remoteKey: name };
   }
-  // Collection & reference properties: dedicated getters that decode to proxies/collections.
-  properties.layers = { writable: false, mutating: false, remoteKey: "layers", decode: layersDecoder };
-  properties.activeLayers = { writable: false, mutating: false, remoteKey: "activeLayers", decode: layersDecoder };
-  properties.artboards = { writable: false, mutating: false, remoteKey: "artboards", decode: layersDecoder };
-  properties.backgroundLayer = { writable: false, mutating: false, remoteKey: "backgroundLayer", decode: layerDecoder };
+  // Collection & reference properties: declarative result typing resolved via the type registry.
+  properties.layers = { writable: false, mutating: false, remoteKey: "layers", collectionOf: Layer };
+  properties.activeLayers = { writable: false, mutating: false, remoteKey: "activeLayers", collectionOf: Layer };
+  properties.artboards = { writable: false, mutating: false, remoteKey: "artboards", collectionOf: Layer };
+  properties.backgroundLayer = { writable: false, mutating: false, remoteKey: "backgroundLayer", refType: Layer };
+  return properties;
+}
+
+/** Build the Document method descriptor table (see {@link createDocumentProperties}). */
+export function createDocumentMethods(): Record<string, RemoteMethodDescriptor> {
+  const { Document, Layer } = PHOTOSHOP_REMOTE_TYPE;
+  return {
+    duplicate: { mutating: false, refType: Document },
+    close: { mutating: true },
+    closeWithoutSaving: { mutating: true },
+    flatten: { mutating: true },
+    mergeVisibleLayers: { mutating: true, refType: Layer },
+    revealAll: { mutating: true },
+    rasterizeAllLayers: { mutating: true },
+    crop: { mutating: true },
+    resizeCanvas: { mutating: true },
+    resizeImage: { mutating: true },
+    trim: { mutating: true },
+    rotate: { mutating: true },
+    save: { mutating: true },
+    createLayer: { mutating: true, refType: Layer },
+    createPixelLayer: { mutating: true, refType: Layer },
+    createTextLayer: { mutating: true, refType: Layer },
+    createLayerGroup: { mutating: true, refType: Layer },
+    groupLayers: { mutating: true, refType: Layer },
+    duplicateLayers: { mutating: true, collectionOf: Layer },
+    linkLayers: { mutating: true, collectionOf: Layer },
+    paste: { mutating: true, refType: Layer }
+  };
+}
+
+export function createDocumentClass(context: PhotoshopContext): {
+  new (reference: RemoteReference): PsDocument;
+} {
+  const { rpc, registry } = context;
+
+  const properties = createDocumentProperties();
 
   const methodNames: RemoteMethodNames = {
     propertyGet: Object.fromEntries(
@@ -102,29 +142,7 @@ export function createDocumentClass(context: PhotoshopContext): {
     dispose: "document.dispose"
   };
 
-  const methods = {
-    duplicate: { mutating: false, decode: documentDecoder },
-    close: { mutating: true },
-    closeWithoutSaving: { mutating: true },
-    flatten: { mutating: true },
-    mergeVisibleLayers: { mutating: true, decode: layerDecoder },
-    revealAll: { mutating: true },
-    rasterizeAllLayers: { mutating: true },
-    crop: { mutating: true },
-    resizeCanvas: { mutating: true },
-    resizeImage: { mutating: true },
-    trim: { mutating: true },
-    rotate: { mutating: true },
-    save: { mutating: true },
-    createLayer: { mutating: true, decode: layerDecoder },
-    createPixelLayer: { mutating: true, decode: layerDecoder },
-    createTextLayer: { mutating: true, decode: layerDecoder },
-    createLayerGroup: { mutating: true, decode: layerDecoder },
-    groupLayers: { mutating: true, decode: layerDecoder },
-    duplicateLayers: { mutating: true, decode: layersDecoder },
-    linkLayers: { mutating: true, decode: layersDecoder },
-    paste: { mutating: true, decode: layerDecoder }
-  } as const;
+  const methods = createDocumentMethods();
 
   const config: RemoteClassConfig = {
     rpc,
@@ -132,7 +150,8 @@ export function createDocumentClass(context: PhotoshopContext): {
     methodNames,
     properties,
     methods,
-    argEncoders: []
+    argEncoders: [],
+    decodeContext: registry.decodeContext
   };
 
   class WebviewPsDocument extends RemoteClass implements PsDocument {

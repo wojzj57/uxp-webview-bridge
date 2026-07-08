@@ -3,43 +3,41 @@
  *
  * Owns the real `require('photoshop')` calls: it validates method names and arguments, resolves
  * reference envelopes to real DOM objects via its own handle registry, wraps mutating operations in
- * `core.executeAsModal`, and serializes results back into the shared transport shapes (references
- * for Document/Layer, six-field `ImagingBounds`, id-array snapshots for `Layers`). Identity dedup is
- * done by keying the registry on the real object's DOM id (`Document:${id}` / `Layer:${id}`), so the
- * same object always yields the same reference id and the WebView cache can resolve two references
- * to one `===` proxy. `src/uxp` must never import `src/webview` (AGENTS.md).
+ * `core.executeAsModal`, and serializes results back into the shared transport shapes. Result
+ * serialization is driven by the shared {@link PhotoshopResultKind} table (ADR 0009): each property
+ * read / method return is classified `scalar`/`value`/`ref`/`collection` in the protocol module, and
+ * the host dispatches on that classification rather than hand-maintained property sets — so it never
+ * imports the WebView descriptors (AGENTS.md forbids `src/uxp` importing `src/webview`). Identity
+ * dedup is done by keying the registry on the real object's DOM id (`Document:${id}` / `Layer:${id}`),
+ * so the same object always yields the same reference id and the WebView cache can resolve two
+ * references to one `===` proxy.
  *
- * See docs/adr/0004 (handle registry), docs/adr/0005 (identity dedup), docs/adr/0007 (executeAsModal).
+ * See docs/adr/0004 (handle registry), docs/adr/0005 (identity dedup), docs/adr/0007 (executeAsModal),
+ * docs/adr/0009 (declarative type/value/collection registries).
  */
 
 import {
   assertPhotoshopProtocolMethodName,
-  IMAGING_BOUNDS_FIELDS,
   PHOTOSHOP_MODULE_ID,
   PHOTOSHOP_REMOTE_TYPE,
-  type ImagingBoundsTransport,
-  type PhotoshopProtocolMethodName
-} from "@shared/uxp-api/photoshop-protocol.js";
+  PHOTOSHOP_SNAPSHOT_KIND,
+  photoshopMethodResultKind,
+  photoshopPropertyResultKind,
+  type PhotoshopProtocolMethodName,
+  type PhotoshopResultKind,
+  type PhotoshopSnapshotTransport
+} from "@shared/photoshop-api/photoshop-protocol.js";
+import { serializeValue } from "@shared/photoshop-api/value-objects.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 import type { UxpModuleAdapter } from "@uxp/module-registry.js";
 import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
 import type {
   PhotoshopDocumentLike,
-  PhotoshopHandleType,
   PhotoshopHostModule,
   PhotoshopLayerLike
 } from "./types.js";
 
 declare const require: (moduleName: "photoshop") => PhotoshopHostModule;
-
-const LAYERS_SNAPSHOT_KIND = "uxp.photoshop.layersSnapshot";
-
-/** Transport shape the WebView decodes into a `Layers` collection (must match the webview side). */
-interface LayersSnapshotTransport {
-  readonly kind: typeof LAYERS_SNAPSHOT_KIND;
-  readonly owner: RemoteReference;
-  readonly layerIds: readonly string[];
-}
 
 /** Document scalar properties that are readable (keyed `document.propertyGet`). */
 const DOCUMENT_SCALARS = new Set([
@@ -55,12 +53,6 @@ const DOCUMENT_SCALARS = new Set([
   "cloudWorkAreaDirectory",
   "pixelAspectRatio"
 ]);
-
-/** Document properties whose value is a `Layers` collection. */
-const DOCUMENT_COLLECTION_PROPS = new Set(["layers", "activeLayers", "artboards"]);
-
-/** Document properties whose value is a single Layer reference (or null). */
-const DOCUMENT_LAYER_REF_PROPS = new Set(["backgroundLayer"]);
 
 /** Layer properties that are readable scalars (keyed `layer.propertyGet`). */
 const LAYER_SCALARS = new Set([
@@ -111,18 +103,6 @@ const LAYER_WRITABLE_SCALARS = new Set([
 /** Writable Document scalars (non-mutating; a `pixelAspectRatio` write does not enter modal). */
 const DOCUMENT_WRITABLE_SCALARS = new Set(["pixelAspectRatio"]);
 
-/** Layer properties whose value is an `ImagingBounds`. */
-const LAYER_BOUNDS_PROPS = new Set(["bounds", "boundsNoEffects"]);
-
-/** Layer properties whose value is a `Layers` collection. */
-const LAYER_COLLECTION_PROPS = new Set(["linkedLayers"]);
-
-/** Layer reference-valued properties: name -> the referenced object's remote type. */
-const LAYER_REF_PROPS = new Map<string, PhotoshopHandleType>([
-  ["document", PHOTOSHOP_REMOTE_TYPE.Document],
-  ["parent", PHOTOSHOP_REMOTE_TYPE.Layer]
-]);
-
 /** Non-mutating Document methods (called directly, never in a modal scope). */
 const DOCUMENT_READ_METHODS = new Set(["duplicate"]);
 
@@ -150,23 +130,6 @@ const DOCUMENT_MUTATING_METHODS = new Set([
   "paste"
 ]);
 
-/** Document methods that return a single Layer. */
-const DOCUMENT_METHODS_RETURNING_LAYER = new Set([
-  "mergeVisibleLayers",
-  "createLayer",
-  "createPixelLayer",
-  "createTextLayer",
-  "createLayerGroup",
-  "groupLayers",
-  "paste"
-]);
-
-/** Document methods that return a Document. */
-const DOCUMENT_METHODS_RETURNING_DOCUMENT = new Set(["duplicate"]);
-
-/** Document methods that return a `Layers` collection. */
-const DOCUMENT_METHODS_RETURNING_LAYERS = new Set(["duplicateLayers", "linkLayers"]);
-
 /** Mutating Layer methods (all Layer methods here mutate). */
 const LAYER_MUTATING_METHODS = new Set([
   "delete",
@@ -181,12 +144,6 @@ const LAYER_MUTATING_METHODS = new Set([
   "merge",
   "rasterize"
 ]);
-
-/** Layer methods that return a single Layer. */
-const LAYER_METHODS_RETURNING_LAYER = new Set(["duplicate", "merge"]);
-
-/** Layer methods that return a `Layers` collection. */
-const LAYER_METHODS_RETURNING_LAYERS = new Set(["link"]);
 
 const photoshopRegistry = createRemoteHandleRegistry();
 
@@ -310,29 +267,15 @@ function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonl
 }
 
 function serializeDocumentProperty(ownerReference: RemoteReference, name: string, value: unknown): unknown {
-  if (DOCUMENT_SCALARS.has(name)) {
-    return value;
+  const resultKind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.Document, name);
+  if (resultKind.kind === "scalar" && !DOCUMENT_SCALARS.has(name)) {
+    throw new Error(`Unknown document property: ${name}`);
   }
-  if (DOCUMENT_COLLECTION_PROPS.has(name)) {
-    return serializeLayersSnapshot(ownerReference, value);
-  }
-  if (DOCUMENT_LAYER_REF_PROPS.has(name)) {
-    return value == null ? null : serializeLayer(value as PhotoshopLayerLike);
-  }
-  throw new Error(`Unknown document property: ${name}`);
+  return serializeResult(resultKind, ownerReference, value);
 }
 
 function serializeDocumentMethodResult(ownerReference: RemoteReference, methodName: string, value: unknown): unknown {
-  if (DOCUMENT_METHODS_RETURNING_DOCUMENT.has(methodName)) {
-    return serializeDocument(value as PhotoshopDocumentLike);
-  }
-  if (DOCUMENT_METHODS_RETURNING_LAYER.has(methodName)) {
-    return serializeLayer(value as PhotoshopLayerLike);
-  }
-  if (DOCUMENT_METHODS_RETURNING_LAYERS.has(methodName)) {
-    return serializeLayersSnapshot(ownerReference, value);
-  }
-  return value ?? undefined;
+  return serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.Document, methodName), ownerReference, value);
 }
 
 // ---------------------------------------------------------------------------- layer.*
@@ -407,35 +350,15 @@ function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly u
 }
 
 function serializeLayerProperty(ownerReference: RemoteReference, name: string, value: unknown): unknown {
-  if (LAYER_SCALARS.has(name)) {
-    return value;
+  const resultKind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.Layer, name);
+  if (resultKind.kind === "scalar" && !LAYER_SCALARS.has(name)) {
+    throw new Error(`Unknown layer property: ${name}`);
   }
-  if (LAYER_BOUNDS_PROPS.has(name)) {
-    return serializeImagingBounds(value);
-  }
-  if (LAYER_COLLECTION_PROPS.has(name)) {
-    return serializeLayersSnapshot(ownerReference, value);
-  }
-  const refType = LAYER_REF_PROPS.get(name);
-  if (refType !== undefined) {
-    if (value == null) {
-      return null;
-    }
-    return refType === PHOTOSHOP_REMOTE_TYPE.Document
-      ? serializeDocument(value as PhotoshopDocumentLike)
-      : serializeLayer(value as PhotoshopLayerLike);
-  }
-  throw new Error(`Unknown layer property: ${name}`);
+  return serializeResult(resultKind, ownerReference, value);
 }
 
 function serializeLayerMethodResult(ownerReference: RemoteReference, methodName: string, value: unknown): unknown {
-  if (LAYER_METHODS_RETURNING_LAYER.has(methodName)) {
-    return serializeLayer(value as PhotoshopLayerLike);
-  }
-  if (LAYER_METHODS_RETURNING_LAYERS.has(methodName)) {
-    return serializeLayersSnapshot(ownerReference, value);
-  }
-  return value ?? undefined;
+  return serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.Layer, methodName), ownerReference, value);
 }
 
 // ---------------------------------------------------------------------------- layers.*
@@ -445,13 +368,13 @@ function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly 
     const [reference, collectionKey] = expectReferenceArgs(args, 1, 2, method);
     const owner = resolveOwner(reference);
     const collection = collectionKey === undefined ? owner : (owner as Record<string, unknown>)[assertString(collectionKey, method)];
-    return serializeLayersSnapshot(reference, collection);
+    return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.Layer, reference, collection);
   }
 
   if (method === "layers.getByName") {
     const [reference, name] = expectReferenceArgs(args, 2, 2, method);
     const layerName = assertString(name, `${method} name`);
-    const collection = getLayersArray(resolveOwnerLayers(reference));
+    const collection = getMemberArray(resolveOwnerLayers(reference));
     const match = collection.find((layer) => (layer as PhotoshopLayerLike).name === layerName);
     return match == null ? null : serializeLayer(match as PhotoshopLayerLike);
   }
@@ -501,13 +424,45 @@ function serializeLayer(layer: PhotoshopLayerLike): RemoteReference {
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.Layer, key, () => layer);
 }
 
-function serializeLayersSnapshot(ownerReference: RemoteReference, collection: unknown): LayersSnapshotTransport {
-  const layers = getLayersArray(collection);
-  const layerIds = layers.map((layer) => serializeLayer(layer as PhotoshopLayerLike).id);
-  return { kind: LAYERS_SNAPSHOT_KIND, owner: ownerReference, layerIds };
+/**
+ * Serialize a native DOM result per its shared {@link PhotoshopResultKind} classification (ADR 0009).
+ * The kind table (in the shared protocol) is the single source of truth; the host never
+ * hand-maintains reference/collection/value property sets. `ownerReference` is threaded so a
+ * collection snapshot can carry its owner.
+ */
+function serializeResult(resultKind: PhotoshopResultKind, ownerReference: RemoteReference, value: unknown): unknown {
+  switch (resultKind.kind) {
+    case "scalar":
+      return value ?? undefined;
+    case "value":
+      return serializeValue(resultKind.valueKind, value);
+    case "ref":
+      return value == null ? null : serializeReference(resultKind.refType, value);
+    case "collection":
+      return serializeSnapshot(resultKind.memberKind, ownerReference, value);
+    default:
+      throw new Error("Unknown photoshop result kind.");
+  }
 }
 
-function getLayersArray(collection: unknown): readonly unknown[] {
+/** Serialize a single reference by its remote type name. */
+function serializeReference(refType: string, value: unknown): RemoteReference {
+  if (refType === PHOTOSHOP_REMOTE_TYPE.Document) {
+    return serializeDocument(value as PhotoshopDocumentLike);
+  }
+  if (refType === PHOTOSHOP_REMOTE_TYPE.Layer) {
+    return serializeLayer(value as PhotoshopLayerLike);
+  }
+  throw new Error(`Unknown photoshop reference type: ${refType}`);
+}
+
+function serializeSnapshot(memberKind: string, ownerReference: RemoteReference, collection: unknown): PhotoshopSnapshotTransport {
+  const members = getMemberArray(collection);
+  const memberIds = members.map((member) => serializeReference(memberKind, member).id);
+  return { kind: PHOTOSHOP_SNAPSHOT_KIND, memberKind, owner: ownerReference, memberIds };
+}
+
+function getMemberArray(collection: unknown): readonly unknown[] {
   if (Array.isArray(collection)) {
     return collection;
   }
@@ -515,31 +470,7 @@ function getLayersArray(collection: unknown): readonly unknown[] {
     const arrayLike = collection as ArrayLike<unknown>;
     return Array.from({ length: arrayLike.length }, (_, index) => arrayLike[index]);
   }
-  throw new Error("Expected a layer collection.");
-}
-
-function serializeImagingBounds(value: unknown): ImagingBoundsTransport {
-  if (!value || typeof value !== "object") {
-    throw new Error("Expected an ImagingBounds object.");
-  }
-  const source = value as Record<string, unknown>;
-  const result: Record<string, number> = {};
-  for (const field of IMAGING_BOUNDS_FIELDS) {
-    const fieldValue = source[field];
-    result[field] = typeof fieldValue === "number" ? fieldValue : Number(readMaybeUnit(fieldValue));
-  }
-  return result as unknown as ImagingBoundsTransport;
-}
-
-/** Photoshop bounds fields may be `UnitValue`-like `{ _value }`; unwrap to a number. */
-function readMaybeUnit(value: unknown): number {
-  if (typeof value === "number") {
-    return value;
-  }
-  if (value && typeof value === "object" && typeof (value as { _value?: unknown })._value === "number") {
-    return (value as { _value: number })._value;
-  }
-  return Number(value);
+  throw new Error("Expected a member collection.");
 }
 
 // ---------------------------------------------------------------------------- modal execution

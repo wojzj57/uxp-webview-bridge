@@ -37,7 +37,7 @@ import type {
   FlipAxisValue,
   LayerKindValue,
   SaveOptionsValue
-} from "@shared/uxp-api/photoshop-constants.js";
+} from "@shared/photoshop-api/photoshop-constants.js";
 import type {
   PsDocument,
   PsDocumentReadableKey,

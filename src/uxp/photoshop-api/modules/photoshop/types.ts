@@ -8,7 +8,7 @@
  * DOM surface and only asserts what it actually calls. Method-name types come from RFC-0004.
  */
 
-import type { PhotoshopProtocolMethodName } from "@shared/uxp-api/photoshop-protocol.js";
+import type { PhotoshopProtocolMethodName } from "@shared/photoshop-api/photoshop-protocol.js";
 
 /** All method names dispatched by this module (the full protocol vocabulary from RFC-0004). */
 export type PhotoshopMethodName = PhotoshopProtocolMethodName;

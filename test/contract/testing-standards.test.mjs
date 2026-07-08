@@ -75,7 +75,7 @@ function getWebviewCasePrefix(file) {
   }
 
   if (parts[0] === "photoshop-api" && parts[1] === "modules" && parts[2]) {
-    return `photoshop.${parts[2]}`;
+    return parts[2] === "photoshop" ? "photoshop" : `photoshop.${parts[2]}`;
   }
 
   return undefined;

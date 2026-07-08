@@ -16,7 +16,7 @@ import type {
   FlipAxisValue,
   LayerKindValue,
   SaveOptionsValue
-} from "@shared/uxp-api/photoshop-constants.js";
+} from "@shared/photoshop-api/photoshop-constants.js";
 import type {
   AnchorPosition,
   BlendMode,
@@ -24,7 +24,7 @@ import type {
   FlipAxis,
   LayerKind,
   SaveOptions
-} from "@shared/uxp-api/photoshop-constants.js";
+} from "@shared/photoshop-api/photoshop-constants.js";
 
 /**
  * A rectangle in document pixel coordinates. Plain value object — no remote handle, no methods.

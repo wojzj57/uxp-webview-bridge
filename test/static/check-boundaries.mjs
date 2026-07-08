@@ -133,7 +133,7 @@ async function checkSymmetricModuleDirectories(apiName) {
 
   const webviewModules = await listImmediateDirectories(webviewModulesRoot);
   const uxpModules = await listImmediateDirectories(uxpModulesRoot);
-  const refactorOnlyUxpModules = new Set(["fetch", "photoshop"]);
+  const refactorOnlyUxpModules = new Set(["fetch"]);
 
   for (const moduleName of difference(webviewModules, uxpModules)) {
     failures.push(`missing UXP module directory for ${apiName}/${moduleName}`);
@@ -403,7 +403,7 @@ function getWebviewCdpCasePrefix(file) {
   }
 
   if (parts[0] === "photoshop-api" && parts[1] === "modules" && parts[2]) {
-    return `photoshop.${parts[2]}`;
+    return parts[2] === "photoshop" ? "photoshop" : `photoshop.${parts[2]}`;
   }
 
   return undefined;
