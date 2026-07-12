@@ -5,9 +5,9 @@ import {
   type CryptoTypedArrayTransport
 } from "@shared/uxp-api/crypto-protocol.js";
 import {
-  fsBytesToTransport,
-  fsTransportToUint8Array
-} from "@shared/uxp-api/fs-protocol.js";
+  bytesToTransport,
+  transportToBytes
+} from "@shared/uxp-api/binary-transport.js";
 import { getBridgeRpcClient } from "@webview/runtime.js";
 import type { CryptoIntegerTypedArray, CryptoNamespace } from "./types.js";
 
@@ -52,12 +52,12 @@ function serializeTypedArray(array: CryptoIntegerTypedArray): CryptoTypedArrayTr
   return {
     kind,
     length: array.length,
-    bytes: fsBytesToTransport(new Uint8Array(array.buffer, array.byteOffset, array.byteLength))
+    bytes: bytesToTransport(new Uint8Array(array.buffer, array.byteOffset, array.byteLength))
   };
 }
 
 function deserializeTypedArray(transport: CryptoTypedArrayTransport): CryptoIntegerTypedArray {
-  const bytes = fsTransportToUint8Array(transport.bytes);
+  const bytes = transportToBytes(transport.bytes);
   if (bytes.byteLength !== transport.length * bytesPerElement(transport.kind)) {
     throw new Error("crypto.getRandomValues returned invalid typed array data.");
   }

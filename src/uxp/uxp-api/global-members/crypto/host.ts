@@ -6,10 +6,10 @@ import {
   type CryptoTypedArrayTransport
 } from "@shared/uxp-api/crypto-protocol.js";
 import {
-  fsBytesToTransport,
-  fsTransportToUint8Array,
-  isFsBinaryTransportData
-} from "@shared/uxp-api/fs-protocol.js";
+  bytesToTransport,
+  isBinaryTransportData,
+  transportToBytes
+} from "@shared/uxp-api/binary-transport.js";
 import type { UxpModuleAdapter } from "@uxp/module-registry.js";
 import type { CryptoHost, CryptoIntegerTypedArray } from "./types.js";
 
@@ -49,7 +49,7 @@ function createTypedArrayFromTransport(value: unknown): CryptoIntegerTypedArray 
     throw new Error("crypto.getRandomValues array must be typed array transport data.");
   }
 
-  const bytes = fsTransportToUint8Array(value.bytes);
+  const bytes = transportToBytes(value.bytes);
   const byteLength = value.length * bytesPerElement(value.kind);
   if (byteLength > 65_536) {
     throw new Error("crypto.getRandomValues array byteLength must not exceed 65,536.");
@@ -71,7 +71,7 @@ function serializeTypedArray(array: CryptoIntegerTypedArray): CryptoTypedArrayTr
   return {
     kind,
     length: array.length,
-    bytes: fsBytesToTransport(new Uint8Array(array.buffer, array.byteOffset, array.byteLength))
+    bytes: bytesToTransport(new Uint8Array(array.buffer, array.byteOffset, array.byteLength))
   };
 }
 
@@ -88,7 +88,7 @@ function isCryptoTypedArrayTransport(value: unknown): value is CryptoTypedArrayT
     candidate.length !== undefined &&
     candidate.length >= 0 &&
     candidate.bytes !== undefined &&
-    isFsBinaryTransportData(candidate.bytes)
+    isBinaryTransportData(candidate.bytes)
   );
 }
 

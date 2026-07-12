@@ -1,4 +1,6 @@
 import type { FsTransportData } from "./fs-protocol.js";
+// fetch bodies reuse fs's text|bytes union verbatim; the binary half of that
+// union is the shared envelope (ADR 0011).
 
 export const FETCH_MODULE_ID = "uxp-api/modules/fetch";
 

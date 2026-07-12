@@ -1,4 +1,4 @@
-import type { FsBinaryTransportData } from "./fs-protocol.js";
+import type { BinaryTransportData } from "./binary-transport.js";
 
 export const CRYPTO_MODULE_ID = "uxp-api/global-members/crypto";
 
@@ -23,7 +23,7 @@ export type CryptoIntegerTypedArrayName = (typeof CRYPTO_INTEGER_TYPED_ARRAY_NAM
 export interface CryptoTypedArrayTransport {
   readonly kind: CryptoIntegerTypedArrayName;
   readonly length: number;
-  readonly bytes: FsBinaryTransportData;
+  readonly bytes: BinaryTransportData;
 }
 
 const CRYPTO_METHOD_SET = new Set<string>(CRYPTO_METHOD_NAMES);
