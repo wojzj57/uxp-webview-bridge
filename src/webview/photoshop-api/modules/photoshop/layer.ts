@@ -22,7 +22,15 @@ import {
 } from "@webview/uxp-api/remote/index.js";
 import type { AnchorPositionValue, BlendModeValue, ElementPlacementValue, FlipAxisValue, LayerKindValue } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopContext } from "./context.js";
-import type { ImagingBounds, Layers, PsDocument, PsLayer } from "./types.js";
+import type {
+  AngleValue,
+  ImagingBounds,
+  Layers,
+  PercentValue,
+  PixelValue,
+  PsDocument,
+  PsLayer
+} from "./types.js";
 
 /** Read-only scalar Layer properties. */
 const LAYER_READONLY_SCALARS = ["id", "locked", "isBackgroundLayer", "kind"] as const;
@@ -161,10 +169,17 @@ export function createLayerClass(context: PhotoshopContext): {
     declare link: (layer: PsLayer) => Promise<Layers>;
     declare unlink: () => Promise<void>;
     declare move: (relativeObject: PsLayer, placement: ElementPlacementValue) => Promise<void>;
-    declare translate: (horizontal?: number, vertical?: number) => Promise<void>;
+    declare translate: (
+      horizontal: number | PercentValue | PixelValue,
+      vertical: number | PercentValue | PixelValue
+    ) => Promise<void>;
     declare flip: (axis: FlipAxisValue) => Promise<void>;
-    declare scale: (width: number, height: number, anchor?: AnchorPositionValue) => Promise<void>;
-    declare rotate: (angle: number, anchor?: AnchorPositionValue) => Promise<void>;
+    declare scale: (
+      width: number | PercentValue,
+      height: number | PercentValue,
+      anchor?: AnchorPositionValue
+    ) => Promise<void>;
+    declare rotate: (angle: number | AngleValue, anchor?: AnchorPositionValue) => Promise<void>;
     declare merge: () => Promise<PsLayer>;
     declare rasterize: (target?: string) => Promise<void>;
 

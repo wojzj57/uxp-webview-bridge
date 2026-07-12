@@ -19,6 +19,25 @@ import type {
   SaveOptionsValue
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopConstantsNamespace } from "@shared/photoshop-api/photoshop-constants.js";
+import type {
+  AngleValue,
+  PercentValue,
+  PixelValue
+} from "@shared/types/photoshop/internal/util/unit.js";
+export type {
+  AngleValue,
+  CentimeterValue,
+  DensityValue,
+  DistanceValue,
+  InchValue,
+  MillimeterValue,
+  PercentValue,
+  PicaValue,
+  PixelValue,
+  PointValue,
+  UnitTypeEnum,
+  UnitValue
+} from "@shared/types/photoshop/internal/util/unit.js";
 import { ColorConversionModel, type PhotoshopCore } from "../core/types.js";
 import type { PhotoshopImaging } from "../imaging/types.js";
 
@@ -263,10 +282,17 @@ export interface PsLayer {
   link(layer: PsLayer): Promise<Layers>;
   unlink(): Promise<void>;
   move(relativeObject: PsLayer, placement: ElementPlacementValue): Promise<void>;
-  translate(horizontal?: number, vertical?: number): Promise<void>;
+  translate(
+    horizontal: number | PercentValue | PixelValue,
+    vertical: number | PercentValue | PixelValue
+  ): Promise<void>;
   flip(axis: FlipAxisValue): Promise<void>;
-  scale(width: number, height: number, anchor?: AnchorPositionValue): Promise<void>;
-  rotate(angle: number, anchor?: AnchorPositionValue): Promise<void>;
+  scale(
+    width: number | PercentValue,
+    height: number | PercentValue,
+    anchor?: AnchorPositionValue
+  ): Promise<void>;
+  rotate(angle: number | AngleValue, anchor?: AnchorPositionValue): Promise<void>;
   merge(): Promise<PsLayer>;
   rasterize(target?: string): Promise<void>;
 

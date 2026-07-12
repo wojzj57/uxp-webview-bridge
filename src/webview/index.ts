@@ -24,9 +24,11 @@ export { ColorConversionModel, photoshop } from "./photoshop-api/modules/photosh
 export type {
   ActionDescriptor,
   ActionReference,
+  AngleValue,
   BatchPlayCommandOptions,
   CalculateDialogSizeOptions,
   Channels,
+  CentimeterValue,
   CMYKColorDescriptor,
   ColorDescriptor,
   ConvertedColor,
@@ -35,6 +37,8 @@ export type {
   CPUInfo,
   CreateImageDataFromBufferOptions,
   DocumentCloseOptions,
+  DensityValue,
+  DistanceValue,
   DisplayConfiguration,
   DisplayConfigurationBounds,
   DisplayConfigurationOptions,
@@ -58,6 +62,7 @@ export type {
   HistorySuspendedOptions,
   HSBColorDescriptor,
   ImagingBounds,
+  InchValue,
   ImagingBoundsSize,
   ImagingRect,
   ImagingSize,
@@ -69,7 +74,12 @@ export type {
   LayerTreeList,
   MenuCommandMenuIDOptions,
   MenuCommandOptions,
+  MillimeterValue,
   OpenOptions,
+  PercentValue,
+  PicaValue,
+  PixelValue,
+  PointValue,
   OpenCLDeviceInfo,
   OpenGLDeviceInfo,
   PhotoshopActions,
@@ -97,7 +107,9 @@ export type {
   ResizeOptions,
   RgbColorView,
   Scheduling,
-  SolidColorInput
+  SolidColorInput,
+  UnitTypeEnum,
+  UnitValue
 } from "./photoshop-api/modules/photoshop/index.js";
 export type { PathFlavor, PathFormatInput, PathInput, PathNamespace, PathParsed } from "./uxp-api/global-members/path/index.js";
 export { sessionStorage } from "./uxp-api/global-members/session-storage/index.js";

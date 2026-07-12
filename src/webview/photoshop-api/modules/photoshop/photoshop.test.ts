@@ -33,6 +33,20 @@ import type {
 } from "@shared/types/photoshop/internal/dom/Constants.js";
 import type * as AdobeConstants from "@shared/types/photoshop/internal/dom/Constants.js";
 import type {
+  AngleValue as AdobeAngleValue,
+  CentimeterValue as AdobeCentimeterValue,
+  DensityValue as AdobeDensityValue,
+  DistanceValue as AdobeDistanceValue,
+  InchValue as AdobeInchValue,
+  MillimeterValue as AdobeMillimeterValue,
+  PercentValue as AdobePercentValue,
+  PicaValue as AdobePicaValue,
+  PixelValue as AdobePixelValue,
+  PointValue as AdobePointValue,
+  UnitTypeEnum as AdobeUnitTypeEnum,
+  UnitValue as AdobeUnitValue
+} from "@shared/types/photoshop/internal/util/unit.js";
+import type {
   AnchorPositionValue,
   BlendModeValue,
   ChannelTypeValue,
@@ -50,7 +64,17 @@ import type {
 import type {
   ActionDescriptor,
   ActionReference,
+  AngleValue,
   BatchPlayCommandOptions,
+  CentimeterValue,
+  DensityValue,
+  DistanceValue,
+  InchValue,
+  MillimeterValue,
+  PercentValue,
+  PicaValue,
+  PixelValue,
+  PointValue,
   PsChannel,
   PsChannelReadableKey,
   PsChannelWritableProps,
@@ -60,7 +84,9 @@ import type {
   PsLayer,
   PsLayerReadableKey,
   PsLayerWritableProps,
-  PhotoshopNamespace
+  PhotoshopNamespace,
+  UnitTypeEnum,
+  UnitValue
 } from "./types.js";
 
 // ---------------------------------------------------------------------------------------------------
@@ -102,6 +128,20 @@ type _NoGeneratedConstantNamesOutsideAdobe = AssertNever<
 type _AllGeneratedConstantsPublic = AssertNever<
   Exclude<keyof PhotoshopConstantsNamespace, keyof PhotoshopNamespace>
 >;
+
+/** All 12 unit symbols are exact public aliases of Adobe's transport-safe unit value types. */
+type _UnitTypeEnumExact = AssertMutual<UnitTypeEnum, AdobeUnitTypeEnum>;
+type _UnitValueExact = AssertMutual<UnitValue, AdobeUnitValue>;
+type _AngleValueExact = AssertMutual<AngleValue, AdobeAngleValue>;
+type _DensityValueExact = AssertMutual<DensityValue, AdobeDensityValue>;
+type _DistanceValueExact = AssertMutual<DistanceValue, AdobeDistanceValue>;
+type _PercentValueExact = AssertMutual<PercentValue, AdobePercentValue>;
+type _PixelValueExact = AssertMutual<PixelValue, AdobePixelValue>;
+type _PointValueExact = AssertMutual<PointValue, AdobePointValue>;
+type _MillimeterValueExact = AssertMutual<MillimeterValue, AdobeMillimeterValue>;
+type _CentimeterValueExact = AssertMutual<CentimeterValue, AdobeCentimeterValue>;
+type _InchValueExact = AssertMutual<InchValue, AdobeInchValue>;
+type _PicaValueExact = AssertMutual<PicaValue, AdobePicaValue>;
 
 /**
  * `batchSet` writability: passing a read-only property must be a compile-time error. `PsDocument.id`
@@ -181,6 +221,18 @@ export type _StaticConsistencyProof = [
   _AllAdobeConstantNamesGenerated,
   _NoGeneratedConstantNamesOutsideAdobe,
   _AllGeneratedConstantsPublic,
+  _UnitTypeEnumExact,
+  _UnitValueExact,
+  _AngleValueExact,
+  _DensityValueExact,
+  _DistanceValueExact,
+  _PercentValueExact,
+  _PixelValueExact,
+  _PointValueExact,
+  _MillimeterValueExact,
+  _CentimeterValueExact,
+  _InchValueExact,
+  _PicaValueExact,
   _DocWritableIsExactlyWritable,
   _DocReadableKeysLocked,
   _LayerReadableKeysLocked,
@@ -447,6 +499,39 @@ export default defineWebviewCdpCases([
       } finally {
         await deleteQuietly(duplicated);
         await deleteQuietly(created);
+      }
+    }
+  },
+  {
+    name: "photoshop.layer-unit-values",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const source = await getActiveLayer(bridge, skip);
+      if (isSkip(source)) {
+        return source;
+      }
+
+      let duplicate: PsLayer | undefined;
+      try {
+        duplicate = await source.duplicate();
+        const pixelOffset: PixelValue = { _unit: "pixelsUnit", _value: 1 };
+        const noPixelOffset: PixelValue = { _unit: "pixelsUnit", _value: 0 };
+        const fullScale: PercentValue = { _unit: "percentUnit", _value: 100 };
+        const angle: AngleValue = { _unit: "angleUnit", _value: 1 };
+
+        await duplicate.translate(pixelOffset, noPixelOffset);
+        await duplicate.scale(fullScale, fullScale);
+        await duplicate.rotate(angle);
+
+        const duplicateId = await duplicate.id;
+        assert.ok(typeof duplicateId === "number", "unit-valued transforms should keep the layer accessible.");
+        return {
+          duplicateId,
+          unitsChecked: [pixelOffset._unit, fullScale._unit, angle._unit]
+        };
+      } finally {
+        await deleteQuietly(duplicate);
       }
     }
   },
