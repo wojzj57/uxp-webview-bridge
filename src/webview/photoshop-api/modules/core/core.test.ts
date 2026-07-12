@@ -7,18 +7,36 @@ import type {
   GetActiveToolResult as AdobeGetActiveToolResult,
   GetPluginInfoResult as AdobeGetPluginInfoResult,
   GPUInfo as AdobeGPUInfo,
+  LayerTreeInfo as AdobeLayerTreeInfo,
   MenuCommandMenuIDOptions as AdobeMenuCommandMenuIDOptions,
   MenuCommandOptions as AdobeMenuCommandOptions
 } from "@shared/types/photoshop/internal/dom/CoreModules.js";
 import type {
+  CMYKColorDescriptor as AdobeCMYKColorDescriptor,
+  ColorDescriptor as AdobeColorDescriptor,
+  GrayscaleColorDescriptor as AdobeGrayscaleColorDescriptor,
+  HSBColorDescriptor as AdobeHSBColorDescriptor,
+  LabColorDescriptor as AdobeLabColorDescriptor,
+  RGB32ColorDescriptor as AdobeRGB32ColorDescriptor,
+  RGBColorDescriptor as AdobeRGBColorDescriptor
+} from "@shared/types/photoshop/internal/util/colorTypes.js";
+import type {
+  CMYKColorDescriptor,
+  ColorDescriptor,
   CPUInfo,
   DisplayConfiguration,
   DisplayConfigurationOptions,
   GetActiveToolResult,
   GetPluginInfoResult,
+  GrayscaleColorDescriptor,
   GPUInfo,
+  HSBColorDescriptor,
+  LabColorDescriptor,
+  LayerTreeInfo,
   MenuCommandMenuIDOptions,
-  MenuCommandOptions
+  MenuCommandOptions,
+  RGB32ColorDescriptor,
+  RGBColorDescriptor
 } from "./types.js";
 
 type Assignable<From, To> = [From] extends [To] ? true : never;
@@ -33,6 +51,15 @@ type _DisplayResult = Assignable<DisplayConfiguration, AdobeDisplayConfiguration
 type _MenuCommandOptions = Assignable<MenuCommandOptions, AdobeMenuCommandOptions>;
 type _MenuIdOptions = Assignable<MenuCommandMenuIDOptions, AdobeMenuCommandMenuIDOptions>;
 type _PluginInfo = Assignable<GetPluginInfoResult, AdobeGetPluginInfoResult>;
+type _ColorDescriptor = Assignable<ColorDescriptor, AdobeColorDescriptor>;
+type _RgbColor = Assignable<RGBColorDescriptor, AdobeRGBColorDescriptor>;
+type _Rgb32Color = Assignable<RGB32ColorDescriptor, AdobeRGB32ColorDescriptor>;
+type _HsbColor = Assignable<HSBColorDescriptor, AdobeHSBColorDescriptor>;
+type _CmykColor = Assignable<CMYKColorDescriptor, AdobeCMYKColorDescriptor>;
+type _LabColor = Assignable<LabColorDescriptor, AdobeLabColorDescriptor>;
+type _GrayColor = Assignable<GrayscaleColorDescriptor, AdobeGrayscaleColorDescriptor>;
+type LayerTreeStable<T> = Omit<T, "kind" | "layers">;
+type _LayerTree = Assignable<LayerTreeStable<LayerTreeInfo>, LayerTreeStable<AdobeLayerTreeInfo>>;
 
 export type _StaticConsistencyProof = [
   _ActiveToolStable,
@@ -42,7 +69,15 @@ export type _StaticConsistencyProof = [
   _DisplayResult,
   _MenuCommandOptions,
   _MenuIdOptions,
-  _PluginInfo
+  _PluginInfo,
+  _ColorDescriptor,
+  _RgbColor,
+  _Rgb32Color,
+  _HsbColor,
+  _CmykColor,
+  _LabColor,
+  _GrayColor,
+  _LayerTree
 ];
 
 export default defineWebviewCdpCases([
@@ -56,9 +91,15 @@ export default defineWebviewCdpCases([
         core,
         [
           "getActiveTool",
+          "calculateDialogSize",
+          "convertColor",
           "getCPUInfo",
           "getDisplayConfiguration",
           "getGPUInfo",
+          "getLayerGroupContents",
+          "getLayerGroupContentsSync",
+          "getLayerTree",
+          "getLayerTreeSync",
           "getMenuCommandState",
           "getMenuCommandTitle",
           "getPluginInfo",
@@ -69,7 +110,27 @@ export default defineWebviewCdpCases([
         ],
         "photoshop.core"
       );
-      return { membersChecked: 12 };
+      return { membersChecked: 18 };
+    }
+  },
+  {
+    name: "photoshop.core.utility-queries",
+    async run({ bridge, assert }) {
+      bridge.ensureConfigured();
+      const dialogSize = await bridge.photoshop.core.calculateDialogSize({
+        preferredSize: { width: 200, height: 300 },
+        minimumSize: { width: 100, height: 100 }
+      });
+      const converted = await bridge.photoshop.core.convertColor(
+        { _obj: "RGBColor", red: 128, green: 128, blue: 128 },
+        bridge.photoshop.ColorConversionModel.Lab
+      );
+
+      assert.ok(dialogSize.width >= 100 && dialogSize.height >= 100, "dialog size should respect minimums.");
+      assert.equal(converted._obj, "labColor", "convertColor should return a Lab descriptor.");
+      assert.ok(Number.isFinite(converted.luminance), "converted luminance should be finite.");
+
+      return { dialogSize, colorModel: converted._obj, luminance: converted.luminance };
     }
   },
   {
@@ -130,6 +191,30 @@ export default defineWebviewCdpCases([
 
       return { documentID, suspended, menuAvailable, menuTitle };
     }
+  },
+  {
+    name: "photoshop.core.layer-hierarchy",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+      const document = await getActiveDocument(bridge, skip);
+      if (isSkip(document)) {
+        return document;
+      }
+      const documentID = await document.id;
+      const group = await document.createLayerGroup({ name: `uxp-core-tree-${Date.now()}` });
+      const layerID = await group.id;
+      try {
+        const asyncTree = await bridge.photoshop.core.getLayerTree({ documentID });
+        const syncTree = await bridge.photoshop.core.getLayerTreeSync({ documentID });
+        const asyncContents = await bridge.photoshop.core.getLayerGroupContents({ documentID, layerID });
+        const syncContents = await bridge.photoshop.core.getLayerGroupContentsSync({ documentID, layerID });
+
+        assertLayerHierarchy(assert, layerID, asyncTree, syncTree, asyncContents, syncContents);
+        return { documentID, layerID, asyncTreeCount: asyncTree.list.length, syncTreeCount: syncTree.list.length };
+      } finally {
+        await group.delete();
+      }
+    }
   }
 ]);
 
@@ -139,6 +224,46 @@ interface SkipMarker {
 
 interface ActiveDocumentLike {
   readonly id: Promise<number>;
+  createLayerGroup(options?: { readonly name?: string }): Promise<ActiveLayerLike>;
+}
+
+interface ActiveLayerLike {
+  readonly id: Promise<number>;
+  delete(): Promise<void>;
+}
+
+interface LayerTreeLike {
+  readonly layerID: number;
+  readonly layers?: readonly LayerTreeLike[];
+}
+
+interface LayerTreeListLike {
+  readonly list: readonly LayerTreeLike[];
+}
+
+interface CdpAssertLike {
+  ok(value: unknown, message: string): void;
+  equal(actual: unknown, expected: unknown, message: string): void;
+}
+
+function assertLayerHierarchy(
+  assert: CdpAssertLike,
+  layerID: number,
+  asyncTree: LayerTreeListLike,
+  syncTree: LayerTreeListLike,
+  asyncContents: LayerTreeListLike,
+  syncContents: LayerTreeListLike
+): void {
+  assert.ok(treeContainsLayer(asyncTree.list, layerID), "async layer tree should contain the temporary group.");
+  assert.ok(treeContainsLayer(syncTree.list, layerID), "sync layer tree should contain the temporary group.");
+  assert.equal(asyncContents.list.length, 0, "new group should have no async contents.");
+  assert.equal(syncContents.list.length, 0, "new group should have no sync contents.");
+}
+
+function treeContainsLayer(items: readonly LayerTreeLike[], layerID: number): boolean {
+  return items.some((item) =>
+    item.layerID === layerID || (item.layers !== undefined && treeContainsLayer(item.layers, layerID))
+  );
 }
 
 function isSkip(value: unknown): value is SkipMarker {

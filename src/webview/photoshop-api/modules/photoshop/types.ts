@@ -27,7 +27,7 @@ import type {
   LayerKind,
   SaveOptions
 } from "@shared/photoshop-api/photoshop-constants.js";
-import type { PhotoshopCore } from "../core/types.js";
+import { ColorConversionModel, type PhotoshopCore } from "../core/types.js";
 import type { PhotoshopImaging } from "../imaging/types.js";
 
 /**
@@ -481,6 +481,7 @@ export interface PhotoshopNamespace {
   readonly app: PhotoshopApp;
   readonly action: PhotoshopActions;
   readonly core: PhotoshopCore;
+  readonly ColorConversionModel: typeof ColorConversionModel;
   readonly imaging: PhotoshopImaging;
   readonly LayerKind: typeof LayerKind;
   readonly BlendMode: typeof BlendMode;

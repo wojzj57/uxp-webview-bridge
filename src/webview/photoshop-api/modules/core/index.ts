@@ -1,18 +1,33 @@
 export { core, createCoreNamespace } from "./core.js";
+export { ColorConversionModel } from "./types.js";
 export type {
+  CalculateDialogSizeOptions,
+  CMYKColorDescriptor,
+  ColorDescriptor,
+  ConvertedColor,
+  CoreSize,
   CPUInfo,
   DisplayConfiguration,
   DisplayConfigurationBounds,
   DisplayConfigurationOptions,
   DisplayConfigurationPhysical,
+  DocumentCoreOptions,
   GetActiveToolResult,
   GetPluginInfoResult,
+  GetLayerGroupContentsOptions,
+  GrayscaleColorDescriptor,
   GPUInfo,
   HistorySuspendedOptions,
+  HSBColorDescriptor,
+  LabColorDescriptor,
+  LayerTreeInfo,
+  LayerTreeList,
   MenuCommandMenuIDOptions,
   MenuCommandOptions,
   OpenCLDeviceInfo,
   OpenGLDeviceInfo,
   PhotoshopCore,
+  RGB32ColorDescriptor,
+  RGBColorDescriptor,
   Scheduling
 } from "./types.js";

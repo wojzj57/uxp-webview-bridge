@@ -4,7 +4,27 @@ import {
   type PhotoshopCoreMethodName
 } from "@shared/photoshop-api/core-protocol.js";
 import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import {
+  normalizeActiveTool,
+  normalizeLayerTreeList,
+  normalizeMenuState,
+  normalizeMenuTitle,
+  normalizeSize
+} from "./results.js";
 import type { PhotoshopCoreHost, PhotoshopCoreHostModule } from "./types.js";
+import {
+  assertBoolean,
+  assertColorConversionModel,
+  assertFiniteNumber,
+  assertInteger,
+  assertObject,
+  assertSize,
+  assertString,
+  expectArgs,
+  expectArgsRange,
+  expectDocumentOptions,
+  expectOptions
+} from "./validation.js";
 
 declare const require: (moduleName: "photoshop") => PhotoshopCoreHostModule;
 
@@ -14,7 +34,7 @@ export const coreModuleAdapter: UxpModuleAdapter = {
   dispatch: dispatchCoreCall
 };
 
-/** Dispatch query-only core calls; none of these operations enters executeAsModal. */
+/** Dispatch non-mutating core calls; none of these operations enters executeAsModal. */
 export function dispatchCoreCall(method: string, args: readonly unknown[]): unknown | Promise<unknown> {
   assertPhotoshopCoreMethodName(method);
   const core = getCore();
@@ -23,12 +43,22 @@ export function dispatchCoreCall(method: string, args: readonly unknown[]): unkn
     case "core.apiVersion":
       expectArgs(args, 0, method);
       return assertFiniteNumber(core.apiVersion, `${method} result`);
+    case "core.calculateDialogSize":
+      return dispatchCalculateDialogSize(core, args, method);
+    case "core.convertColor":
+      return dispatchConvertColor(core, args, method);
     case "core.getActiveTool":
       return dispatchActiveTool(core, args, method);
     case "core.getCPUInfo":
     case "core.getGPUInfo":
     case "core.getPluginInfo":
       return dispatchObjectQuery(core, args, method);
+    case "core.getLayerGroupContents":
+    case "core.getLayerGroupContentsSync":
+      return dispatchLayerGroupContents(core, args, method);
+    case "core.getLayerTree":
+    case "core.getLayerTreeSync":
+      return dispatchLayerTree(core, args, method);
     case "core.getDisplayConfiguration":
       return dispatchDisplayConfiguration(core, args, method);
     case "core.getMenuCommandState":
@@ -56,6 +86,38 @@ export function dispatchCoreCall(method: string, args: readonly unknown[]): unkn
     default:
       return unsupported(method);
   }
+}
+
+function dispatchCalculateDialogSize(
+  core: PhotoshopCoreHost,
+  args: readonly unknown[],
+  method: PhotoshopCoreMethodName
+): unknown | Promise<unknown> {
+  const options = expectOptions(args, method);
+  assertSize(options.preferredSize, `${method} options.preferredSize`);
+  if (options.minimumSize !== undefined) {
+    assertSize(options.minimumSize, `${method} options.minimumSize`);
+  }
+  if (options.identifier !== undefined) {
+    assertString(options.identifier, `${method} options.identifier`);
+  }
+  return resolveResult(callCore(core, "calculateDialogSize", [options]), (value) =>
+    normalizeSize(value, `${method} result`)
+  );
+}
+
+function dispatchConvertColor(
+  core: PhotoshopCoreHost,
+  args: readonly unknown[],
+  method: PhotoshopCoreMethodName
+): unknown | Promise<unknown> {
+  expectArgs(args, 2, method);
+  const sourceColor = assertObject(args[0], `${method} sourceColor`);
+  assertString(sourceColor._obj, `${method} sourceColor._obj`);
+  const targetModel = assertColorConversionModel(args[1], `${method} targetModel`);
+  return resolveResult(callCore(core, "convertColor", [sourceColor, targetModel]), (value) =>
+    assertObject(value, `${method} result`)
+  );
 }
 
 function dispatchActiveTool(
@@ -134,24 +196,27 @@ function dispatchHistorySuspended(
   );
 }
 
-function normalizeActiveTool(value: unknown, method: string): Record<string, unknown> {
-  const tool = assertObject(value, `${method} result`);
-  return {
-    title: assertString(tool.title, `${method} result.title`),
-    isModal: assertBoolean(tool.isModal, `${method} result.isModal`),
-    key: assertString(tool.key, `${method} result.key`),
-    classID: assertString(tool.classID ?? tool.classId, `${method} result.classID`)
-  };
+function dispatchLayerGroupContents(
+  core: PhotoshopCoreHost,
+  args: readonly unknown[],
+  method: "core.getLayerGroupContents" | "core.getLayerGroupContentsSync"
+): unknown | Promise<unknown> {
+  const options = expectDocumentOptions(args, method);
+  assertInteger(options.layerID, `${method} options.layerID`);
+  return resolveResult(callCore(core, method.slice("core.".length), [options]), (value) =>
+    normalizeLayerTreeList(value, method)
+  );
 }
 
-function normalizeMenuState(value: unknown, method: string): boolean {
-  const state = Array.isArray(value) && value.length === 1 ? value[0] : value;
-  return assertBoolean(state, `${method} result`);
-}
-
-function normalizeMenuTitle(value: unknown, method: string): string {
-  const title = Array.isArray(value) && value.length === 1 ? value[0] : value;
-  return assertString(title, `${method} result`);
+function dispatchLayerTree(
+  core: PhotoshopCoreHost,
+  args: readonly unknown[],
+  method: "core.getLayerTree" | "core.getLayerTreeSync"
+): unknown | Promise<unknown> {
+  const options = expectDocumentOptions(args, method);
+  return resolveResult(callCore(core, method.slice("core.".length), [options]), (value) =>
+    normalizeLayerTreeList(value, method)
+  );
 }
 
 function callCore(core: PhotoshopCoreHost, method: string, args: readonly unknown[] = []): unknown {
@@ -166,58 +231,6 @@ function resolveResult(value: unknown, normalize: (resolved: unknown) => unknown
   return value && typeof (value as Promise<unknown>).then === "function"
     ? (value as Promise<unknown>).then(normalize)
     : normalize(value);
-}
-
-function expectOptions(args: readonly unknown[], method: string): Record<string, unknown> {
-  expectArgs(args, 1, method);
-  return assertObject(args[0], `${method} options`);
-}
-
-function expectArgs(args: readonly unknown[], length: number, method: string): void {
-  if (args.length !== length) {
-    throw new Error(`${method} expects ${length} arguments.`);
-  }
-}
-
-function expectArgsRange(args: readonly unknown[], min: number, max: number, method: string): void {
-  if (args.length < min || args.length > max) {
-    throw new Error(`${method} expects ${min}-${max} arguments.`);
-  }
-}
-
-function assertObject(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function assertFiniteNumber(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`${label} must be a finite number.`);
-  }
-  return value;
-}
-
-function assertInteger(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new Error(`${label} must be an integer.`);
-  }
-  return value;
-}
-
-function assertBoolean(value: unknown, label: string): boolean {
-  if (typeof value !== "boolean") {
-    throw new Error(`${label} must be a boolean.`);
-  }
-  return value;
-}
-
-function assertString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} must be a non-empty string.`);
-  }
-  return value;
 }
 
 function unsupported(method: PhotoshopCoreMethodName): never {

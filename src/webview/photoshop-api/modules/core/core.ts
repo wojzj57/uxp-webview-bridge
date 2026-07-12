@@ -4,7 +4,13 @@ import {
 } from "@shared/photoshop-api/core-protocol.js";
 import { getBridgeRpcClient } from "@webview/runtime.js";
 import type {
+  CalculateDialogSizeOptions,
+  ColorConversionModel,
+  ColorDescriptor,
+  ConvertedColor,
   DisplayConfigurationOptions,
+  DocumentCoreOptions,
+  GetLayerGroupContentsOptions,
   HistorySuspendedOptions,
   MenuCommandMenuIDOptions,
   MenuCommandOptions,
@@ -24,11 +30,21 @@ export function createCoreNamespace(rpc: CoreRpc): PhotoshopCore {
     get apiVersion(): Promise<number> {
       return call<number>("core.apiVersion");
     },
+    calculateDialogSize: (options: CalculateDialogSizeOptions) =>
+      call("core.calculateDialogSize", [options]),
+    convertColor: <Model extends ColorConversionModel>(sourceColor: ColorDescriptor, targetModel: Model) =>
+      call<ConvertedColor<Model>>("core.convertColor", [sourceColor, targetModel]),
     getActiveTool: () => call("core.getActiveTool"),
     getCPUInfo: () => call("core.getCPUInfo"),
     getDisplayConfiguration: (options?: DisplayConfigurationOptions) =>
       call("core.getDisplayConfiguration", options === undefined ? undefined : [options]),
     getGPUInfo: () => call("core.getGPUInfo"),
+    getLayerGroupContents: (options: GetLayerGroupContentsOptions) =>
+      call("core.getLayerGroupContents", [options]),
+    getLayerGroupContentsSync: (options: GetLayerGroupContentsOptions) =>
+      call("core.getLayerGroupContentsSync", [options]),
+    getLayerTree: (options: DocumentCoreOptions) => call("core.getLayerTree", [options]),
+    getLayerTreeSync: (options: DocumentCoreOptions) => call("core.getLayerTreeSync", [options]),
     getMenuCommandState: (options: MenuCommandOptions) =>
       call("core.getMenuCommandState", [options]),
     getMenuCommandTitle: (options: MenuCommandOptions | MenuCommandMenuIDOptions) =>

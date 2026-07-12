@@ -4,10 +4,16 @@ export const PHOTOSHOP_CORE_MODULE_ID = "photoshop-api/modules/core";
 
 export const PHOTOSHOP_CORE_METHOD_NAMES = [
   "core.apiVersion",
+  "core.calculateDialogSize",
+  "core.convertColor",
   "core.getActiveTool",
   "core.getCPUInfo",
   "core.getDisplayConfiguration",
   "core.getGPUInfo",
+  "core.getLayerGroupContents",
+  "core.getLayerGroupContentsSync",
+  "core.getLayerTree",
+  "core.getLayerTreeSync",
   "core.getMenuCommandState",
   "core.getMenuCommandTitle",
   "core.getPluginInfo",

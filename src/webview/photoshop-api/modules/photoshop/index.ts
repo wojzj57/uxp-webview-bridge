@@ -1,19 +1,34 @@
 export { createPhotoshopNamespace, photoshop } from "./photoshop.js";
+export { ColorConversionModel } from "../core/index.js";
 export type {
+  CalculateDialogSizeOptions,
+  CMYKColorDescriptor,
+  ColorDescriptor,
+  ConvertedColor,
+  CoreSize,
   CPUInfo,
   DisplayConfiguration,
   DisplayConfigurationBounds,
   DisplayConfigurationOptions,
   DisplayConfigurationPhysical,
+  DocumentCoreOptions,
   GetActiveToolResult,
+  GetLayerGroupContentsOptions,
   GetPluginInfoResult,
+  GrayscaleColorDescriptor,
   GPUInfo,
   HistorySuspendedOptions,
+  HSBColorDescriptor,
+  LabColorDescriptor,
+  LayerTreeInfo,
+  LayerTreeList,
   MenuCommandMenuIDOptions,
   MenuCommandOptions,
   OpenCLDeviceInfo,
   OpenGLDeviceInfo,
   PhotoshopCore,
+  RGB32ColorDescriptor,
+  RGBColorDescriptor,
   Scheduling
 } from "../core/index.js";
 export type {

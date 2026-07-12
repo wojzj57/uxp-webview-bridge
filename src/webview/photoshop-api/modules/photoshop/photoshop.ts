@@ -19,6 +19,7 @@ import {
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import type { RemoteRpc } from "@webview/uxp-api/remote/index.js";
 import { createCoreNamespace } from "../core/core.js";
+import { ColorConversionModel } from "../core/types.js";
 import { createImagingNamespace } from "../imaging/imaging.js";
 import { createChannelClass } from "./channel.js";
 import type { PhotoshopContext } from "./context.js";
@@ -79,6 +80,7 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
     app,
     action,
     core: createCoreNamespace(rpc),
+    ColorConversionModel,
     imaging: createImagingNamespace(rpc),
     LayerKind,
     BlendMode,
