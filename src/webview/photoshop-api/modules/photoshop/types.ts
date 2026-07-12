@@ -27,6 +27,7 @@ import type {
   LayerKind,
   SaveOptions
 } from "@shared/photoshop-api/photoshop-constants.js";
+import type { PhotoshopImaging } from "../imaging/types.js";
 
 /**
  * A rectangle in document pixel coordinates. Plain value object — no remote handle, no methods.
@@ -438,6 +439,7 @@ export interface PhotoshopApp {
 export interface PhotoshopNamespace {
   readonly app: PhotoshopApp;
   readonly action: PhotoshopActions;
+  readonly imaging: PhotoshopImaging;
   readonly LayerKind: typeof LayerKind;
   readonly BlendMode: typeof BlendMode;
   readonly AnchorPosition: typeof AnchorPosition;

@@ -1,5 +1,24 @@
 export { createPhotoshopNamespace, photoshop } from "./photoshop.js";
 export type {
+  CreateImageDataFromBufferOptions,
+  EncodeImageDataOptions,
+  GetDataOptions,
+  GetLayerMaskOptions,
+  GetLayerMaskResult,
+  GetPixelsOptions,
+  GetPixelsResult,
+  GetSelectionOptions,
+  GetSelectionResult,
+  ImagingBoundsSize,
+  ImagingRect,
+  ImagingSize,
+  PhotoshopImaging,
+  PsImageData,
+  PutLayerMaskOptions,
+  PutPixelsOptions,
+  PutSelectionOptions
+} from "../imaging/index.js";
+export type {
   ActionDescriptor,
   BatchPlayCommandOptions,
   Channels,

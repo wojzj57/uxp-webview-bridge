@@ -18,6 +18,7 @@ import {
 } from "@shared/photoshop-api/photoshop-constants.js";
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import type { RemoteRpc } from "@webview/uxp-api/remote/index.js";
+import { createImagingNamespace } from "../imaging/imaging.js";
 import { createChannelClass } from "./channel.js";
 import type { PhotoshopContext } from "./context.js";
 import { createDocumentClass } from "./document.js";
@@ -64,6 +65,7 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
   return {
     app,
     action,
+    imaging: createImagingNamespace(rpc),
     LayerKind,
     BlendMode,
     AnchorPosition,
