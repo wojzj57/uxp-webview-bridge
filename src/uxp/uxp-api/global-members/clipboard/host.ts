@@ -44,10 +44,15 @@ export async function dispatchClipboardCall(method: string, args: readonly unkno
 
   expectClipboardArgs<[]>(args, 0, 0, "clipboard.readText");
   const value = await getClipboardHost().readText();
-  if (typeof value !== "string") {
-    throw new Error("clipboard.readText returned a non-string value.");
+  if (typeof value === "string") {
+    return value;
   }
-  return value;
+
+  if (isClipboardTextData(value) && typeof value["text/plain"] === "string") {
+    return value["text/plain"];
+  }
+
+  throw new Error("clipboard.readText returned invalid text data.");
 }
 
 function getClipboardHost(): ClipboardHost {

@@ -69,6 +69,49 @@ test("UXP clipboard adapter rejects bad data before host access", async () => {
   );
 });
 
+test("UXP clipboard adapter normalizes UXP MIME-map readText results", async () => {
+  const { dispatchClipboardCall } = await import(
+    "../../dist/uxp/uxp-api/global-members/clipboard/index.js"
+  );
+
+  await withGlobal(
+    "navigator",
+    {
+      clipboard: {
+        async readText() {
+          return { "text/plain": "hello from UXP" };
+        }
+      }
+    },
+    async () => {
+      assert.equal(await dispatchClipboardCall("readText", []), "hello from UXP");
+    }
+  );
+});
+
+test("UXP clipboard adapter rejects readText results without plain text", async () => {
+  const { dispatchClipboardCall } = await import(
+    "../../dist/uxp/uxp-api/global-members/clipboard/index.js"
+  );
+
+  await withGlobal(
+    "navigator",
+    {
+      clipboard: {
+        async readText() {
+          return { "text/html": "<p>hello</p>" };
+        }
+      }
+    },
+    async () => {
+      await assert.rejects(
+        dispatchClipboardCall("readText", []),
+        /clipboard\.readText returned invalid text data/
+      );
+    }
+  );
+});
+
 test("UXP storage adapters validate arguments and dispatch to globals", async () => {
   const { dispatchLocalStorageCall } = await import(
     "../../dist/uxp/uxp-api/global-members/local-storage/index.js"
