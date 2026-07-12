@@ -27,6 +27,13 @@ export interface PhotoshopCore {
     targetFunction: (executionContext: unknown) => Promise<T>,
     options: ExecuteAsModalOptions
   ): Promise<T>;
+  batchPlaySync?(
+    commands: readonly unknown[],
+    options?: Record<string, unknown>
+  ): readonly unknown[];
+  validateReference?(
+    ref: Record<string, unknown> | readonly Record<string, unknown>[]
+  ): boolean;
 }
 
 /**
@@ -72,6 +79,18 @@ export interface PhotoshopActionModule {
     commands: readonly unknown[],
     options?: Record<string, unknown>
   ): Promise<readonly unknown[]>;
+  batchPlaySync?(
+    commands: readonly unknown[],
+    options?: Record<string, unknown>
+  ): readonly unknown[];
+  getIDFromString(value: string): number;
+  recordAction(
+    options: { readonly name: string; readonly methodName: string },
+    info: Record<string, unknown>
+  ): Promise<void> | void;
+  validateReference?(
+    ref: Record<string, unknown> | readonly Record<string, unknown>[]
+  ): boolean;
 }
 
 /** The subset of `require('photoshop')` the adapter uses. */

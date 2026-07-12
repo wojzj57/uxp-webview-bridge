@@ -12,9 +12,9 @@
  * so the same object always yields the same reference id and the WebView cache can resolve two
  * references to one `===` proxy.
  *
- * The `action.*` branch is the exception to all of this: `batchPlay` is a verbatim JSON passthrough
- * (ADR 0010) — no reference decoding, no result serialization, just a shape check and an unconditional
- * modal wrap around the caller's descriptors and options.
+ * The `action.*` branch is the exception to all of this: action descriptors and references are
+ * opaque native Photoshop JSON (ADR 0010) — no bridge-reference decoding or result serialization.
+ * Potentially mutating batchPlay variants enter a modal scope; read-only id/reference helpers do not.
  *
  * See docs/adr/0004 (handle registry), docs/adr/0005 (identity dedup), docs/adr/0007 (executeAsModal),
  * docs/adr/0009 (declarative type/value/collection registries), docs/adr/0010 (batchPlay passthrough).
@@ -574,17 +574,44 @@ function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonl
 // ---------------------------------------------------------------------------- action.*
 
 /**
- * Low-level `batchPlay` passthrough (ADR 0010). Descriptors are opaque JSON: the host validates only
- * shape (`commands` is an array, `options` is an object or absent), never walks or rewrites them, and
- * never runs them through the handle registry (that would corrupt native `_ref`/`_id`, which live in
- * Photoshop's own id space). The call is wrapped in `executeAsModal` unconditionally; the caller's
- * `options` are forwarded verbatim so `modalBehavior`/`synchronousExecution`/`commandName` are
- * honored by Adobe's own API. The raw result descriptor array is returned unchanged.
+ * Low-level action dispatch (ADR 0010). Descriptors/references are opaque native JSON: the host
+ * validates their outer shape but never walks, bridge-decodes, or result-serializes them (doing so
+ * would corrupt `_ref`/`_id` values in Photoshop's own id space). Batch execution enters a modal
+ * scope; id/reference helpers and action-recording metadata calls execute directly.
  */
-function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): Promise<unknown> {
-  if (method !== "action.batchPlay") {
+function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "action.getIDFromString") {
+    expectArgs(args, 1, 1, method);
+    const value = assertString(args[0], `${method} value`);
+    const result = callMethod(getPhotoshop().action, "getIDFromString", [value]);
+    if (typeof result !== "number" || !Number.isFinite(result)) {
+      throw new Error(`${method} returned a non-finite number.`);
+    }
+    return result;
+  }
+
+  if (method === "action.validateReference") {
+    expectArgs(args, 1, 1, method);
+    const reference = assertActionReference(args[0], method);
+    const result = callMethod(getActionCompatibilityTarget("validateReference"), "validateReference", [reference]);
+    if (typeof result !== "boolean") {
+      throw new Error(`${method} returned a non-boolean value.`);
+    }
+    return result;
+  }
+
+  if (method === "action.recordAction") {
+    expectArgs(args, 2, 2, method);
+    const options = assertRecordActionOptions(args[0], method);
+    const info = assertObjectRecord(args[1], `${method} info`);
+    const result = callMethod(getPhotoshop().action, "recordAction", [options, info]);
+    return resolveMaybePromise(result, () => undefined);
+  }
+
+  if (method !== "action.batchPlay" && method !== "action.batchPlaySync") {
     throw new Error(`Unsupported photoshop action method: ${method}`);
   }
+
   expectArgs(args, 1, 2, method);
   const [commands, options] = args;
   if (!Array.isArray(commands)) {
@@ -597,7 +624,76 @@ function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly 
   const commandName = typeof commandOptions?.commandName === "string" ? commandOptions.commandName : method;
   // Photoshop 26.10's native binding rejects both an omitted second argument and explicit
   // `undefined`, despite the public TypeScript signature marking options optional.
+  if (method === "action.batchPlaySync") {
+    return executeAsModal(commandName, () => {
+      const nativeTarget = getOptionalActionCompatibilityTarget("batchPlaySync");
+      if (nativeTarget) {
+        return callMethod(nativeTarget, "batchPlaySync", [commands, commandOptions ?? {}]);
+      }
+      // Photoshop 26.10 exposes no native batchPlaySync on action or core. Across the bridge the
+      // public method must return a Promise anyway, so preserve command execution semantics by
+      // forcing the supported batchPlay API into synchronous-execution mode.
+      return getPhotoshop().action.batchPlay(commands, {
+        ...commandOptions,
+        synchronousExecution: true
+      });
+    });
+  }
   return executeAsModal(commandName, () => getPhotoshop().action.batchPlay(commands, commandOptions ?? {}));
+}
+
+/**
+ * `photoshopaction.md` documents these methods under `action`, while the bundled changelog assigns
+ * them to `core`; runtime ownership also varies by version. Prefer the documented owner, then the
+ * changelog owner. `batchPlaySync` has a separate emulation fallback when neither owner exposes it.
+ */
+function getActionCompatibilityTarget(methodName: "batchPlaySync" | "validateReference"): unknown {
+  const target = getOptionalActionCompatibilityTarget(methodName);
+  if (target) {
+    return target;
+  }
+  throw new Error(`photoshop action/core does not implement ${methodName}.`);
+}
+
+function getOptionalActionCompatibilityTarget(
+  methodName: "batchPlaySync" | "validateReference"
+): unknown | undefined {
+  const photoshop = getPhotoshop();
+  if (typeof photoshop.action[methodName] === "function") {
+    return photoshop.action;
+  }
+  if (typeof photoshop.core[methodName] === "function") {
+    return photoshop.core;
+  }
+  return undefined;
+}
+
+function assertActionReference(
+  value: unknown,
+  method: string
+): Record<string, unknown> | readonly Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => assertObjectRecord(entry, `${method} reference[${index}]`));
+  }
+  return assertObjectRecord(value, `${method} reference`);
+}
+
+function assertRecordActionOptions(
+  value: unknown,
+  method: string
+): { readonly name: string; readonly methodName: string } {
+  const options = assertObjectRecord(value, `${method} options`);
+  return {
+    name: assertString(options.name, `${method} options.name`),
+    methodName: assertString(options.methodName, `${method} options.methodName`)
+  };
+}
+
+function assertObjectRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
 }
 
 /** The owner of a `Layers` collection is either a Document or a Layer (group). */

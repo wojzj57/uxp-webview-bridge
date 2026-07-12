@@ -64,6 +64,52 @@ test("action.batchPlay is an accepted protocol method name", async () => {
   assert.doesNotThrow(() => assertPhotoshopProtocolMethodName("action.batchPlay"));
 });
 
+test("photoshop.action utility methods issue one opaque RPC each", async () => {
+  const { createPhotoshopNamespace } = await import(photoshopModule);
+  const results = new Map([
+    ["action.batchPlaySync", [{ _obj: "document", documentID: 7 }]],
+    ["action.getIDFromString", 1234],
+    ["action.recordAction", undefined],
+    ["action.validateReference", true]
+  ]);
+  const calls = [];
+  const photoshop = createPhotoshopNamespace({
+    call(module, method, args) {
+      calls.push({ module, method, args });
+      return Promise.resolve(results.get(method));
+    }
+  });
+
+  const commands = [{ _obj: "get", _target: [{ _ref: "document", _id: 7 }] }];
+  const reference = [{ _ref: "document", _id: 7 }];
+  const recordOptions = { name: "Bridge Test", methodName: "bridgeTestHandler" };
+  const recordInfo = { source: "contract" };
+
+  assert.deepEqual(await photoshop.action.batchPlaySync(commands), results.get("action.batchPlaySync"));
+  assert.equal(await photoshop.action.getIDFromString("document"), 1234);
+  await photoshop.action.recordAction(recordOptions, recordInfo);
+  assert.equal(await photoshop.action.validateReference(reference), true);
+
+  assert.deepEqual(calls, [
+    { module: PHOTOSHOP_MODULE, method: "action.batchPlaySync", args: [commands] },
+    { module: PHOTOSHOP_MODULE, method: "action.getIDFromString", args: ["document"] },
+    { module: PHOTOSHOP_MODULE, method: "action.recordAction", args: [recordOptions, recordInfo] },
+    { module: PHOTOSHOP_MODULE, method: "action.validateReference", args: [reference] }
+  ]);
+});
+
+test("new action operations are accepted protocol method names", async () => {
+  const { isPhotoshopProtocolMethodName } = await import(protocolModule);
+  for (const method of [
+    "action.batchPlaySync",
+    "action.getIDFromString",
+    "action.recordAction",
+    "action.validateReference"
+  ]) {
+    assert.equal(isPhotoshopProtocolMethodName(method), true, `${method} must be a known method.`);
+  }
+});
+
 test("host batchPlay supplies an empty options object for Photoshop's native binding", async () => {
   const { dispatchPhotoshopCall } = await import(hostModule);
   const originalRequire = globalThis.require;
@@ -92,4 +138,115 @@ test("host batchPlay supplies an empty options object for Photoshop's native bin
   } finally {
     globalThis.require = originalRequire;
   }
+});
+
+test("host action utilities preserve native descriptors and modal boundaries", async () => {
+  const { dispatchPhotoshopCall } = await import(hostModule);
+  const originalRequire = globalThis.require;
+  const calls = [];
+  let modalCalls = 0;
+  globalThis.require = (moduleName) => {
+    assert.equal(moduleName, "photoshop");
+    return {
+      action: {
+        batchPlaySync(commands, options) {
+          calls.push(["batchPlaySync", commands, options]);
+          return [{ _obj: "document", documentID: 7 }];
+        },
+        getIDFromString(value) {
+          calls.push(["getIDFromString", value]);
+          return 1234;
+        },
+        recordAction(options, info) {
+          calls.push(["recordAction", options, info]);
+          return Promise.resolve();
+        },
+        validateReference(reference) {
+          calls.push(["validateReference", reference]);
+          return true;
+        }
+      },
+      core: {
+        executeAsModal(fn) {
+          modalCalls += 1;
+          return Promise.resolve(fn({}));
+        }
+      }
+    };
+  };
+
+  try {
+    const commands = [{ _obj: "get", _target: [{ _ref: "document", _id: 7 }] }];
+    const reference = [{ _ref: "document", _id: 7 }];
+    const recordOptions = { name: "Bridge Test", methodName: "bridgeTestHandler" };
+    const recordInfo = { source: "contract" };
+
+    assert.deepEqual(await dispatchPhotoshopCall("action.batchPlaySync", [commands]), [
+      { _obj: "document", documentID: 7 }
+    ]);
+    assert.equal(dispatchPhotoshopCall("action.getIDFromString", ["document"]), 1234);
+    await dispatchPhotoshopCall("action.recordAction", [recordOptions, recordInfo]);
+    assert.equal(dispatchPhotoshopCall("action.validateReference", [reference]), true);
+
+    assert.equal(modalCalls, 1, "only batchPlaySync should enter a modal scope.");
+    assert.deepEqual(calls, [
+      ["batchPlaySync", commands, {}],
+      ["getIDFromString", "document"],
+      ["recordAction", recordOptions, recordInfo],
+      ["validateReference", reference]
+    ]);
+  } finally {
+    globalThis.require = originalRequire;
+  }
+});
+
+test("host batchPlaySync emulates removed native support through synchronousExecution", async () => {
+  const { dispatchPhotoshopCall } = await import(hostModule);
+  const originalRequire = globalThis.require;
+  const received = [];
+  globalThis.require = () => ({
+    action: {
+      batchPlay(commands, options) {
+        received.push([commands, options]);
+        return Promise.resolve([{ _obj: "document", documentID: 7 }]);
+      }
+    },
+    core: {
+      executeAsModal(fn) {
+        return Promise.resolve(fn({}));
+      }
+    }
+  });
+
+  try {
+    const commands = [{ _obj: "get", _target: [{ _ref: "document", _id: 7 }] }];
+    const result = await dispatchPhotoshopCall("action.batchPlaySync", [
+      commands,
+      { dialogOptions: "silent", synchronousExecution: false }
+    ]);
+
+    assert.deepEqual(result, [{ _obj: "document", documentID: 7 }]);
+    assert.deepEqual(received, [
+      [commands, { dialogOptions: "silent", synchronousExecution: true }]
+    ]);
+  } finally {
+    globalThis.require = originalRequire;
+  }
+});
+
+test("host action utilities reject malformed inputs before native calls", async () => {
+  const { dispatchPhotoshopCall } = await import(hostModule);
+
+  assert.throws(
+    () => dispatchPhotoshopCall("action.getIDFromString", [""]),
+    /action\.getIDFromString value must be a non-empty string/
+  );
+  assert.throws(
+    () => dispatchPhotoshopCall("action.validateReference", [null]),
+    /action\.validateReference reference must be an object/
+  );
+  assert.throws(
+    () => dispatchPhotoshopCall("action.recordAction", [{ name: "Missing method" }, {}]),
+    /options\.methodName must be a non-empty string/
+  );
 });

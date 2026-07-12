@@ -59,7 +59,19 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
       options?: BatchPlayCommandOptions
     ): Promise<ActionDescriptor[]> {
       return batchPlay(context, commands, options);
-    }
+    },
+    batchPlaySync(
+      commands: readonly ActionDescriptor[],
+      options?: BatchPlayCommandOptions
+    ): Promise<ActionDescriptor[]> {
+      return batchPlaySync(context, commands, options);
+    },
+    getIDFromString: (value) =>
+      context.rpc.call<number>(PHOTOSHOP_MODULE_ID, "action.getIDFromString", [value]),
+    recordAction: (options, info) =>
+      context.rpc.call<void>(PHOTOSHOP_MODULE_ID, "action.recordAction", [options, info]),
+    validateReference: (ref) =>
+      context.rpc.call<boolean>(PHOTOSHOP_MODULE_ID, "action.validateReference", [ref])
   };
 
   return {
@@ -141,6 +153,16 @@ function batchPlay(
 ): Promise<ActionDescriptor[]> {
   const args = options === undefined ? [commands] : [commands, options];
   return context.rpc.call<ActionDescriptor[]>(PHOTOSHOP_MODULE_ID, "action.batchPlay", args);
+}
+
+/** Host-synchronous batchPlay exposed as an asynchronous WebView RPC. */
+function batchPlaySync(
+  context: PhotoshopContext,
+  commands: readonly ActionDescriptor[],
+  options?: BatchPlayCommandOptions
+): Promise<ActionDescriptor[]> {
+  const args = options === undefined ? [commands] : [commands, options];
+  return context.rpc.call<ActionDescriptor[]>(PHOTOSHOP_MODULE_ID, "action.batchPlaySync", args);
 }
 
 export const photoshop: PhotoshopNamespace =

@@ -172,7 +172,7 @@ export function photoshopMethodResultKind(remoteType: string, method: string): P
  * - `document.*` / `layer.*` — shared property get/set (keyed by property name via `remoteKey`),
  *   per-method calls, `batchGet`/`batchSet`, and `dispose`.
  * - `layers.*` — collection snapshot / lookup / mutation.
- * - `action.*` — low-level batchPlay passthrough (verbatim JSON, no reference mapping; ADR 0010).
+ * - `action.*` — low-level action operations (verbatim descriptors/references, no bridge-reference mapping).
  */
 export const PHOTOSHOP_METHOD_NAMES = [
   // app namespace
@@ -249,8 +249,12 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "channels.getByName",
   "channels.add",
 
-  // action namespace: low-level batchPlay passthrough (verbatim JSON, ADR 0010)
-  "action.batchPlay"
+  // action namespace: opaque native descriptors/references (never bridge-reference decoded)
+  "action.batchPlay",
+  "action.batchPlaySync",
+  "action.getIDFromString",
+  "action.recordAction",
+  "action.validateReference"
 ] as const;
 
 export type PhotoshopProtocolMethodName = (typeof PHOTOSHOP_METHOD_NAMES)[number];

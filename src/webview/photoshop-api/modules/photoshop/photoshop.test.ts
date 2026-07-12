@@ -42,10 +42,12 @@ import type {
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type {
   ActionDescriptor as AdobeActionDescriptor,
+  ActionReference as AdobeActionReference,
   BatchPlayCommandOptions as AdobeBatchPlayCommandOptions
 } from "@shared/types/photoshop/internal/dom/CoreModules.js";
 import type {
   ActionDescriptor,
+  ActionReference,
   BatchPlayCommandOptions,
   PsChannel,
   PsChannelReadableKey,
@@ -147,6 +149,8 @@ type _ChannelWritableIsExactlyWritable = AssertMutual<
 type Assignable<From, To> = [From] extends [To] ? true : never;
 type _DescriptorToAdobe = Assignable<ActionDescriptor, AdobeActionDescriptor>;
 type _DescriptorFromAdobe = Assignable<AdobeActionDescriptor, ActionDescriptor>;
+type _ReferenceToAdobe = Assignable<ActionReference, AdobeActionReference>;
+type _ReferenceFromAdobe = Assignable<AdobeActionReference, ActionReference>;
 type _OptionsToAdobe = Assignable<BatchPlayCommandOptions, AdobeBatchPlayCommandOptions>;
 
 // Reference the compile-time-only aliases so `noUnusedLocals`-style tools (should they ever be
@@ -166,6 +170,8 @@ export type _StaticConsistencyProof = [
   _ChannelWritableIsExactlyWritable,
   _DescriptorToAdobe,
   _DescriptorFromAdobe,
+  _ReferenceToAdobe,
+  _ReferenceFromAdobe,
   _OptionsToAdobe
 ];
 
@@ -187,7 +193,11 @@ export default defineWebviewCdpCases([
       assert.ok("documents" in photoshop.app, "photoshop.app.documents must exist.");
 
       assert.ok(typeof photoshop.action === "object" && photoshop.action !== null, "photoshop.action must be an object.");
-      assert.functions(photoshop.action, ["batchPlay"], "photoshop.action");
+      assert.functions(
+        photoshop.action,
+        ["batchPlay", "batchPlaySync", "getIDFromString", "recordAction", "validateReference"],
+        "photoshop.action"
+      );
 
       for (const name of ["LayerKind", "BlendMode", "AnchorPosition", "ElementPlacement", "SaveOptions", "FlipAxis"]) {
         assert.ok(typeof photoshop[name] === "object" && photoshop[name] !== null, `photoshop.${name} must be an object.`);
@@ -579,6 +589,35 @@ export default defineWebviewCdpCases([
       assert.equal(restored, originalVisible, "batchPlay should have restored the original visibility.");
 
       return { nativeLayerId, proxyId, roundTripped: true };
+    }
+  },
+  {
+    name: "photoshop.action-utilities",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const document = await getActiveDocument(bridge, skip);
+      if (isSkip(document)) {
+        return document;
+      }
+      const documentId = await document.id;
+      const reference = [{ _ref: "document", _id: documentId }];
+
+      const [descriptor] = await bridge.photoshop.action.batchPlaySync([
+        { _obj: "get", _target: reference }
+      ]);
+      assert.ok(typeof descriptor === "object" && descriptor !== null, "batchPlaySync should return a descriptor.");
+      assert.equal(descriptor.documentID, documentId, "batchPlaySync should read the active native document id.");
+
+      const firstId = await bridge.photoshop.action.getIDFromString("document");
+      const secondId = await bridge.photoshop.action.getIDFromString("document");
+      assert.ok(typeof firstId === "number" && Number.isFinite(firstId), "getIDFromString should return a finite number.");
+      assert.equal(secondId, firstId, "getIDFromString should return a stable id for the same string.");
+
+      const valid = await bridge.photoshop.action.validateReference(reference);
+      assert.equal(valid, true, "validateReference should accept the active document reference.");
+
+      return { documentId, actionStringId: firstId, valid };
     }
   }
 ]);

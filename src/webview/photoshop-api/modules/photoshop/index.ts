@@ -20,6 +20,7 @@ export type {
 } from "../imaging/index.js";
 export type {
   ActionDescriptor,
+  ActionReference,
   BatchPlayCommandOptions,
   Channels,
   CmykColorView,
@@ -44,6 +45,7 @@ export type {
   PsLayerReadableKey,
   PsLayerWritableProps,
   PsSolidColor,
+  RecordActionOptions,
   ResizeOptions,
   RgbColorView,
   SolidColorInput

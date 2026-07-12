@@ -23,6 +23,7 @@ export { path } from "./uxp-api/global-members/path/index.js";
 export { photoshop } from "./photoshop-api/modules/photoshop/index.js";
 export type {
   ActionDescriptor,
+  ActionReference,
   BatchPlayCommandOptions,
   Channels,
   CmykColorView,
@@ -64,6 +65,7 @@ export type {
   PutLayerMaskOptions,
   PutPixelsOptions,
   PutSelectionOptions,
+  RecordActionOptions,
   ResizeOptions,
   RgbColorView,
   SolidColorInput

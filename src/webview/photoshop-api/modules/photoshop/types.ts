@@ -397,6 +397,11 @@ export interface ActionDescriptor {
   [prop: string]: unknown;
 }
 
+/** A native Photoshop action reference. Its ids belong to Photoshop, not the bridge registry. */
+export interface ActionReference {
+  [prop: string]: number | string;
+}
+
 /**
  * Options for {@link PhotoshopActions.batchPlay}, forwarded verbatim to Adobe's `batchPlay`.
  * Structurally mirrors Adobe's `BatchPlayCommandOptions`; the host does not interpret these fields,
@@ -414,9 +419,20 @@ export interface BatchPlayCommandOptions {
   readonly immediateRedraw?: boolean;
 }
 
+/** Metadata recorded into the Photoshop Actions panel for a plugin-provided action step. */
+export interface RecordActionOptions {
+  /** User-visible step name shown in the Actions panel. */
+  readonly name: string;
+  /**
+   * Name of a globally accessible playback handler in the UXP host runtime. A WebView function
+   * cannot be used directly because Photoshop invokes this handler later when the action is played.
+   */
+  readonly methodName: string;
+}
+
 /**
- * The `photoshop.action` surface: a low-level passthrough to Photoshop's action system. Only
- * `batchPlay` is exposed in this batch (ADR 0010 / RFC-0009).
+ * The `photoshop.action` surface: low-level operations on Photoshop's native action system.
+ * Descriptor and reference ids use Photoshop's own id space and are never decoded as bridge refs.
  */
 export interface PhotoshopActions {
   /**
@@ -428,6 +444,28 @@ export interface PhotoshopActions {
     commands: readonly ActionDescriptor[],
     options?: BatchPlayCommandOptions
   ): Promise<ActionDescriptor[]>;
+
+  /**
+   * Run Photoshop's synchronous batchPlay implementation on the host. The WebView call remains
+   * asynchronous because every bridge request resolves through RPC.
+   */
+  batchPlaySync(
+    commands: readonly ActionDescriptor[],
+    options?: BatchPlayCommandOptions
+  ): Promise<ActionDescriptor[]>;
+
+  /** Resolve or allocate Photoshop's numeric id for an action string. */
+  getIDFromString(value: string): Promise<number>;
+
+  /**
+   * Record a plugin action step when the Photoshop Actions panel is actively recording. The named
+   * playback handler must already exist globally in the UXP host; this call does not bridge a
+   * WebView callback for later playback.
+   */
+  recordAction(options: RecordActionOptions, info: Record<string, unknown>): Promise<void>;
+
+  /** Validate one native Photoshop action reference or a reference chain. */
+  validateReference(ref: ActionReference | readonly ActionReference[]): Promise<boolean>;
 }
 
 /** The `photoshop.app` entry surface. */
