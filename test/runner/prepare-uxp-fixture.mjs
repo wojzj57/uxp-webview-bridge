@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { build } from "esbuild";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -35,72 +36,20 @@ function assertInsideWorkspace(targetPath) {
 
 async function writeUxpClassicBundle() {
   const entryFile = path.join(distRoot, "uxp", "index.js");
-  const modules = [];
-  const visited = new Set();
-
-  await visit(entryFile);
-
-  const bundle = [
-    "(function () {",
-    '"use strict";',
-    ...modules.map((module) => `\n// ${path.relative(distRoot, module.file).replaceAll(path.sep, "/")}\n${module.source}`),
-    "\nwindow.UxpWebviewBridgeUxp = { configUxpBridge };",
-    "})();",
-    ""
-  ].join("\n");
-
   const bundlePath = path.join(fixtureDistRoot, "uxp-global.js");
   await mkdir(path.dirname(bundlePath), { recursive: true });
-  await writeFile(bundlePath, bundle, "utf8");
-
-  async function visit(file) {
-    const normalizedFile = path.normalize(file);
-    if (visited.has(normalizedFile)) {
-      return;
-    }
-    visited.add(normalizedFile);
-
-    const rawSource = await readFile(normalizedFile, "utf8");
-    const imports = getRelativeImports(rawSource, normalizedFile);
-    for (const importedFile of imports) {
-      await visit(importedFile);
-    }
-
-    modules.push({
-      file: normalizedFile,
-      source: toClassicScript(rawSource)
-    });
-  }
-}
-
-function getRelativeImports(source, file) {
-  const imports = [];
-  // Static imports and re-exports (`export { x } from "./y.js"`, `export * from "./y.js"`) both
-  // create load-order dependencies that must be bundled before this module.
-  const patterns = [
-    /^\s*import\s+[^"']*["']([^"']+)["'];?\s*$/gm,
-    /^\s*export\s+(?:\*|\{[^}]*\})\s+from\s+["']([^"']+)["'];?\s*$/gm
-  ];
-
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1];
-      if (specifier.startsWith(".")) {
-        imports.push(path.resolve(path.dirname(file), specifier));
-      }
-    }
-  }
-
-  return imports;
-}
-
-function toClassicScript(source) {
-  return source
-    .replace(/^\s*import\s+[^"']*["'][^"']+["'];?\s*$/gm, "")
-    .replace(/^\s*export\s+(?:\*|\{[^}]*\})\s+from\s+["'][^"']+["'];?\s*$/gm, "")
-    .replace(/^\s*export\s+\{[^}]*\};?\s*$/gm, "")
-    .replace(/\bexport\s+(?=(?:async\s+)?function\b|class\b|const\b|let\b|var\b)/g, "")
-    .replace(/\/\/# sourceMappingURL=.*$/gm, "");
+  await build({
+    entryPoints: [entryFile],
+    outfile: bundlePath,
+    bundle: true,
+    format: "iife",
+    globalName: "UxpWebviewBridgeUxp",
+    platform: "neutral",
+    target: "es2020",
+    external: ["fs", "os", "photoshop", "uxp"],
+    footer: { js: "window.UxpWebviewBridgeUxp = UxpWebviewBridgeUxp;" },
+    logLevel: "silent"
+  });
 }
 
 async function writeCaseRegistry() {

@@ -38,6 +38,7 @@
   "devDependencies": {
     "@bubblydoo/uxp-cli": "^0.0.12",
     "@types/node": "^20.14.12",
+    "esbuild": "^0.28.1",
     "rimraf": "^6.0.1",
     "typescript": "^5.5.4"
   }

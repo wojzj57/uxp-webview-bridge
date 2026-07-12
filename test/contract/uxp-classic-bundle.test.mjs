@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 const execFileAsync = promisify(execFile);
 
-test("UXP fixture classic bundle parses after concatenating UXP-side modules", async () => {
+test("UXP fixture esbuild IIFE bundle parses as a classic script", async () => {
   await execFileAsync("node", ["test/runner/prepare-uxp-fixture.mjs"]);
   await execFileAsync("node", ["--check", "test/uxp-plugin/dist/uxp-global.js"]);
 });

@@ -1,2 +1,3 @@
 allowBuilds:
   '@adobe-fixed-uxp/uxp-devtools-helper': true
+  esbuild: true
