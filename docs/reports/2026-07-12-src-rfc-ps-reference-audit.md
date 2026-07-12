@@ -1,14 +1,14 @@
 # `src` 开发情况、RFC 符合度与 Photoshop Reference 覆盖审查
 
 审查日期：2026-07-12  
-审查对象：当前工作树（`HEAD` 为 `7e82099`，包含未提交的 RFC-0010 改动）  
+审查对象：当前工作树（RFC-0010 已由 `8f044dc` 提交；包含本轮 clipboard 实机兼容改动）
 范围：`src/`、`test/`、`docs/rfcs/`、`uxp-document/ps-reference/`
 
 ## 结论摘要
 
-当前代码已经形成可工作的桥接主干：WebView/UXP/shared 边界清楚，RPC 取消、转发 fetch、Photoshop Document/Layer/Channel、`batchPlay`、声明式注册表和 imaging 均已有实现。离线门禁全部通过：`pnpm typecheck`、`pnpm test:static`、CDP TypeScript 编译、`pnpm build` 以及 123 个 contract tests 均为绿色。
+当前代码已经形成可工作的桥接主干：WebView/UXP/shared 边界清楚，RPC 取消、转发 fetch、Photoshop Document/Layer/Channel、`batchPlay`、声明式注册表和 imaging 均已有实现。离线门禁全部通过：`pnpm typecheck`、`pnpm test:static`、CDP TypeScript 编译、`pnpm build` 以及 125 个 contract tests 均为绿色。
 
-真实 Photoshop 宿主验证已经补齐：在 Photoshop 26.10.0 / UXP 9.0.1 上，`pnpm test:uxp` 最终结果为 **40 passed、0 failed、3 skipped**。因此 RFC-0005 至 RFC-0011 的 DOM、modal、identity、Channel/SolidColor、batchPlay 和 imaging 关键路径已有实机证据。仍不能认定所有 RFC 均完成全部验收：RFC-0001/0002/0003 的部分明确 contract 项尚未补齐，RFC-0010 仍是未提交工作树改动。
+真实 Photoshop 宿主验证已经补齐：在 Photoshop 26.10.0 / UXP 9.0.1 上，`pnpm test:uxp` 最新结果为 **41 passed、0 failed、2 skipped**。clipboard 文本往返现已真实通过；剩余跳过项仅为需要外部打开交互的 shell cases。因此 RFC-0005 至 RFC-0011 的 DOM、modal、identity、Channel/SolidColor、batchPlay 和 imaging 关键路径已有实机证据。仍不能认定所有 RFC 均完成全部验收：RFC-0001/0002/0003 的部分明确 contract 项尚未补齐。
 
 Photoshop 文档覆盖应分三层看：
 
@@ -20,7 +20,7 @@ Photoshop 文档覆盖应分三层看：
 
 ### 已关闭：真实 Photoshop 验证缺口
 
-2026-07-12 已在 Photoshop 26.10.0 / UXP 9.0.1 上完成全量 `pnpm test:uxp`：40 passed、0 failed、3 skipped。通过项包括 DOM 读写、`executeAsModal` 路径、Document/Layer identity、Channel/SolidColor、`batchPlay` native id 写入、imaging typed-array round-trip、base64 encode 和 dispose 后错误。3 个跳过项为需要外部交互/权限的 clipboard 与 shell open cases，不属于本次 8 个失败。
+2026-07-12 已在 Photoshop 26.10.0 / UXP 9.0.1 上完成全量 `pnpm test:uxp`：41 passed、0 failed、2 skipped。通过项包括 clipboard 文本往返、DOM 读写、`executeAsModal` 路径、Document/Layer identity、Channel/SolidColor、`batchPlay` native id 写入、imaging typed-array round-trip、base64 encode 和 dispose 后错误。2 个跳过项仅为需要外部打开交互的 shell open cases。
 
 实机运行同时发现并修复了测试基础设施的 classic bundle 符号碰撞和 CDP `Promise was collected` 轮询问题；详细记录见 `docs/records/2026-07-12-uxp-live-test-fixes.md`。
 
@@ -36,7 +36,7 @@ Photoshop 文档覆盖应分三层看：
 
 ### P2：RFC 状态元数据已失真
 
-11 份 RFC 的头部仍全部标为 `Status: ready-for-agent`，而 Git 历史已经包含 RFC-0008、0009、0011 等明确提交，当前工作树又在实现 RFC-0010。状态失真会让后续 agent 重复实施或错误判断依赖关系。建议定义并统一使用 `implemented`、`verified-offline`、`verified-live`、`superseded` 等状态，同时记录对应 commit 与最后验证日期。
+11 份 RFC 的头部仍全部标为 `Status: ready-for-agent`，而 Git 历史已经包含 RFC-0008、0009、0010、0011 等明确提交。状态失真会让后续 agent 重复实施或错误判断依赖关系。建议定义并统一使用 `implemented`、`verified-offline`、`verified-live`、`superseded` 等状态，同时记录对应 commit 与最后验证日期。
 
 ### P2：Adobe 类型别名损坏导致公开类型采用本地镜像
 
@@ -48,9 +48,9 @@ Photoshop 文档覆盖应分三层看：
 
 `media/imaging.md` 把 `PhotoshopImageData` 属性写作 `isChunky`，而随附 `ImagingModule.d.ts`、当前 `PsImageData` 与 host serialization 使用 `chunky`。按文档文字严格计数时 metadata 为 9/10；按仓库内 Adobe 声明计数则为 10/10。应选定权威来源并在报告/用户文档说明版本差异，避免调用方按 Markdown 使用 `isChunky`。
 
-### P3：RFC-0010 仍处于未提交状态
+### 已关闭：RFC-0010 未提交状态
 
-当前有 10 个已跟踪文件修改以及 imaging/binary transport/contract test 等未跟踪文件。离线测试已通过，但它仍不是稳定提交，不能与已提交的 RFC-0011 同等视为交付完成。应在实机验证与 review 后单独提交，避免将无关工作树改动混入。
+RFC-0010 已完成实机验证、review，并拆分为 binary transport 重构 `8710137` 与 Photoshop imaging 功能 `8f044dc` 两个独立提交；其 live-host 兼容修复另见 `a958329`。原“未提交工作树”风险已经关闭。
 
 ## RFC 符合度矩阵
 
@@ -68,10 +68,10 @@ Photoshop 文档覆盖应分三层看：
 | 0004 Photoshop shared protocol/constants | 实现完成 | protocol method set、remote/result kinds、7 个 transcribed constants、静态 Adobe enum compatibility | RFC 元数据仍为 ready-for-agent；新增 ChannelType 是合理的后续扩展 |
 | 0005 Photoshop WebView module | 实现完成 | Document/Layer RemoteClass、queued writes、collections、identity registry、public namespace；相关 CDP 实机通过 | 实际表面是 RFC 闭合集而非完整 ps-reference |
 | 0006 Photoshop UXP host adapter | 实现完成 | capability adapter、独立 registry、参数/引用 dispatch、modal wrapping、serialization；真实 DOM/modal case 通过 | 无本次阻断项 |
-| 0007 tests & verification | 实现完成 | static type assertions、contract registry consistency、Photoshop DOM/action CDP cases；全量实机 40/0/3 | RFC 状态元数据仍未更新 |
+| 0007 tests & verification | 实现完成 | static type assertions、contract registry consistency、Photoshop DOM/action CDP cases；全量实机 41/0/2 | RFC 状态元数据仍未更新 |
 | 0008 declarative registries | 实现完成 | value object registry、snapshot collection、type registry、declarative result kinds；contract no-dangling 与实机 identity/value/collection case 通过 | 无本次阻断项 |
 | 0009 batchPlay | 实现完成 | one-RPC WebView passthrough、host shape validation + modal、contract tests、实机 native-id read/write roundtrip 通过 | 类型仍为本地镜像而非直接 re-export |
-| 0010 binary + imaging | 开发中（已实机验证） | shared binary codec；fs/crypto/fetch refactor；独立 imaging adapter/registry；8 API + imageData handle；contract 与全部 imaging CDP case 通过 | 整体未提交；PsImageData 使用独立模块代理而非 RFC-0008 DOM type registry（与独立 adapter/registry 推荐一致，但偏离文字验收项） |
+| 0010 binary + imaging | 实现完成（已实机验证） | commit `8f044dc`；shared binary codec；fs/crypto/fetch refactor；独立 imaging adapter/registry；8 API + imageData handle；contract 与全部 imaging CDP case 通过 | PsImageData 使用独立模块代理而非 RFC-0008 DOM type registry（与独立 adapter/registry 推荐一致，但偏离文字验收项） |
 | 0011 Channel + SolidColor | 实现完成 | commit `7e82099`；Channel descriptors/host branches；SolidColor value kind；ChannelType；4 个 CDP cases 实机通过；补齐 `Channels.add` | Channel 无稳定 id，当前明确采用非去重 handle |
 
 ## Photoshop Reference 覆盖统计
@@ -134,9 +134,8 @@ Photoshop 文档覆盖应分三层看：
 
 1. 补齐 RFC-0001/0002/0003 的明确 contract tests，特别是 RpcHost cancel origin/lifecycle 和 installFetch restore/idempotency。
 2. 修复 Photoshop type alias，并从 Adobe 类型派生 batchPlay/imaging public proxy types。
-3. 对已通过实机验证的 RFC-0010 做最终 review 和独立提交。
-4. 更新 RFC 状态与 commit/verification metadata，记录 Photoshop 26.10.0 / UXP 9.0.1 验证基线。
-5. 按 roadmap 继续扩展时，优先补高价值对象簇：Document 的 Selection/history/guide/path 入口、Layer group/text/filter，或把 `photoshop.core`/action 其余成员作为独立 RFC；每批继续使用“成员清单 + host/webview 对称 + live CDP”验收。
+3. 更新 RFC 状态与 commit/verification metadata，记录 Photoshop 26.10.0 / UXP 9.0.1 验证基线。
+4. 按 roadmap 继续扩展时，优先补高价值对象簇：Document 的 Selection/history/guide/path 入口、Layer group/text/filter，或把 `photoshop.core`/action 其余成员作为独立 RFC；每批继续使用“成员清单 + host/webview 对称 + live CDP”验收。
 
 ## 本次验证记录
 
@@ -145,10 +144,10 @@ Photoshop 文档覆盖应分三层看：
 | `pnpm typecheck` | 通过 |
 | `pnpm test:static` | 通过（Static boundary checks passed） |
 | `pnpm exec tsc -p tsconfig.cdp-webview.json` | 通过 |
-| `pnpm test:contract` | 通过；123/123 tests，且命令内重新执行 build |
+| `pnpm test:contract` | 通过；125/125 tests，且命令内重新执行 build |
 | `pnpm build` | 通过（由 `test:contract` 执行） |
-| `pnpm test:uxp` | 通过；Photoshop 26.10.0 / UXP 9.0.1，40 passed、0 failed、3 skipped |
+| `pnpm test:uxp` | 通过；Photoshop 26.10.0 / UXP 9.0.1，41 passed、0 failed、2 skipped |
 
 ## 审查限制
 
-本报告是对 2026-07-12 当前工作树的静态、构建、离线契约和 Photoshop 26.10.0 / UXP 9.0.1 实机审查。实机结论只证明该版本组合与当前测试夹具覆盖的路径，不把类型声明存在等同于运行时覆盖，也不把当前未提交的 RFC-0010 当作稳定发布物。
+本报告是对 2026-07-12 当前工作树的静态、构建、离线契约和 Photoshop 26.10.0 / UXP 9.0.1 实机审查。实机结论只证明该版本组合与当前测试夹具覆盖的路径，不把类型声明存在等同于运行时覆盖。
