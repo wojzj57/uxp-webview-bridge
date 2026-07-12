@@ -8,19 +8,19 @@
 
 当前代码已经形成可工作的桥接主干：WebView/UXP/shared 边界清楚，RPC 取消、转发 fetch、Photoshop Document/Layer/Channel、action 无状态操作、core 查询、声明式注册表和 imaging 均已有实现。离线门禁全部通过：`pnpm typecheck`、`pnpm test:static`、CDP TypeScript 编译、`pnpm build` 以及 134 个 contract tests 均为绿色。
 
-真实 Photoshop 宿主验证已经补齐：在 Photoshop 26.10.0 / UXP 9.0.1 上，`pnpm test:uxp` 最新结果为 **45 passed、0 failed、2 skipped**。新增 `photoshop.core` 的 12 个查询成员均经过实机路径；剩余跳过项仅为需要外部打开交互的 shell cases。因此 RFC-0005 至 RFC-0011 的 DOM、modal、identity、Channel/SolidColor、action 和 imaging 关键路径，以及本轮 core 查询路径已有实机证据。仍不能认定所有 RFC 均完成全部验收：RFC-0001/0002/0003 的部分明确 contract 项尚未补齐。
+真实 Photoshop 宿主验证已经补齐：在 Photoshop 26.10.0 / UXP 9.0.1 上，`pnpm test:uxp` 最新结果为 **47 passed、0 failed、2 skipped**。`photoshop.core` 的 18 个非破坏性成员均经过实机路径；剩余跳过项仅为需要外部打开交互的 shell cases。因此 RFC-0005 至 RFC-0011 的 DOM、modal、identity、Channel/SolidColor、action 和 imaging 关键路径，以及 core 查询/工具路径已有实机证据。仍不能认定所有 RFC 均完成全部验收：RFC-0001/0002/0003 的部分明确 contract 项尚未补齐。
 
 Photoshop 文档覆盖应分三层看：
 
 - 类型镜像层：`src/shared/types/photoshop` 有 69 个 `.d.ts` 文件，48 个非索引 class 文档中有 45 个能按类名找到对应声明文件；这表示类型资料较全，不表示可跨桥调用。
-- 直接运行时层：目前主要实现 `Photoshop app` 的 3 个成员、Document 子集、Layer 子集、完整 Channel、部分集合、部分 SolidColor、5/7 个 action 函数、12/31 个 core 成员和几乎完整 imaging。
-- 量化抽样：对 DOM/集合/SolidColor/imaging/action 这 9 组主要公开清单逐成员比对，严格按文档名称计算为 **125/222（56.3%）**；再把 100 个常量枚举和 31 个 `photoshop.core` 成员纳入，则为 **144/353（40.8%）**。本轮 core 查询扩展增加 12 个运行时成员。这只是明确列出的核心公开表面，不是对 125 个 Markdown 页面逐页宣称的全库覆盖率。
+- 直接运行时层：目前主要实现 `Photoshop app` 的 3 个成员、Document 子集、Layer 子集、完整 Channel、部分集合、部分 SolidColor、5/7 个 action 函数、18/31 个 core 成员和几乎完整 imaging。
+- 量化抽样：对 DOM/集合/SolidColor/imaging/action 这 9 组主要公开清单逐成员比对，严格按文档名称计算为 **125/222（56.3%）**；再把 100 个常量枚举和 31 个 `photoshop.core` 成员纳入，则为 **150/353（42.5%）**。两轮 core 扩展累计增加 18 个运行时成员。这只是明确列出的核心公开表面，不是对 125 个 Markdown 页面逐页宣称的全库覆盖率。
 
 ## 主要发现（按优先级）
 
 ### 已关闭：真实 Photoshop 验证缺口
 
-2026-07-12 已在 Photoshop 26.10.0 / UXP 9.0.1 上完成全量 `pnpm test:uxp`：45 passed、0 failed、2 skipped。通过项包括 clipboard 文本往返、DOM 读写、`executeAsModal` 路径、Document/Layer identity、Channel/SolidColor、action native id/同步执行兼容、core 环境与文档查询、imaging typed-array round-trip、base64 encode 和 dispose 后错误。2 个跳过项仅为需要外部打开交互的 shell open cases。
+2026-07-12 已在 Photoshop 26.10.0 / UXP 9.0.1 上完成全量 `pnpm test:uxp`：47 passed、0 failed、2 skipped。通过项包括 clipboard 文本往返、DOM 读写、`executeAsModal` 路径、Document/Layer identity、Channel/SolidColor、action native id/同步执行兼容、core 环境/文档/颜色/布局/层级查询、imaging typed-array round-trip、base64 encode 和 dispose 后错误。2 个跳过项仅为需要外部打开交互的 shell open cases。
 
 实机运行同时发现并修复了测试基础设施的 classic bundle 符号碰撞和 CDP `Promise was collected` 轮询问题；详细记录见 `docs/records/2026-07-12-uxp-live-test-fixes.md`。
 
@@ -68,7 +68,7 @@ RFC-0010 已完成实机验证、review，并拆分为 binary transport 重构 `
 | 0004 Photoshop shared protocol/constants | 实现完成 | protocol method set、remote/result kinds、7 个 transcribed constants、静态 Adobe enum compatibility | RFC 元数据仍为 ready-for-agent；新增 ChannelType 是合理的后续扩展 |
 | 0005 Photoshop WebView module | 实现完成 | Document/Layer RemoteClass、queued writes、collections、identity registry、public namespace；相关 CDP 实机通过 | 实际表面是 RFC 闭合集而非完整 ps-reference |
 | 0006 Photoshop UXP host adapter | 实现完成 | capability adapter、独立 registry、参数/引用 dispatch、modal wrapping、serialization；真实 DOM/modal case 通过 | 无本次阻断项 |
-| 0007 tests & verification | 实现完成 | static type assertions、contract registry consistency、Photoshop DOM/action/core CDP cases；全量实机 45/0/2 | RFC 状态元数据仍未更新 |
+| 0007 tests & verification | 实现完成 | static type assertions、contract registry consistency、Photoshop DOM/action/core CDP cases；全量实机 47/0/2 | RFC 状态元数据仍未更新 |
 | 0008 declarative registries | 实现完成 | value object registry、snapshot collection、type registry、declarative result kinds；contract no-dangling 与实机 identity/value/collection case 通过 | 无本次阻断项 |
 | 0009 batchPlay | 实现完成 | one-RPC WebView passthrough、host shape validation + modal、contract tests、实机 native-id read/write roundtrip 通过 | 类型仍为本地镜像而非直接 re-export |
 | 0010 binary + imaging | 实现完成（已实机验证） | commit `8f044dc`；shared binary codec；fs/crypto/fetch refactor；独立 imaging adapter/registry；8 API + imageData handle；contract 与全部 imaging CDP case 通过 | PsImageData 使用独立模块代理而非 RFC-0008 DOM type registry（与独立 adapter/registry 推荐一致，但偏离文字验收项） |
@@ -106,8 +106,8 @@ RFC-0010 已完成实机验证、review，并拆分为 binary transport 重构 `
 ### Constants 与 core
 
 - `modules/constants.md` 有 100 个枚举，当前公开 7 个：`SaveOptions`、`AnchorPosition`、`BlendMode`、`LayerKind`、`ElementPlacement`、`FlipAxis`、`ChannelType`，覆盖 **7.0%**。
-- `media/photoshopcore.md` 有 1 个属性和 30 个函数，当前作为 WebView 公共 `photoshop.core` namespace 暴露 1 个属性和 11 个查询函数，直接覆盖 **12/31（38.7%）**。剩余成员包括 modal、event、redraw、executeAsModal 等需要独立语义设计的操作。
-- 将 constants/core 一并加入上面的公开表面抽样后为 **144/353（40.8%）**。
+- `media/photoshopcore.md` 有 1 个属性和 30 个函数，当前作为 WebView 公共 `photoshop.core` namespace 暴露 1 个属性和 17 个非破坏性函数，直接覆盖 **18/31（58.1%）**。剩余成员主要包括 modal、event、临时文档、菜单执行、调试设置和 UI 修改等需要独立生命周期或副作用设计的操作。
+- 将 constants/core 一并加入上面的公开表面抽样后为 **150/353（42.5%）**。
 
 ### 页面与类型镜像说明
 
@@ -147,7 +147,7 @@ RFC-0010 已完成实机验证、review，并拆分为 binary transport 重构 `
 | `pnpm exec tsc -p tsconfig.cdp-webview.json` | 通过 |
 | `pnpm test:contract` | 通过；134/134 tests，且命令内重新执行 build |
 | `pnpm build` | 通过（由 `test:contract` 执行） |
-| `pnpm test:uxp` | 通过；Photoshop 26.10.0 / UXP 9.0.1，45 passed、0 failed、2 skipped |
+| `pnpm test:uxp` | 通过；Photoshop 26.10.0 / UXP 9.0.1，47 passed、0 failed、2 skipped |
 
 ## 审查限制
 
