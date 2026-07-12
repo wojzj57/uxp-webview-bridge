@@ -1,5 +1,22 @@
 export { createPhotoshopNamespace, photoshop } from "./photoshop.js";
 export type {
+  CPUInfo,
+  DisplayConfiguration,
+  DisplayConfigurationBounds,
+  DisplayConfigurationOptions,
+  DisplayConfigurationPhysical,
+  GetActiveToolResult,
+  GetPluginInfoResult,
+  GPUInfo,
+  HistorySuspendedOptions,
+  MenuCommandMenuIDOptions,
+  MenuCommandOptions,
+  OpenCLDeviceInfo,
+  OpenGLDeviceInfo,
+  PhotoshopCore,
+  Scheduling
+} from "../core/index.js";
+export type {
   CreateImageDataFromBufferOptions,
   EncodeImageDataOptions,
   GetDataOptions,
