@@ -31,6 +31,7 @@ import type {
   LayerKind as AdobeLayerKind,
   SaveOptions as AdobeSaveOptions
 } from "@shared/types/photoshop/internal/dom/Constants.js";
+import type * as AdobeConstants from "@shared/types/photoshop/internal/dom/Constants.js";
 import type {
   AnchorPositionValue,
   BlendModeValue,
@@ -38,6 +39,7 @@ import type {
   ElementPlacementValue,
   FlipAxisValue,
   LayerKindValue,
+  PhotoshopConstantsNamespace,
   SaveOptionsValue
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type {
@@ -57,7 +59,8 @@ import type {
   PsDocumentWritableProps,
   PsLayer,
   PsLayerReadableKey,
-  PsLayerWritableProps
+  PsLayerWritableProps,
+  PhotoshopNamespace
 } from "./types.js";
 
 // ---------------------------------------------------------------------------------------------------
@@ -87,6 +90,18 @@ type _ChannelTypeCompatible = AssertMutual<ChannelTypeValue, `${AdobeChannelType
 // SaveOptions is a numeric enum; its value union is numeric, so compare against the numeric enum
 // value union directly rather than a template-literal (which only applies to string enums).
 type _SaveOptionsExact = AssertMutual<SaveOptionsValue, AdobeSaveOptions>;
+
+/** Every Adobe enum name is generated and carried by the public Photoshop namespace type. */
+type AssertNever<T extends never> = true;
+type _AllAdobeConstantNamesGenerated = AssertNever<
+  Exclude<keyof typeof AdobeConstants, "constants" | keyof PhotoshopConstantsNamespace>
+>;
+type _NoGeneratedConstantNamesOutsideAdobe = AssertNever<
+  Exclude<keyof PhotoshopConstantsNamespace, Exclude<keyof typeof AdobeConstants, "constants">>
+>;
+type _AllGeneratedConstantsPublic = AssertNever<
+  Exclude<keyof PhotoshopConstantsNamespace, keyof PhotoshopNamespace>
+>;
 
 /**
  * `batchSet` writability: passing a read-only property must be a compile-time error. `PsDocument.id`
@@ -163,6 +178,9 @@ export type _StaticConsistencyProof = [
   _ElementPlacementCompatible,
   _FlipAxisCompatible,
   _ChannelTypeCompatible,
+  _AllAdobeConstantNamesGenerated,
+  _NoGeneratedConstantNamesOutsideAdobe,
+  _AllGeneratedConstantsPublic,
   _DocWritableIsExactlyWritable,
   _DocReadableKeysLocked,
   _LayerReadableKeysLocked,
@@ -184,7 +202,7 @@ const SIX_BOUNDS_FIELDS = ["left", "right", "top", "bottom", "width", "height"] 
 export default defineWebviewCdpCases([
   {
     name: "photoshop.public-shape",
-    run({ bridge, assert }) {
+    run({ bridge, assert, hostDiagnostics, reportDiagnostics }) {
       const photoshop = bridge.photoshop;
       assert.ok(typeof photoshop === "object" && photoshop !== null, "bridge.photoshop must be an object.");
       assert.ok(typeof photoshop.app === "object" && photoshop.app !== null, "photoshop.app must be an object.");
@@ -199,14 +217,66 @@ export default defineWebviewCdpCases([
         "photoshop.action"
       );
 
-      for (const name of ["LayerKind", "BlendMode", "AnchorPosition", "ElementPlacement", "SaveOptions", "FlipAxis"]) {
-        assert.ok(typeof photoshop[name] === "object" && photoshop[name] !== null, `photoshop.${name} must be an object.`);
+      const constantEntries = Object.entries(photoshop).filter(
+        ([name]) => !["app", "action", "core", "imaging", "constants"].includes(name)
+      );
+      assert.equal(
+        constantEntries.length,
+        103,
+        "photoshop must synchronously expose 102 Constants.d.ts enums plus ColorConversionModel."
+      );
+      for (const [name, table] of constantEntries) {
+        assert.ok(typeof table === "object" && table !== null, `photoshop.${name} must be an object.`);
+        assert.equal(
+          typeof (table as { then?: unknown }).then,
+          "undefined",
+          `photoshop.${name} must not be Promise-like.`
+        );
       }
+      assert.equal(Object.keys(photoshop.constants).length, 102, "photoshop.constants must contain every declared enum.");
+      assert.equal(photoshop.constants.LayerKind, photoshop.LayerKind, "aggregate and direct tables must share identity.");
+      assert.equal(photoshop.InterpolationMethod.AUTOMATIC, "bicubicAutomatic", "InterpolationMethod should be present.");
       assert.equal(photoshop.LayerKind.NORMAL, "pixel", "LayerKind.NORMAL should transcribe to 'pixel'.");
       assert.equal(photoshop.BlendMode.SUBTRACT, "blendSubtraction", "BlendMode.SUBTRACT should transcribe correctly.");
       assert.equal(photoshop.SaveOptions.DONOTSAVECHANGES, 0, "SaveOptions.DONOTSAVECHANGES should be 0.");
+      assert.equal(photoshop.GridSize.DOTTED, undefined, "GridSize must not acquire GridLineStyle members.");
+      assert.equal(photoshop.GenerativeUpscaleModel.FIREFLY, "firefly", "the final declaration enum should be present.");
 
-      return { constantsChecked: 6 };
+      const diagnostics = hostDiagnostics as {
+        __UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS__?: Record<string, Record<string, string | number>>;
+        __UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS_ERROR__?: string;
+      };
+      assert.equal(
+        diagnostics.__UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS_ERROR__,
+        undefined,
+        "the UXP fixture must be able to snapshot native Photoshop constants."
+      );
+      const nativeConstants = diagnostics.__UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS__;
+      assert.ok(nativeConstants && typeof nativeConstants === "object", "native Photoshop constants snapshot must exist.");
+      let nativeMembersChecked = 0;
+      for (const [enumName, nativeEnum] of Object.entries(nativeConstants ?? {})) {
+        const webviewEnum = photoshop.constants[enumName];
+        assert.ok(webviewEnum && typeof webviewEnum === "object", `native enum ${enumName} must exist in WebView constants.`);
+        for (const [memberName, nativeValue] of Object.entries(nativeEnum)) {
+          assert.equal(
+            webviewEnum[memberName],
+            nativeValue,
+            `photoshop.constants.${enumName}.${memberName} must match the native UXP runtime.`
+          );
+          nativeMembersChecked += 1;
+        }
+      }
+      reportDiagnostics({
+        nativePhotoshopEnumsChecked: Object.keys(nativeConstants ?? {}).length,
+        nativePhotoshopMembersChecked: nativeMembersChecked
+      });
+
+      return {
+        declaredEnumsChecked: Object.keys(photoshop.constants).length,
+        publicConstantTypesChecked: constantEntries.length,
+        nativeEnumsChecked: Object.keys(nativeConstants ?? {}).length,
+        nativeMembersChecked
+      };
     }
   },
   {

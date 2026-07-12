@@ -18,15 +18,7 @@ import type {
   LayerKindValue,
   SaveOptionsValue
 } from "@shared/photoshop-api/photoshop-constants.js";
-import type {
-  AnchorPosition,
-  BlendMode,
-  ChannelType,
-  ElementPlacement,
-  FlipAxis,
-  LayerKind,
-  SaveOptions
-} from "@shared/photoshop-api/photoshop-constants.js";
+import type { PhotoshopConstantsNamespace } from "@shared/photoshop-api/photoshop-constants.js";
 import { ColorConversionModel, type PhotoshopCore } from "../core/types.js";
 import type { PhotoshopImaging } from "../imaging/types.js";
 
@@ -476,18 +468,13 @@ export interface PhotoshopApp {
   open(options?: OpenOptions): Promise<PsDocument>;
 }
 
-/** The `photoshop` namespace: app entry plus the transcribed enum tables. */
-export interface PhotoshopNamespace {
+/** The `photoshop` namespace: app entry plus every synchronous Photoshop enum table. */
+export interface PhotoshopNamespace extends PhotoshopConstantsNamespace {
   readonly app: PhotoshopApp;
   readonly action: PhotoshopActions;
   readonly core: PhotoshopCore;
   readonly ColorConversionModel: typeof ColorConversionModel;
   readonly imaging: PhotoshopImaging;
-  readonly LayerKind: typeof LayerKind;
-  readonly BlendMode: typeof BlendMode;
-  readonly AnchorPosition: typeof AnchorPosition;
-  readonly ElementPlacement: typeof ElementPlacement;
-  readonly SaveOptions: typeof SaveOptions;
-  readonly FlipAxis: typeof FlipAxis;
-  readonly ChannelType: typeof ChannelType;
+  /** Native-compatible aggregate for callers that use `photoshop.constants.Xxx`. */
+  readonly constants: PhotoshopConstantsNamespace;
 }

@@ -7,15 +7,7 @@
  */
 
 import { getBridgeRpcClient } from "@webview/runtime.js";
-import {
-  AnchorPosition,
-  BlendMode,
-  ChannelType,
-  ElementPlacement,
-  FlipAxis,
-  LayerKind,
-  SaveOptions
-} from "@shared/photoshop-api/photoshop-constants.js";
+import { PhotoshopConstants } from "@shared/photoshop-api/photoshop-constants.js";
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import type { RemoteRpc } from "@webview/uxp-api/remote/index.js";
 import { createCoreNamespace } from "../core/core.js";
@@ -82,13 +74,8 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
     core: createCoreNamespace(rpc),
     ColorConversionModel,
     imaging: createImagingNamespace(rpc),
-    LayerKind,
-    BlendMode,
-    AnchorPosition,
-    ElementPlacement,
-    SaveOptions,
-    FlipAxis,
-    ChannelType
+    constants: PhotoshopConstants,
+    ...PhotoshopConstants
   };
 }
 

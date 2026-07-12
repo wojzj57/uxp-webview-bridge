@@ -62,7 +62,8 @@ async function runCase(request) {
       throw new Error(`CDP case ${caseName} must export a default function.`);
     }
 
-    const result = await testCase(createCaseContext(request));
+    const reportedDiagnostics = {};
+    const result = await testCase(createCaseContext(request, reportedDiagnostics));
     const durationMs = Date.now() - startedAt;
 
     if (isSkipResult(result)) {
@@ -84,7 +85,8 @@ async function runCase(request) {
       caseName,
       status: "passed",
       durationMs,
-      result
+      result,
+      diagnostics: Object.keys(reportedDiagnostics).length > 0 ? reportedDiagnostics : undefined
     });
   } catch (error) {
     setStatus(`failed ${caseName}`);
@@ -98,9 +100,15 @@ async function runCase(request) {
   }
 }
 
-function createCaseContext(request) {
+function createCaseContext(request, reportedDiagnostics) {
   return {
     payload: request.payload ?? null,
+    hostDiagnostics: request.diagnostics ?? {},
+    reportDiagnostics(diagnostics) {
+      if (diagnostics && typeof diagnostics === "object") {
+        Object.assign(reportedDiagnostics, diagnostics);
+      }
+    },
     bridge: {
       ensureConfigured,
       clipboard,

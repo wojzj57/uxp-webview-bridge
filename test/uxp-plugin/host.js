@@ -84,13 +84,51 @@
       status: "running"
     };
 
+    const testDiagnostics = {};
+    if (caseName === "photoshop.public-shape") {
+      try {
+        testDiagnostics.__UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS__ = snapshotPhotoshopConstants();
+      } catch (error) {
+        testDiagnostics.__UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS_ERROR__ =
+          error instanceof Error ? error.stack || error.message : String(error);
+      }
+    }
+
     webview.postMessage({
       type: RUN_TYPE,
       id,
       caseName,
-      payload: payload || null
+      payload: payload || null,
+      diagnostics: testDiagnostics
     });
 
     return window.__UXP_BRIDGE_TEST_RESULT__;
   };
+
+  function snapshotPhotoshopConstants() {
+    const nativeConstants = require("photoshop").constants;
+    const snapshot = {};
+
+    for (const enumName of Object.keys(nativeConstants).sort()) {
+      const nativeEnum = nativeConstants[enumName];
+      if (!nativeEnum || typeof nativeEnum !== "object") {
+        continue;
+      }
+      const members = {};
+      for (const memberName of Object.keys(nativeEnum).sort()) {
+        // Numeric TypeScript enums expose reverse mappings such as `0: "NONE"`; callers and the
+        // source declaration consume only the named forward members.
+        if (/^(?:0|[1-9]\d*)$/.test(memberName)) {
+          continue;
+        }
+        const value = nativeEnum[memberName];
+        if (typeof value === "string" || typeof value === "number") {
+          members[memberName] = value;
+        }
+      }
+      snapshot[enumName] = members;
+    }
+
+    return snapshot;
+  }
 })();

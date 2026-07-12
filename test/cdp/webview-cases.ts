@@ -22,8 +22,10 @@ export interface WebviewCdpBridge {
 
 export interface WebviewCdpCaseContext {
   readonly payload: unknown;
+  readonly hostDiagnostics: Readonly<Record<string, unknown>>;
   readonly bridge: WebviewCdpBridge;
   readonly assert: WebviewCdpAssert;
+  reportDiagnostics(diagnostics: Record<string, unknown>): void;
   skip(reason: string, diagnostics?: Record<string, unknown>): unknown;
 }
 
