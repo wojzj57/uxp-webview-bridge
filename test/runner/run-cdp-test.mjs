@@ -125,10 +125,10 @@ async function readSuite(name) {
 
 async function runSingleCase(client, name, timeout) {
   await client.evaluate(
-    `window.__runUxpBridgeTest(${JSON.stringify(name)}, ${JSON.stringify({
+    `void window.__runUxpBridgeTest(${JSON.stringify(name)}, ${JSON.stringify({
       from: "cdp-runner",
       allowExternalOpen
-    })})`
+    })}); true`
   );
 
   return pollForResult(client, name, timeout);
@@ -150,7 +150,20 @@ async function pollForResult(client, expectedCaseName, timeout) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeout) {
-    const result = await client.evaluate("window.__UXP_BRIDGE_TEST_RESULT__");
+    // UXP CDP can misclassify host objects as promises while a Photoshop imaging promise is active
+    // and fail return-by-value with "Promise was collected". Serialize inside the panel context so
+    // CDP only transports a string.
+    let serialized;
+    try {
+      serialized = await client.evaluate("JSON.stringify(window.__UXP_BRIDGE_TEST_RESULT__)");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Promise was collected")) {
+        await delay(250);
+        continue;
+      }
+      throw error;
+    }
+    const result = typeof serialized === "string" ? JSON.parse(serialized) : undefined;
     if (result && result.caseName === expectedCaseName && result.status !== "running") {
       return result;
     }
@@ -196,7 +209,7 @@ function connectCdp(url, commandTimeoutMs) {
       pending.delete(message.id);
 
       if (message.error) {
-        request.reject(new Error(message.error.message || JSON.stringify(message.error)));
+        request.reject(new Error(`${request.label}: ${message.error.message || JSON.stringify(message.error)}`));
         return;
       }
 
@@ -268,7 +281,10 @@ function connectCdp(url, commandTimeoutMs) {
           contextId,
           expression,
           returnByValue: true,
-          awaitPromise: true
+          // Every harness expression is synchronous; case completion is observed through polling.
+          // UXP DevTools can report "Promise was collected" while unrelated long-running host
+          // promises (notably imaging.getData) are active if this flag is enabled.
+          awaitPromise: false
         },
         `Runtime.evaluate ${expression.slice(0, 120)}`
       );
@@ -291,6 +307,7 @@ function connectCdp(url, commandTimeoutMs) {
       }, commandTimeoutMs);
 
       pending.set(id, {
+        label,
         resolve: (value) => {
           clearTimeout(timeoutId);
           resolve(value);
