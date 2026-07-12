@@ -450,29 +450,29 @@ export default defineWebviewCdpCases([
     async run({ bridge, assert, skip }) {
       bridge.ensureConfigured();
 
-      const channel = await getFirstChannel(bridge, skip);
-      if (isSkip(channel)) {
-        return channel;
+      const document = await getActiveDocument(bridge, skip);
+      if (isSkip(document)) {
+        return document;
       }
+      const channel = await (await document.channels).add();
+      try {
+        const [name, visible, kind] = await Promise.all([channel.name, channel.visible, channel.kind]);
+        assert.nonEmptyString(name, "channel.name");
+        assert.ok(typeof visible === "boolean", "channel.visible should resolve to a boolean.");
+        assert.nonEmptyString(kind, "channel.kind");
 
-      const [name, visible, kind] = await Promise.all([channel.name, channel.visible, channel.kind]);
-      assert.nonEmptyString(name, "channel.name");
-      assert.ok(typeof visible === "boolean", "channel.visible should resolve to a boolean.");
-      assert.nonEmptyString(kind, "channel.kind");
+        const originalOpacity = await channel.opacity;
+        assert.ok(typeof originalOpacity === "number", "channel.opacity should resolve to a number.");
 
-      const originalOpacity = await channel.opacity;
-      assert.ok(typeof originalOpacity === "number", "channel.opacity should resolve to a number.");
+        const target = originalOpacity >= 50 ? 40 : 60;
+        channel.opacity = target as unknown as Promise<number>;
+        const updated = await channel.opacity;
+        assert.equal(Math.round(updated), target, "channel.opacity read-your-writes should reflect the queued set.");
 
-      const target = originalOpacity >= 50 ? 40 : 60;
-      channel.opacity = target as unknown as Promise<number>;
-      const updated = await channel.opacity;
-      assert.equal(Math.round(updated), target, "channel.opacity read-your-writes should reflect the queued set.");
-
-      // Restore.
-      channel.opacity = originalOpacity as unknown as Promise<number>;
-      await channel.opacity;
-
-      return { name, visible, kind, originalOpacity, updated };
+        return { name, visible, kind, originalOpacity, updated };
+      } finally {
+        await channel.remove();
+      }
     }
   },
   {
@@ -480,36 +480,35 @@ export default defineWebviewCdpCases([
     async run({ bridge, assert, skip }) {
       bridge.ensureConfigured();
 
-      const channel = await getFirstChannel(bridge, skip);
-      if (isSkip(channel)) {
-        return channel;
+      const document = await getActiveDocument(bridge, skip);
+      if (isSkip(document)) {
+        return document;
       }
+      const channel = await (await document.channels).add();
+      try {
+        const color = await channel.color;
+        assert.ok(typeof color === "object" && color !== null, "channel.color should be a plain object.");
+        for (const model of ["rgb", "hsb", "cmyk", "lab", "gray"] as const) {
+          assert.ok(typeof color[model] === "object" && color[model] !== null, `channel.color.${model} should be present.`);
+        }
+        assert.nonEmptyString(color.typename, "channel.color.typename");
+        // A value object carries no remote methods.
+        assert.equal(typeof (color as { dispose?: unknown }).dispose, "undefined", "color should have no dispose().");
 
-      const color = await channel.color;
-      assert.ok(typeof color === "object" && color !== null, "channel.color should be a plain object.");
-      for (const model of ["rgb", "hsb", "cmyk", "lab", "gray"] as const) {
-        assert.ok(typeof color[model] === "object" && color[model] !== null, `channel.color.${model} should be present.`);
+        channel.color = { rgb: { red: 12, green: 34, blue: 56 } } as unknown as Promise<typeof color>;
+        const afterWrite = await channel.color;
+        assert.ok(typeof afterWrite === "object" && afterWrite !== null, "channel.color read-back should be an object.");
+        assert.ok(typeof afterWrite.rgb.red === "number", "channel.color.rgb.red should be a number after write.");
+
+        channel.visible = true as unknown as Promise<boolean>;
+        await channel.visible;
+        const histogram = await channel.histogram;
+        assert.ok(Array.isArray(histogram), "channel.histogram should be an array.");
+
+        return { typename: color.typename, histogramLength: histogram.length };
+      } finally {
+        await channel.remove();
       }
-      assert.nonEmptyString(color.typename, "channel.color.typename");
-      // A value object carries no remote methods.
-      assert.equal(typeof (color as { dispose?: unknown }).dispose, "undefined", "color should have no dispose().");
-
-      // Write a color via a single-model partial, then read it back. Channels differ in whether a
-      // color write "sticks" (component channels may ignore it), so assert the round-trip is a valid
-      // SolidColor rather than exact channel equality.
-      channel.color = { rgb: { red: 12, green: 34, blue: 56 } } as unknown as Promise<typeof color>;
-      const afterWrite = await channel.color;
-      assert.ok(typeof afterWrite === "object" && afterWrite !== null, "channel.color read-back should be an object.");
-      assert.ok(typeof afterWrite.rgb.red === "number", "channel.color.rgb.red should be a number after write.");
-
-      // Restore the original color.
-      channel.color = color as unknown as Promise<typeof color>;
-      await channel.color;
-
-      const histogram = await channel.histogram;
-      assert.ok(Array.isArray(histogram), "channel.histogram should be an array.");
-
-      return { typename: color.typename, histogramLength: histogram.length };
     }
   },
   {
@@ -564,9 +563,8 @@ export default defineWebviewCdpCases([
       const setVisible = (visible: boolean) =>
         bridge.photoshop.action.batchPlay([
           {
-            _obj: "set",
-            _target: [{ _ref: "layer", _id: nativeLayerId }],
-            to: { _obj: "layer", visible }
+            _obj: visible ? "show" : "hide",
+            _target: [{ _ref: "layer", _id: nativeLayerId }]
           }
         ]);
 
@@ -629,26 +627,6 @@ async function getActiveLayer(
     return layer;
   } catch (error) {
     return markSkip(skip("reading document.layers threw.", { error: normalizeError(error) }));
-  }
-}
-
-async function getFirstChannel(
-  bridge: { photoshop: any },
-  skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
-): Promise<PsChannel | SkipMarker> {
-  const document = await getActiveDocument(bridge, skip);
-  if (isSkip(document)) {
-    return document;
-  }
-  try {
-    const channels = await document.channels;
-    const channel = channels[0];
-    if (!channel) {
-      return markSkip(skip("the active document has no channels."));
-    }
-    return channel;
-  } catch (error) {
-    return markSkip(skip("reading document.channels threw.", { error: normalizeError(error) }));
   }
 }
 

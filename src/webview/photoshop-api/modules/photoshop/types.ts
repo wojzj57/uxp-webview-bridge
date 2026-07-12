@@ -134,6 +134,8 @@ export type SolidColorInput =
 export interface Channels extends ReadonlyArray<PsChannel> {
   /** Resolve the channel with the given name via a single host RPC (`null` if none). */
   getByName(name: string): Promise<PsChannel | null>;
+  /** Create a writable alpha channel in the owning document. */
+  add(): Promise<PsChannel>;
 }
 
 /** Options for {@link PsDocument.close}. */

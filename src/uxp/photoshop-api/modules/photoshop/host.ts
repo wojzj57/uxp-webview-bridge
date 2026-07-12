@@ -561,6 +561,13 @@ function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonl
     return match == null ? null : serializeChannel(match as PhotoshopChannelLike);
   }
 
+  if (method === "channels.add") {
+    const [reference] = expectReferenceArgs(args, 1, 1, method);
+    const channels = (getDocument(reference) as Record<string, unknown>).channels;
+    const run = executeAsModal("channels.add", () => callMethod(channels, "add", []));
+    return resolveMaybePromise(run, (channel) => serializeChannel(channel as PhotoshopChannelLike));
+  }
+
   throw new Error(`Unsupported photoshop channels method: ${method}`);
 }
 
@@ -588,7 +595,9 @@ function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly 
   }
   const commandOptions = options as Record<string, unknown> | undefined;
   const commandName = typeof commandOptions?.commandName === "string" ? commandOptions.commandName : method;
-  return executeAsModal(commandName, () => getPhotoshop().action.batchPlay(commands, commandOptions));
+  // Photoshop 26.10's native binding rejects both an omitted second argument and explicit
+  // `undefined`, despite the public TypeScript signature marking options optional.
+  return executeAsModal(commandName, () => getPhotoshop().action.batchPlay(commands, commandOptions ?? {}));
 }
 
 /** The owner of a `Layers` collection is either a Document or a Layer (group). */

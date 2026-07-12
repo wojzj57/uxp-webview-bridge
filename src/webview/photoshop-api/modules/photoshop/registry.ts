@@ -152,7 +152,8 @@ export function createPhotoshopTypeRegistry(rpc: RemoteRpc): PhotoshopTypeRegist
         if (!method) {
           throw new Error(`This ${memberKind} collection does not support add.`);
         }
-        const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method, [owner, options]);
+        const args = options === undefined ? [owner] : [owner, options];
+        const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method, args);
         const decoded = decodeContext.decodeRef(memberKind, raw);
         if (decoded == null) {
           throw new Error(`${method} did not return a ${memberKind} reference.`);

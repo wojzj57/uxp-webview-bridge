@@ -98,9 +98,9 @@ function createPhotoshopContext(rpc: PhotoshopRpc): PhotoshopContext {
     getByName: "layers.getByName",
     add: "layers.add"
   });
-  // Channels support name lookup but not `add` in this batch (Channels.add is out of scope).
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Channel, {
-    getByName: "channels.getByName"
+    getByName: "channels.getByName",
+    add: "channels.add"
   });
 
   return context;
@@ -139,7 +139,8 @@ function batchPlay(
   commands: readonly ActionDescriptor[],
   options?: BatchPlayCommandOptions
 ): Promise<ActionDescriptor[]> {
-  return context.rpc.call<ActionDescriptor[]>(PHOTOSHOP_MODULE_ID, "action.batchPlay", [commands, options]);
+  const args = options === undefined ? [commands] : [commands, options];
+  return context.rpc.call<ActionDescriptor[]>(PHOTOSHOP_MODULE_ID, "action.batchPlay", args);
 }
 
 export const photoshop: PhotoshopNamespace =

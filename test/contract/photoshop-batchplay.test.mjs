@@ -6,6 +6,7 @@ import { test } from "node:test";
 // prove the seam without a real Photoshop host by driving `createPhotoshopNamespace` with a stub rpc.
 const photoshopModule = "../../dist/webview/photoshop-api/modules/photoshop/photoshop.js";
 const protocolModule = "../../dist/shared/photoshop-api/photoshop-protocol.js";
+const hostModule = "../../dist/uxp/photoshop-api/modules/photoshop/host.js";
 
 const PHOTOSHOP_MODULE = "photoshop-api/modules/photoshop";
 
@@ -45,7 +46,7 @@ test("photoshop.action.batchPlay issues exactly one verbatim action.batchPlay RP
   assert.deepEqual(returned, resultDescriptors, "batchPlay should return the host result array unchanged.");
 });
 
-test("photoshop.action.batchPlay forwards undefined options when omitted", async () => {
+test("photoshop.action.batchPlay omits the optional argument instead of transporting undefined", async () => {
   const { createPhotoshopNamespace } = await import(photoshopModule);
   const rpc = createRecordingRpc([]);
   const photoshop = createPhotoshopNamespace(rpc);
@@ -54,11 +55,41 @@ test("photoshop.action.batchPlay forwards undefined options when omitted", async
   await photoshop.action.batchPlay(commands);
 
   assert.equal(rpc.calls.length, 1, "batchPlay should issue exactly one RPC.");
-  assert.deepEqual(rpc.calls[0].args, [commands, undefined], "omitted options should forward as undefined.");
+  assert.deepEqual(rpc.calls[0].args, [commands], "omitted options should not become null in the UXP message channel.");
 });
 
 test("action.batchPlay is an accepted protocol method name", async () => {
   const { isPhotoshopProtocolMethodName, assertPhotoshopProtocolMethodName } = await import(protocolModule);
   assert.equal(isPhotoshopProtocolMethodName("action.batchPlay"), true, "action.batchPlay must be a known method.");
   assert.doesNotThrow(() => assertPhotoshopProtocolMethodName("action.batchPlay"));
+});
+
+test("host batchPlay supplies an empty options object for Photoshop's native binding", async () => {
+  const { dispatchPhotoshopCall } = await import(hostModule);
+  const originalRequire = globalThis.require;
+  const received = [];
+  globalThis.require = (moduleName) => {
+    assert.equal(moduleName, "photoshop");
+    return {
+      action: {
+        batchPlay(...args) {
+          received.push(args);
+          return Promise.resolve([]);
+        }
+      },
+      core: {
+        executeAsModal(fn) {
+          return fn({});
+        }
+      }
+    };
+  };
+
+  try {
+    const commands = [{ _obj: "get" }];
+    await dispatchPhotoshopCall("action.batchPlay", [commands]);
+    assert.deepEqual(received, [[commands, {}]], "the native call must normalize omitted options to an object.");
+  } finally {
+    globalThis.require = originalRequire;
+  }
 });
