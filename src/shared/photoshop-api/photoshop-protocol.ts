@@ -19,7 +19,10 @@ export const PHOTOSHOP_MODULE_ID = "photoshop-api/modules/photoshop";
 export const PHOTOSHOP_REMOTE_TYPE = {
   Document: "Document",
   Layer: "Layer",
-  Channel: "Channel"
+  Channel: "Channel",
+  Selection: "Selection",
+  HistoryState: "HistoryState",
+  PathItem: "PathItem"
 } as const;
 export type PhotoshopRemoteType = (typeof PHOTOSHOP_REMOTE_TYPE)[keyof typeof PHOTOSHOP_REMOTE_TYPE];
 
@@ -114,7 +117,11 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       backgroundLayer: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
       channels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
       componentChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
-      activeChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel)
+      activeChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
+      selection: ref(PHOTOSHOP_REMOTE_TYPE.Selection),
+      historyStates: collection(PHOTOSHOP_REMOTE_TYPE.HistoryState),
+      activeHistoryState: ref(PHOTOSHOP_REMOTE_TYPE.HistoryState),
+      activeHistoryBrushSource: ref(PHOTOSHOP_REMOTE_TYPE.HistoryState)
     },
     methods: {
       duplicate: ref(PHOTOSHOP_REMOTE_TYPE.Document),
@@ -150,6 +157,25 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       parent: ref(PHOTOSHOP_REMOTE_TYPE.Document)
     },
     // duplicate/merge/remove all return void → scalar (omitted).
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.Selection]: {
+    properties: {
+      parent: ref(PHOTOSHOP_REMOTE_TYPE.Document),
+      bounds: value("ImagingBounds")
+    },
+    methods: {
+      makeWorkPath: ref(PHOTOSHOP_REMOTE_TYPE.PathItem)
+    }
+  },
+  [PHOTOSHOP_REMOTE_TYPE.HistoryState]: {
+    properties: {
+      parent: ref(PHOTOSHOP_REMOTE_TYPE.Document)
+    },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.PathItem]: {
+    properties: {},
     methods: {}
   }
 };
@@ -248,6 +274,44 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "channels.snapshot",
   "channels.getByName",
   "channels.add",
+
+  // Selection: shared property accessors + methods
+  "selection.propertyGet",
+  "selection.batchGet",
+  "selection.batchSet",
+  "selection.dispose",
+  "selection.contract",
+  "selection.deselect",
+  "selection.expand",
+  "selection.feather",
+  "selection.grow",
+  "selection.inverse",
+  "selection.load",
+  "selection.makeWorkPath",
+  "selection.selectAll",
+  "selection.selectRectangle",
+  "selection.selectEllipse",
+  "selection.selectPolygon",
+  "selection.selectRow",
+  "selection.selectColumn",
+  "selection.save",
+  "selection.saveTo",
+  "selection.selectBorder",
+  "selection.smooth",
+  "selection.translateBoundary",
+  "selection.resizeBoundary",
+  "selection.rotateBoundary",
+
+  // HistoryState + collection
+  "historyState.propertyGet",
+  "historyState.batchGet",
+  "historyState.batchSet",
+  "historyState.dispose",
+  "historyStates.snapshot",
+  "historyStates.getByName",
+
+  // PathItem placeholder; batch 2 fills its public surface.
+  "pathItem.dispose",
 
   // action namespace: opaque native descriptors/references (never bridge-reference decoded)
   "action.batchPlay",

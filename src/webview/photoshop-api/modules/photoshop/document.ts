@@ -30,7 +30,10 @@ import type {
   LayerCreateOptions,
   Layers,
   PsDocument,
+  PsHistoryState,
   PsLayer,
+  PsSelection,
+  HistoryStates,
   ResizeOptions
 } from "./types.js";
 
@@ -50,6 +53,7 @@ const DOCUMENT_READONLY_SCALARS = [
 
 /** Read/write scalar Document properties (keyed shared get + set). */
 const DOCUMENT_WRITABLE_SCALARS = ["pixelAspectRatio"] as const;
+const DOCUMENT_WRITABLE_REFS = ["activeHistoryState", "activeHistoryBrushSource"] as const;
 
 /**
  * Build the Document property descriptor table. Exported (independently of the class factory) so the
@@ -57,7 +61,7 @@ const DOCUMENT_WRITABLE_SCALARS = ["pixelAspectRatio"] as const;
  * in sync with the shared `PHOTOSHOP_RESULT_KINDS` table without constructing an instance.
  */
 export function createDocumentProperties(): Record<string, RemotePropertyDescriptor> {
-  const { Layer, Channel } = PHOTOSHOP_REMOTE_TYPE;
+  const { Layer, Channel, Selection, HistoryState } = PHOTOSHOP_REMOTE_TYPE;
   const properties: Record<string, RemotePropertyDescriptor> = {};
   for (const name of DOCUMENT_READONLY_SCALARS) {
     properties[name] = { writable: false, mutating: false, remoteKey: name };
@@ -73,6 +77,21 @@ export function createDocumentProperties(): Record<string, RemotePropertyDescrip
   properties.channels = { writable: false, mutating: false, remoteKey: "channels", collectionOf: Channel };
   properties.componentChannels = { writable: false, mutating: false, remoteKey: "componentChannels", collectionOf: Channel };
   properties.activeChannels = { writable: false, mutating: false, remoteKey: "activeChannels", collectionOf: Channel };
+  properties.selection = { writable: false, mutating: false, remoteKey: "selection", refType: Selection };
+  properties.historyStates = {
+    writable: false,
+    mutating: false,
+    remoteKey: "historyStates",
+    collectionOf: HistoryState
+  };
+  for (const name of DOCUMENT_WRITABLE_REFS) {
+    properties[name] = {
+      writable: true,
+      mutating: true,
+      remoteKey: name,
+      refType: HistoryState
+    };
+  }
   return properties;
 }
 
@@ -80,7 +99,7 @@ export function createDocumentProperties(): Record<string, RemotePropertyDescrip
 export function createDocumentMethods(): Record<string, RemoteMethodDescriptor> {
   const { Document, Layer } = PHOTOSHOP_REMOTE_TYPE;
   return {
-    duplicate: { mutating: false, refType: Document },
+    duplicate: { mutating: true, refType: Document },
     close: { mutating: true },
     closeWithoutSaving: { mutating: true },
     flatten: { mutating: true },
@@ -116,7 +135,7 @@ export function createDocumentClass(context: PhotoshopContext): {
       Object.keys(properties).map((name) => [name, "document.propertyGet"])
     ),
     propertySet: Object.fromEntries(
-      DOCUMENT_WRITABLE_SCALARS.map((name) => [name, "document.propertySet"])
+      [...DOCUMENT_WRITABLE_SCALARS, ...DOCUMENT_WRITABLE_REFS].map((name) => [name, "document.propertySet"])
     ),
     method: {
       duplicate: "document.duplicate",
@@ -177,6 +196,10 @@ export function createDocumentClass(context: PhotoshopContext): {
     declare readonly channels: Promise<Channels>;
     declare readonly componentChannels: Promise<Channels>;
     declare readonly activeChannels: Promise<Channels>;
+    declare readonly selection: Promise<PsSelection>;
+    declare readonly historyStates: Promise<HistoryStates>;
+    declare activeHistoryState: Promise<PsHistoryState>;
+    declare activeHistoryBrushSource: Promise<PsHistoryState>;
 
     declare duplicate: (name?: string, mergeLayersOnly?: boolean) => Promise<PsDocument>;
     declare close: (options?: DocumentCloseOptions) => Promise<void>;

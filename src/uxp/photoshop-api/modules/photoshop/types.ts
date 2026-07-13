@@ -14,7 +14,7 @@ import type { PhotoshopProtocolMethodName } from "@shared/photoshop-api/photosho
 export type PhotoshopMethodName = PhotoshopProtocolMethodName;
 
 /** Concrete remote class names owned by this module's handle registry. */
-export type PhotoshopHandleType = "Document" | "Layer" | "Channel";
+export type PhotoshopHandleType = "Document" | "Layer" | "Channel" | "Selection" | "HistoryState" | "PathItem";
 
 /** Options passed to `core.executeAsModal`. */
 export interface ExecuteAsModalOptions {
@@ -58,6 +58,26 @@ export interface PhotoshopLayerLike {
  * The real object is Adobe's `Channel`.
  */
 export interface PhotoshopChannelLike {
+  [member: string]: unknown;
+}
+
+/** Document-owned Selection; identity is stable by docId. */
+export interface PhotoshopSelectionLike {
+  readonly docId: number;
+  [member: string]: unknown;
+}
+
+/** Stable HistoryState identified by document id plus history id. */
+export interface PhotoshopHistoryStateLike {
+  readonly id: number;
+  readonly docId: number;
+  [member: string]: unknown;
+}
+
+/** PathItem reference returned by Selection.makeWorkPath. */
+export interface PhotoshopPathItemLike {
+  readonly id: number;
+  readonly docId: number;
   [member: string]: unknown;
 }
 

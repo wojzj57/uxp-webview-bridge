@@ -16,8 +16,11 @@ import { createImagingNamespace } from "../imaging/imaging.js";
 import { createChannelClass } from "./channel.js";
 import type { PhotoshopContext } from "./context.js";
 import { createDocumentClass } from "./document.js";
+import { createHistoryStateClass } from "./history-state.js";
 import { createLayerClass } from "./layer.js";
+import { createPathItemClass } from "./path-item.js";
 import { createPhotoshopTypeRegistry } from "./registry.js";
+import { createSelectionClass } from "./selection.js";
 import type {
   ActionDescriptor,
   BatchPlayCommandOptions,
@@ -93,10 +96,16 @@ function createPhotoshopContext(rpc: PhotoshopRpc): PhotoshopContext {
   const DocumentClass = createDocumentClass(context);
   const LayerClass = createLayerClass(context);
   const ChannelClass = createChannelClass(context);
+  const SelectionClass = createSelectionClass(context);
+  const HistoryStateClass = createHistoryStateClass(context);
+  const PathItemClass = createPathItemClass(context);
 
   registry.register(PHOTOSHOP_REMOTE_TYPE.Document, (reference) => new DocumentClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Layer, (reference) => new LayerClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Channel, (reference) => new ChannelClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Selection, (reference) => new SelectionClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.HistoryState, (reference) => new HistoryStateClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.PathItem, (reference) => new PathItemClass(reference));
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
     getByName: "layers.getByName",
     add: "layers.add"
@@ -104,6 +113,10 @@ function createPhotoshopContext(rpc: PhotoshopRpc): PhotoshopContext {
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Channel, {
     getByName: "channels.getByName",
     add: "channels.add"
+  });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.HistoryState, {
+    getByName: "historyStates.getByName",
+    parent: true
   });
 
   return context;

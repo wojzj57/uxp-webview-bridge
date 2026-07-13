@@ -51,6 +51,8 @@ interface TypeRegistration {
 export interface SnapshotCollectionCapabilities {
   readonly getByName?: string;
   readonly add?: string;
+  /** Expose the snapshot owner as a synchronous local `parent` property. */
+  readonly parent?: boolean;
 }
 
 /**
@@ -112,6 +114,9 @@ export function createPhotoshopTypeRegistry(rpc: RemoteRpc): PhotoshopTypeRegist
       return resolveReference(raw);
     },
     decodeValue(valueKind, raw) {
+      if (raw == null) {
+        return null;
+      }
       if (!isPhotoshopValueTransport(raw) || raw.valueKind !== valueKind) {
         throw new Error(`Expected a ${valueKind} value envelope.`);
       }
@@ -160,6 +165,14 @@ export function createPhotoshopTypeRegistry(rpc: RemoteRpc): PhotoshopTypeRegist
         }
         return decoded as object;
       }
+    }
+
+    if (capabilities.parent) {
+      Object.defineProperty(SnapshotCollection.prototype, "parent", {
+        enumerable: false,
+        configurable: false,
+        get: () => resolveReference(owner)
+      });
     }
 
     // `Array`'s constructor treats a single numeric argument as a length; build via `from`.

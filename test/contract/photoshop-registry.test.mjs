@@ -12,6 +12,8 @@ const registryModule = "../../dist/webview/photoshop-api/modules/photoshop/regis
 const documentModule = "../../dist/webview/photoshop-api/modules/photoshop/document.js";
 const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js";
 const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
+const selectionModule = "../../dist/webview/photoshop-api/modules/photoshop/selection.js";
+const historyStateModule = "../../dist/webview/photoshop-api/modules/photoshop/history-state.js";
 
 const reference = (type, id) => ({ kind: "uxp.remote.ref", type, id });
 
@@ -80,6 +82,8 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
   const { createDocumentProperties, createDocumentMethods } = await import(documentModule);
   const { createLayerProperties, createLayerMethods } = await import(layerModule);
   const { createChannelProperties, createChannelMethods } = await import(channelModule);
+  const { createSelectionProperties, createSelectionMethods } = await import(selectionModule);
+  const { createHistoryStateProperties } = await import(historyStateModule);
 
   const cases = [
     {
@@ -96,6 +100,16 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
       type: PHOTOSHOP_REMOTE_TYPE.Channel,
       properties: declaredResultKinds(createChannelProperties()),
       methods: declaredResultKinds(createChannelMethods())
+    },
+    {
+      type: PHOTOSHOP_REMOTE_TYPE.Selection,
+      properties: declaredResultKinds(createSelectionProperties()),
+      methods: declaredResultKinds(createSelectionMethods())
+    },
+    {
+      type: PHOTOSHOP_REMOTE_TYPE.HistoryState,
+      properties: declaredResultKinds(createHistoryStateProperties()),
+      methods: {}
     }
   ];
 

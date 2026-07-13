@@ -81,9 +81,15 @@ import type {
   PsDocument,
   PsDocumentReadableKey,
   PsDocumentWritableProps,
+  PsHistoryState,
+  PsHistoryStateReadableKey,
+  PsHistoryStateWritableProps,
   PsLayer,
   PsLayerReadableKey,
   PsLayerWritableProps,
+  PsSelection,
+  PsSelectionReadableKey,
+  PsSelectionWritableProps,
   PhotoshopNamespace,
   UnitTypeEnum,
   UnitValue
@@ -147,7 +153,10 @@ type _PicaValueExact = AssertMutual<PicaValue, AdobePicaValue>;
  * `batchSet` writability: passing a read-only property must be a compile-time error. `PsDocument.id`
  * and `PsLayer.id` are read-only, so the following are expected to fail to type-check.
  */
-type _DocWritableIsExactlyWritable = AssertMutual<keyof PsDocumentWritableProps, "pixelAspectRatio">;
+type _DocWritableIsExactlyWritable = AssertMutual<
+  keyof PsDocumentWritableProps,
+  "pixelAspectRatio" | "activeHistoryState" | "activeHistoryBrushSource"
+>;
 type _LayerWritableExcludesReadonly = "id" extends keyof PsLayerWritableProps ? never : true;
 const _layerWritableExcludesReadonly: _LayerWritableExcludesReadonly = true;
 void _layerWritableExcludesReadonly;
@@ -167,9 +176,30 @@ type PsDocumentReadableMembers = Exclude<
   "createLayer" | "createPixelLayer" | "createTextLayer" | "createLayerGroup" | "groupLayers" |
   "duplicateLayers" | "linkLayers" | "paste" | "batchGet" | "batchSet" | "dispose" |
   "layers" | "activeLayers" | "artboards" | "backgroundLayer" |
-  "channels" | "componentChannels" | "activeChannels"
+  "channels" | "componentChannels" | "activeChannels" |
+  "selection" | "historyStates" | "activeHistoryState" | "activeHistoryBrushSource"
 >;
 type _DocReadableKeysLocked = AssertMutual<PsDocumentReadableMembers, PsDocumentReadableKey>;
+
+type PsSelectionReadableMembers = Exclude<
+  keyof PsSelection,
+  "contract" | "deselect" | "expand" | "feather" | "grow" | "inverse" | "load" |
+  "makeWorkPath" | "selectAll" | "selectRectangle" | "selectEllipse" | "selectPolygon" |
+  "selectRow" | "selectColumn" | "save" | "saveTo" | "selectBorder" | "smooth" |
+  "translateBoundary" | "resizeBoundary" | "rotateBoundary" | "batchGet" | "batchSet" | "dispose"
+>;
+type _SelectionReadableKeysLocked = AssertMutual<PsSelectionReadableMembers, PsSelectionReadableKey>;
+type _SelectionRejectsWrites = AssertMutual<
+  { solid: boolean } extends PsSelectionWritableProps ? false : true,
+  true
+>;
+
+type PsHistoryStateReadableMembers = Exclude<keyof PsHistoryState, "batchGet" | "batchSet" | "dispose">;
+type _HistoryStateReadableKeysLocked = AssertMutual<PsHistoryStateReadableMembers, PsHistoryStateReadableKey>;
+type _HistoryStateRejectsWrites = AssertMutual<
+  { name: string } extends PsHistoryStateWritableProps ? false : true,
+  true
+>;
 
 type PsLayerReadableMembers = Exclude<
   keyof PsLayer,
@@ -235,6 +265,10 @@ export type _StaticConsistencyProof = [
   _PicaValueExact,
   _DocWritableIsExactlyWritable,
   _DocReadableKeysLocked,
+  _SelectionReadableKeysLocked,
+  _SelectionRejectsWrites,
+  _HistoryStateReadableKeysLocked,
+  _HistoryStateRejectsWrites,
   _LayerReadableKeysLocked,
   _ChannelReadableKeysLocked,
   _ChannelWritableIsExactlyWritable,
@@ -700,6 +734,84 @@ export default defineWebviewCdpCases([
     }
   },
   {
+    name: "photoshop.selection",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const source = await getActiveDocument(bridge, skip);
+      if (isSkip(source)) {
+        return source;
+      }
+
+      let document: PsDocument | undefined;
+      try {
+        document = await source.duplicate(`uxp-bridge-selection-${Date.now()}`);
+        const selection = await document.selection;
+        const selectionAgain = await document.selection;
+        assert.equal(selectionAgain, selection, "a document's Selection proxy should be === stable.");
+        assert.equal(await selection.parent, document, "selection.parent should resolve to its === owner document.");
+        assert.equal(await selection.typename, "Selection", "selection.typename should be Selection.");
+        assert.equal(await selection.docId, await document.id, "selection.docId should match its document id.");
+
+        await selection.selectRectangle({ top: 1, left: 1, bottom: 8, right: 8 });
+        const bounds = await selection.bounds;
+        assert.ok(bounds !== null, "selectRectangle should create non-null selection bounds.");
+        if (bounds === null) {
+          throw new Error("selectRectangle returned null bounds.");
+        }
+        for (const field of SIX_BOUNDS_FIELDS) {
+          assert.ok(typeof bounds[field] === "number", `selection.bounds.${field} should be a number.`);
+        }
+        assert.equal(typeof await selection.solid, "boolean", "selection.solid should resolve to a boolean.");
+
+        await selection.translateBoundary(1, 1);
+        await selection.deselect();
+        assert.equal(await selection.bounds, null, "deselect should make selection.bounds null.");
+
+        return { stableIdentity: true, nullableBounds: true };
+      } finally {
+        await closeDocumentQuietly(document);
+      }
+    }
+  },
+  {
+    name: "photoshop.history-states",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const source = await getActiveDocument(bridge, skip);
+      if (isSkip(source)) {
+        return source;
+      }
+
+      let document: PsDocument | undefined;
+      try {
+        document = await source.duplicate(`uxp-bridge-history-${Date.now()}`);
+        const states = await document.historyStates;
+        assert.ok(states.length >= 1, "a duplicated document should expose at least one history state.");
+        assert.equal(states.parent, document, "historyStates.parent should be the === owner document.");
+
+        const active = await document.activeHistoryState;
+        const activeAgain = await document.activeHistoryState;
+        assert.equal(activeAgain, active, "activeHistoryState should preserve === identity.");
+        assert.equal(await active.parent, document, "historyState.parent should resolve to its === owner document.");
+        assert.equal(await active.typename, "HistoryState", "historyState.typename should be HistoryState.");
+        assert.equal(await active.docId, await document.id, "historyState.docId should match its document id.");
+
+        const name = await active.name;
+        const byName = await states.getByName(name);
+        assert.equal(byName, active, "historyStates.getByName should resolve the cached active state.");
+
+        document.activeHistoryState = active as unknown as Promise<PsHistoryState>;
+        assert.equal(await document.activeHistoryState, active, "activeHistoryState write should flush before a later read.");
+
+        return { length: states.length, activeName: name, stableIdentity: true };
+      } finally {
+        await closeDocumentQuietly(document);
+      }
+    }
+  },
+  {
     name: "photoshop.batchplay-roundtrip",
     async run({ bridge, assert, skip }) {
       bridge.ensureConfigured();
@@ -838,6 +950,17 @@ async function deleteQuietly(layer: PsLayer | undefined): Promise<void> {
   }
   try {
     await layer.delete();
+  } catch {
+    // Best-effort cleanup; assertions own pass/fail.
+  }
+}
+
+async function closeDocumentQuietly(document: PsDocument | undefined): Promise<void> {
+  if (!document) {
+    return;
+  }
+  try {
+    await document.closeWithoutSaving();
   } catch {
     // Best-effort cleanup; assertions own pass/fail.
   }

@@ -15,8 +15,10 @@ import type {
   ChannelTypeValue,
   ElementPlacementValue,
   FlipAxisValue,
+  InterpolationMethodValue,
   LayerKindValue,
-  SaveOptionsValue
+  SaveOptionsValue,
+  SelectionTypeValue
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopConstantsNamespace } from "@shared/photoshop-api/photoshop-constants.js";
 import type {
@@ -150,6 +152,109 @@ export interface Channels extends ReadonlyArray<PsChannel> {
   add(): Promise<PsChannel>;
 }
 
+/** Four-edge bounds accepted by Selection shape methods. */
+export interface SelectionBounds {
+  readonly left: number;
+  readonly right: number;
+  readonly top: number;
+  readonly bottom: number;
+}
+
+/** One point in a polygonal Selection. */
+export interface SelectionPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Remote proxy for the active pixel selection owned by a Document. */
+export interface PsSelection {
+  readonly typename: Promise<"Selection">;
+  readonly docId: Promise<number>;
+  readonly parent: Promise<PsDocument>;
+  readonly bounds: Promise<ImagingBounds | null>;
+  readonly solid: Promise<boolean>;
+
+  contract(by: number, applyEffectAtCanvasBounds?: boolean): Promise<void>;
+  deselect(): Promise<void>;
+  expand(by: number, applyEffectAtCanvasBounds?: boolean): Promise<void>;
+  feather(by: number, applyEffectAtCanvasBounds?: boolean): Promise<void>;
+  grow(tolerance: number, antiAlias?: boolean): Promise<void>;
+  inverse(): Promise<void>;
+  load(from: PsChannel | PsLayer, mode?: SelectionTypeValue, invert?: boolean): Promise<void>;
+  makeWorkPath(tolerance?: number): Promise<PsPathItem>;
+  selectAll(): Promise<void>;
+  selectRectangle(
+    bounds: SelectionBounds,
+    mode?: SelectionTypeValue,
+    feather?: number,
+    antiAlias?: boolean
+  ): Promise<void>;
+  selectEllipse(
+    bounds: SelectionBounds,
+    mode?: SelectionTypeValue,
+    feather?: number,
+    antiAlias?: boolean
+  ): Promise<void>;
+  selectPolygon(
+    points: readonly SelectionPoint[],
+    mode?: SelectionTypeValue,
+    feather?: number,
+    antiAlias?: boolean
+  ): Promise<void>;
+  selectRow(y: number, mode?: SelectionTypeValue): Promise<void>;
+  selectColumn(x: number, mode?: SelectionTypeValue): Promise<void>;
+  save(channelName?: string): Promise<void>;
+  saveTo(channel: PsChannel, mode?: SelectionTypeValue): Promise<void>;
+  selectBorder(width: number): Promise<void>;
+  smooth(radius: number, applyEffectAtCanvasBounds?: boolean): Promise<void>;
+  translateBoundary(deltaX: number, deltaY: number): Promise<void>;
+  resizeBoundary(
+    horizontal?: number,
+    vertical?: number,
+    anchor?: AnchorPositionValue,
+    interpolation?: InterpolationMethodValue
+  ): Promise<void>;
+  rotateBoundary(
+    angle: number,
+    anchor?: AnchorPositionValue,
+    interpolation?: InterpolationMethodValue
+  ): Promise<void>;
+
+  batchGet<K extends PsSelectionReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<PsSelectionWritableProps>): void;
+  dispose(): Promise<void>;
+}
+
+export type PsSelectionReadableKey = "typename" | "docId" | "parent" | "bounds" | "solid";
+export type PsSelectionWritableProps = Record<string, never>;
+
+/** Stable remote reference to one Photoshop history state. */
+export interface PsHistoryState {
+  readonly typename: Promise<"HistoryState">;
+  readonly id: Promise<number>;
+  readonly docId: Promise<number>;
+  readonly name: Promise<string>;
+  readonly parent: Promise<PsDocument>;
+  readonly snapshot: Promise<boolean>;
+  batchGet<K extends PsHistoryStateReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<PsHistoryStateWritableProps>): void;
+  dispose(): Promise<void>;
+}
+
+export type PsHistoryStateReadableKey = "typename" | "id" | "docId" | "name" | "parent" | "snapshot";
+export type PsHistoryStateWritableProps = Record<string, never>;
+
+/** WebView-local snapshot of a Document's history states. */
+export interface HistoryStates extends ReadonlyArray<PsHistoryState> {
+  readonly parent: PsDocument;
+  getByName(name: string): Promise<PsHistoryState | null>;
+}
+
+/** Reference shell returned by Selection.makeWorkPath; completed by the Path batch. */
+export interface PsPathItem {
+  dispose(): Promise<void>;
+}
+
 /** Options for {@link PsDocument.close}. */
 export interface DocumentCloseOptions {
   readonly saveDialogOptions?: SaveOptionsValue;
@@ -164,8 +269,8 @@ export interface ResizeOptions {
 }
 
 /**
- * Remote proxy for a Photoshop `Document`. Getters resolve asynchronously over the bridge; the one
- * writable scalar (`pixelAspectRatio`) is set fire-and-forget with read-your-writes ordering.
+ * Remote proxy for a Photoshop `Document`. Getters resolve asynchronously over the bridge;
+ * writable properties are set fire-and-forget with read-your-writes ordering.
  */
 export interface PsDocument {
   // Read-only scalars
@@ -189,8 +294,12 @@ export interface PsDocument {
   readonly channels: Promise<Channels>;
   readonly componentChannels: Promise<Channels>;
   readonly activeChannels: Promise<Channels>;
+  readonly selection: Promise<PsSelection>;
+  readonly historyStates: Promise<HistoryStates>;
+  activeHistoryState: Promise<PsHistoryState>;
+  activeHistoryBrushSource: Promise<PsHistoryState>;
 
-  // Non-mutating method
+  // Mutating method (native duplicate changes Photoshop state and requires modal execution)
   duplicate(name?: string, mergeLayersOnly?: boolean): Promise<PsDocument>;
 
   // Mutating methods (host wraps in executeAsModal)
@@ -224,6 +333,8 @@ export interface PsDocument {
 /** Writable Document properties (input shape for {@link PsDocument.batchSet}). */
 export interface PsDocumentWritableProps {
   pixelAspectRatio: number;
+  activeHistoryState: PsHistoryState;
+  activeHistoryBrushSource: PsHistoryState;
 }
 
 /** Every readable Document property key (input to {@link PsDocument.batchGet}). */

@@ -6,6 +6,8 @@ import { test } from "node:test";
 const documentModule = "../../dist/webview/photoshop-api/modules/photoshop/document.js";
 const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js";
 const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
+const selectionModule = "../../dist/webview/photoshop-api/modules/photoshop/selection.js";
+const historyStateModule = "../../dist/webview/photoshop-api/modules/photoshop/history-state.js";
 
 /**
  * A recording rpc that resolves every call to a benign value and never throws. The only way a member
@@ -45,6 +47,9 @@ async function createStubContext(rpc) {
   registry.register(PHOTOSHOP_REMOTE_TYPE.Document, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.Layer, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.Channel, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Selection, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.HistoryState, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.PathItem, placeholder);
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
     getByName: "layers.getByName",
     add: "layers.add"
@@ -142,6 +147,30 @@ const CASES = [
       const ChannelClass = createChannelClass(await createStubContext(rpc));
       return { rpc, instance: new ChannelClass(reference("Channel")) };
     }
+  },
+  {
+    name: "WebviewPsSelection",
+    type: "Selection",
+    batchGetName: "selection.batchGet",
+    batchSetName: "selection.batchSet",
+    async build() {
+      const { createSelectionClass } = await import(selectionModule);
+      const rpc = createRecordingRpc();
+      const SelectionClass = createSelectionClass(await createStubContext(rpc));
+      return { rpc, instance: new SelectionClass(reference("Selection")) };
+    }
+  },
+  {
+    name: "WebviewPsHistoryState",
+    type: "HistoryState",
+    batchGetName: "historyState.batchGet",
+    batchSetName: "historyState.batchSet",
+    async build() {
+      const { createHistoryStateClass } = await import(historyStateModule);
+      const rpc = createRecordingRpc();
+      const HistoryStateClass = createHistoryStateClass(await createStubContext(rpc));
+      return { rpc, instance: new HistoryStateClass(reference("HistoryState")) };
+    }
   }
 ];
 
@@ -177,13 +206,15 @@ for (const testCase of CASES) {
     assert.equal(batchGetCall.module, module, "batchGet should target the photoshop module.");
     assert.deepEqual(batchGetCall.args, [reference(type), [readableProp]]);
 
-    instance.batchSet({ [writableProp]: 1 });
-    await instance.toRemoteReference();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const batchSetCall = rpc.calls.find((call) => call.method === batchSetName);
-    assert.ok(batchSetCall, `batchSet should call ${batchSetName}.`);
-    assert.equal(batchSetCall.args[0].type, type, "batchSet reference type");
-    assert.deepEqual(batchSetCall.args[1], { [writableProp]: 1 });
+    if (writableProp !== undefined) {
+      instance.batchSet({ [writableProp]: 1 });
+      await instance.toRemoteReference();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const batchSetCall = rpc.calls.find((call) => call.method === batchSetName);
+      assert.ok(batchSetCall, `batchSet should call ${batchSetName}.`);
+      assert.equal(batchSetCall.args[0].type, type, "batchSet reference type");
+      assert.deepEqual(batchSetCall.args[1], { [writableProp]: 1 });
+    }
   });
 
   test(`${testCase.name} rejects a batchSet of a read-only property at runtime`, async () => {
@@ -191,7 +222,7 @@ for (const testCase of CASES) {
     // A read-only property on each proxy; the base guard should reject it even though the compile-time
     // signature already forbids it (belt and suspenders — see photoshop.test.ts @ts-expect-error).
     // Channel has no `id`, so use its read-only `histogram` instead.
-    const readOnlyProp = testCase.type === "Channel" ? "histogram" : "id";
+    const readOnlyProp = testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : "id";
     assert.throws(
       () => instance.batchSet({ [readOnlyProp]: 1 }),
       new RegExp(`Cannot batchSet non-writable property: ${readOnlyProp}`)
