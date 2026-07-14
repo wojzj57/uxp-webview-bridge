@@ -26,14 +26,16 @@ import type { PhotoshopContext } from "./context.js";
 import type {
   Channels,
   DocumentCloseOptions,
+  Guides,
+  HistoryStates,
   ImagingBounds,
   LayerCreateOptions,
   Layers,
+  PathItems,
   PsDocument,
   PsHistoryState,
   PsLayer,
   PsSelection,
-  HistoryStates,
   ResizeOptions
 } from "./types.js";
 
@@ -77,6 +79,8 @@ export function createDocumentProperties(): Record<string, RemotePropertyDescrip
   properties.channels = { writable: false, mutating: false, remoteKey: "channels", collectionOf: Channel };
   properties.componentChannels = { writable: false, mutating: false, remoteKey: "componentChannels", collectionOf: Channel };
   properties.activeChannels = { writable: false, mutating: false, remoteKey: "activeChannels", collectionOf: Channel };
+  properties.guides = { writable: false, mutating: false, remoteKey: "guides", collectionOf: PHOTOSHOP_REMOTE_TYPE.Guide };
+  properties.pathItems = { writable: false, mutating: false, remoteKey: "pathItems", collectionOf: PHOTOSHOP_REMOTE_TYPE.PathItem };
   properties.selection = { writable: false, mutating: false, remoteKey: "selection", refType: Selection };
   properties.historyStates = {
     writable: false,
@@ -173,7 +177,7 @@ export function createDocumentClass(context: PhotoshopContext): {
     methodNames,
     properties,
     methods,
-    argEncoders: [],
+    argEncoders: context.argEncoders,
     decodeContext: registry.decodeContext
   };
 
@@ -196,6 +200,8 @@ export function createDocumentClass(context: PhotoshopContext): {
     declare readonly channels: Promise<Channels>;
     declare readonly componentChannels: Promise<Channels>;
     declare readonly activeChannels: Promise<Channels>;
+    declare readonly guides: Promise<Guides>;
+    declare readonly pathItems: Promise<PathItems>;
     declare readonly selection: Promise<PsSelection>;
     declare readonly historyStates: Promise<HistoryStates>;
     declare activeHistoryState: Promise<PsHistoryState>;

@@ -9,10 +9,12 @@
  */
 
 import type { RemoteRpc } from "@webview/uxp-api/remote/index.js";
+import type { RemoteArgEncoder } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopTypeRegistry } from "./registry.js";
 
 /** Late-bound namespace context: the rpc client plus the shared type/value/collection registry. */
 export interface PhotoshopContext {
   readonly rpc: RemoteRpc;
   readonly registry: PhotoshopTypeRegistry;
+  readonly argEncoders: readonly RemoteArgEncoder[];
 }

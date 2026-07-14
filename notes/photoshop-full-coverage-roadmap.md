@@ -106,7 +106,7 @@
 | **4 — TextItem 家族** | ⬜ 未开始 | TextItem + `Layer.textItem` 跨类引用（依赖 SolidColor/TextFont/字符段落样式） | 依赖链最长，放后面 |
 | **5 — 路径簇** | ⬜ 未开始 | PathItem(s) / PathPoint(s) / SubPathItem(s) / SubPathInfo / PathPointInfo（嵌套几何 + 值对象集合） | 复合集合形态验证 |
 | **6 — Selection** | ⬜ 未开始 | Selection（几何方法 + Bounds/矩形值对象） | 常用但值对象形态多 |
-| **7 — Preferences / Tool / 长尾** | ⬜ 未开始 | Preferences、Tool、WarpStyle 等剩余类 | 收尾 |
+| **7 — App / Preferences / Tool / 长尾** | 🟡 已设计 | RFC-0012 闭合 Photoshop app 18/18，并实现 Documents、TextFont(s)、Action/ActionSet、Preferences、Tool 与 SolidColor 尾项；WarpStyle 等其余长尾后续处理 | App 直接依赖集中落地 |
 | **B — batchPlay** | ✅ 完成 | 见 §3；模型独立 | 已实现 + CDP 测试 |
 | **C — imaging** | ✅ 完成（fetch 复用待收尾） | 见 §4；通用二进制层 + PhotoshopImageData | 通用二进制层已抽出，fs/crypto 已复用；fetch 复用未做 |
 
@@ -136,6 +136,6 @@
 1. **批次 1（立即）—— Channels 验证** → **详见 `docs/rfcs/0011-photoshop-channels-and-solidcolor.md`**：用已完成的三块地基跑通第一个新类簇（Channels/Channel + histogram + `Channel.parent → Document` 跨类引用）。**SolidColor 从批次 3 提前到本批**（因 `Channel.color` 依赖它，2026-07-08 grilling 决策），一并验证值对象注册表里最硬的一块。跑通即证明"加一类 = 声明 + 登记，地基零改动"，风险最低。
 2. **批次 2 —— 批量同构集合**：批次 1 验证通过后，按工厂批量复制 Guides/LayerComps/HistoryStates/Documents 等结构相同的集合类。
 3. **批次 3~6 —— 值对象簇 → TextItem → 路径簇 → Selection**：按依赖顺序推进（值对象先于依赖它们的 TextItem；路径簇验证复合集合形态）。
-4. **批次 7 + 收尾**：Preferences/Tool 长尾；补 fetch 对通用二进制层的复用（§1 遗留细节）。
+4. **批次 7 + 收尾**：按 `docs/rfcs/0012-photoshop-app-complete-surface.md` 闭合 App 18/18 及其直接依赖；WarpStyle 等其余长尾与 fetch 通用二进制复用另行收尾。
 
 > 每批次仍走 §6 交付门槛（typecheck + test:static + build，涉及 CDP case 另跑 uxp 测试）。

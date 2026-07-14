@@ -1,3 +1,5 @@
+import { PreferencesBase } from './PreferencesBase.js';
+
 export class PreferencesNotifications extends PreferencesBase {
   /**
    * @ignore

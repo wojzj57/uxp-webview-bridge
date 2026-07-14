@@ -101,6 +101,14 @@ export function destroyUxpPersistentFileStorageHandles(): void {
   persistentFileStorageApi = undefined;
 }
 
+/** Resolve a storage entry for another UXP-host adapter, such as Photoshop `app.open`. */
+export function resolveUxpStorageEntryReference(
+  reference: unknown,
+  expectedType: UxpStorageEntryType = "entry"
+): unknown {
+  return getEntryValue(reference, expectedType, "UXP storage Entry reference");
+}
+
 async function dispatchGetFileForOpening(args: readonly unknown[]): Promise<UxpStorageEntryReference | UxpStorageEntryReference[] | null> {
   expectArgs(args, 0, 1, "storage.localFileSystem.getFileForOpening");
   const options = decodeValue(args[0]);

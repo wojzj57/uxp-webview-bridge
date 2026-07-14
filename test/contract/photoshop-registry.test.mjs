@@ -14,6 +14,15 @@ const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js
 const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
 const selectionModule = "../../dist/webview/photoshop-api/modules/photoshop/selection.js";
 const historyStateModule = "../../dist/webview/photoshop-api/modules/photoshop/history-state.js";
+const guideModule = "../../dist/webview/photoshop-api/modules/photoshop/guide.js";
+const pathItemModule = "../../dist/webview/photoshop-api/modules/photoshop/path-item.js";
+const subPathItemModule = "../../dist/webview/photoshop-api/modules/photoshop/sub-path-item.js";
+const pathPointModule = "../../dist/webview/photoshop-api/modules/photoshop/path-point.js";
+const appModule = "../../dist/webview/photoshop-api/modules/photoshop/app.js";
+const textFontModule = "../../dist/webview/photoshop-api/modules/photoshop/text-font.js";
+const toolModule = "../../dist/webview/photoshop-api/modules/photoshop/tool.js";
+const actionsModule = "../../dist/webview/photoshop-api/modules/photoshop/actions.js";
+const preferencesModule = "../../dist/webview/photoshop-api/modules/photoshop/preferences.js";
 
 const reference = (type, id) => ({ kind: "uxp.remote.ref", type, id });
 
@@ -84,8 +93,18 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
   const { createChannelProperties, createChannelMethods } = await import(channelModule);
   const { createSelectionProperties, createSelectionMethods } = await import(selectionModule);
   const { createHistoryStateProperties } = await import(historyStateModule);
+  const { createGuideProperties } = await import(guideModule);
+  const { createPathItemProperties, createPathItemMethods } = await import(pathItemModule);
+  const { createSubPathItemProperties } = await import(subPathItemModule);
+  const { createPathPointProperties } = await import(pathPointModule);
+  const { createAppProperties, createAppMethods } = await import(appModule);
+  const { createTextFontProperties } = await import(textFontModule);
+  const { createToolProperties } = await import(toolModule);
+  const { createActionSetProperties, createActionProperties } = await import(actionsModule);
+  const { createPreferenceProperties } = await import(preferencesModule);
 
   const cases = [
+    { type: PHOTOSHOP_REMOTE_TYPE.Photoshop, properties: declaredResultKinds(createAppProperties()), methods: declaredResultKinds(createAppMethods()) },
     {
       type: PHOTOSHOP_REMOTE_TYPE.Document,
       properties: declaredResultKinds(createDocumentProperties()),
@@ -110,7 +129,30 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
       type: PHOTOSHOP_REMOTE_TYPE.HistoryState,
       properties: declaredResultKinds(createHistoryStateProperties()),
       methods: {}
-    }
+    },
+    { type: PHOTOSHOP_REMOTE_TYPE.Guide, properties: declaredResultKinds(createGuideProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.PathItem, properties: declaredResultKinds(createPathItemProperties()), methods: declaredResultKinds(createPathItemMethods()) },
+    { type: PHOTOSHOP_REMOTE_TYPE.SubPathItem, properties: declaredResultKinds(createSubPathItemProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.PathPoint, properties: declaredResultKinds(createPathPointProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.TextFont, properties: declaredResultKinds(createTextFontProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.Tool, properties: declaredResultKinds(createToolProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.ActionSet, properties: declaredResultKinds(createActionSetProperties()), methods: { duplicate: { kind: "ref", refType: PHOTOSHOP_REMOTE_TYPE.ActionSet } } },
+    { type: PHOTOSHOP_REMOTE_TYPE.Action, properties: declaredResultKinds(createActionProperties()), methods: { duplicate: { kind: "ref", refType: PHOTOSHOP_REMOTE_TYPE.Action } } },
+    ...[
+      PHOTOSHOP_REMOTE_TYPE.Preferences,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesCursors,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesFileHandling,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesGeneral,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesGuidesGridsAndSlices,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesHistory,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesInterface,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesNotifications,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesPerformance,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesTools,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesTransparencyAndGamut,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesType,
+      PHOTOSHOP_REMOTE_TYPE.PreferencesUnitsAndRulers
+    ].map((type) => ({ type, properties: declaredResultKinds(createPreferenceProperties(type)), methods: {} }))
   ];
 
   for (const testCase of cases) {

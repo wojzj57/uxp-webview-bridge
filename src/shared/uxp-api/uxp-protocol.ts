@@ -148,6 +148,14 @@ export interface UxpStorageEntryReference {
   readonly entry: UxpStorageSerializedEntry;
 }
 
+export function isUxpStorageEntryReference(value: unknown): value is UxpStorageEntryReference {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<UxpStorageEntryReference>;
+  return candidate.kind === "uxp.storage.entry"
+    && (candidate.type === "entry" || candidate.type === "file" || candidate.type === "folder")
+    && typeof candidate.id === "string";
+}
+
 export interface UxpStorageSerializedEntryMetadata {
   readonly name: string;
   readonly size: number;

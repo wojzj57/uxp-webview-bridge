@@ -14,7 +14,13 @@ import type { PhotoshopProtocolMethodName } from "@shared/photoshop-api/photosho
 export type PhotoshopMethodName = PhotoshopProtocolMethodName;
 
 /** Concrete remote class names owned by this module's handle registry. */
-export type PhotoshopHandleType = "Document" | "Layer" | "Channel" | "Selection" | "HistoryState" | "PathItem";
+export type PhotoshopHandleType =
+  | "Photoshop" | "Document" | "Layer" | "Channel" | "TextFont" | "Tool" | "ActionSet" | "Action"
+  | "Preferences" | "PreferencesCursors" | "PreferencesFileHandling" | "PreferencesGeneral"
+  | "PreferencesGuidesGridsAndSlices" | "PreferencesHistory" | "PreferencesInterface"
+  | "PreferencesNotifications" | "PreferencesPerformance" | "PreferencesTools"
+  | "PreferencesTransparencyAndGamut" | "PreferencesType" | "PreferencesUnitsAndRulers"
+  | "Selection" | "HistoryState" | "Guide" | "PathItem" | "SubPathItem" | "PathPoint";
 
 /** Options passed to `core.executeAsModal`. */
 export interface ExecuteAsModalOptions {
@@ -81,11 +87,25 @@ export interface PhotoshopPathItemLike {
   [member: string]: unknown;
 }
 
+export interface PhotoshopGuideLike { readonly id: number; readonly docId: number; [member: string]: unknown; }
+export interface PhotoshopSubPathItemLike { [member: string]: unknown; }
+export interface PhotoshopPathPointLike { [member: string]: unknown; }
+export interface PhotoshopTextFontLike { readonly postScriptName?: string; [member: string]: unknown; }
+export interface PhotoshopToolLike { readonly id?: string; [member: string]: unknown; }
+export interface PhotoshopActionSetLike { readonly id: number; [member: string]: unknown; }
+export interface PhotoshopActionLike { readonly id: number; [member: string]: unknown; }
+export interface PhotoshopPreferencesLike { [member: string]: unknown; }
+
 /** The app entry surface of `require('photoshop').app`. */
 export interface PhotoshopApp {
   readonly activeDocument: PhotoshopDocumentLike;
   readonly documents: ArrayLike<PhotoshopDocumentLike>;
+  readonly fonts?: ArrayLike<PhotoshopTextFontLike>;
+  readonly actionTree?: ArrayLike<PhotoshopActionSetLike>;
+  readonly preferences?: PhotoshopPreferencesLike;
+  readonly SolidColor?: { new(): Record<string, unknown> };
   open(...args: unknown[]): Promise<PhotoshopDocumentLike> | PhotoshopDocumentLike;
+  createDocument?(...args: unknown[]): Promise<PhotoshopDocumentLike | null> | PhotoshopDocumentLike | null;
   [member: string]: unknown;
 }
 

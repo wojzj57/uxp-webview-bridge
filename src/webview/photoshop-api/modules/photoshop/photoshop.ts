@@ -9,26 +9,36 @@
 import { getBridgeRpcClient } from "@webview/runtime.js";
 import { PhotoshopConstants } from "@shared/photoshop-api/photoshop-constants.js";
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
-import type { RemoteRpc } from "@webview/uxp-api/remote/index.js";
+import { PHOTOSHOP_APP_REFERENCE_ID } from "@shared/photoshop-api/photoshop-protocol.js";
+import { REMOTE_REFERENCE_KIND } from "@shared/uxp-api/remote-protocol.js";
+import type { RemoteArgEncoder, RemoteRpc } from "@webview/uxp-api/remote/index.js";
+import type { UxpStorageProxyInternals } from "@webview/uxp-api/modules/uxp/persistent-file-storage/types.js";
 import { createCoreNamespace } from "../core/core.js";
 import { ColorConversionModel } from "../core/types.js";
 import { createImagingNamespace } from "../imaging/imaging.js";
 import { createChannelClass } from "./channel.js";
+import { createActionClass, createActionSetClass } from "./actions.js";
+import { createPhotoshopAppClass } from "./app.js";
 import type { PhotoshopContext } from "./context.js";
 import { createDocumentClass } from "./document.js";
+import { createGuideClass } from "./guide.js";
 import { createHistoryStateClass } from "./history-state.js";
 import { createLayerClass } from "./layer.js";
 import { createPathItemClass } from "./path-item.js";
+import { createPathPointClass } from "./path-point.js";
+import { createPreferenceClass, createPreferencesClass } from "./preferences.js";
 import { createPhotoshopTypeRegistry } from "./registry.js";
 import { createSelectionClass } from "./selection.js";
+import { createSubPathItemClass } from "./sub-path-item.js";
+import { encodePhotoshopArgument } from "./solid-color.js";
+import { createTextFontClass } from "./text-font.js";
+import { createToolClass } from "./tool.js";
 import type {
   ActionDescriptor,
   BatchPlayCommandOptions,
-  OpenOptions,
   PhotoshopActions,
   PhotoshopApp,
-  PhotoshopNamespace,
-  PsDocument
+  PhotoshopNamespace
 } from "./types.js";
 
 type PhotoshopRpc = RemoteRpc;
@@ -36,19 +46,7 @@ type PhotoshopRpc = RemoteRpc;
 let defaultNamespace: PhotoshopNamespace | undefined;
 
 export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace {
-  const context = createPhotoshopContext(rpc);
-
-  const app: PhotoshopApp = {
-    get activeDocument(): Promise<PsDocument> {
-      return getActiveDocument(context);
-    },
-    get documents(): Promise<readonly PsDocument[]> {
-      return getDocuments(context);
-    },
-    open(options?: OpenOptions): Promise<PsDocument> {
-      return openDocument(context, options);
-    }
-  };
+  const { context, app } = createPhotoshopContext(rpc);
 
   const action: PhotoshopActions = {
     batchPlay(
@@ -77,6 +75,19 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
     core: createCoreNamespace(rpc),
     ColorConversionModel,
     imaging: createImagingNamespace(rpc),
+    get preferences() { return app.preferences; },
+    get preferencesCursors() { return app.preferences.then((value) => value.cursors); },
+    get preferencesFileHandling() { return app.preferences.then((value) => value.fileHandling); },
+    get preferencesGeneral() { return app.preferences.then((value) => value.general); },
+    get preferencesGuidesGridsAndSlices() { return app.preferences.then((value) => value.guidesGridsAndSlices); },
+    get preferencesHistory() { return app.preferences.then((value) => value.history); },
+    get preferencesInterface() { return app.preferences.then((value) => value.interface); },
+    get preferencesNotifications() { return app.preferences.then((value) => value.notifications); },
+    get preferencesPerformance() { return app.preferences.then((value) => value.performance); },
+    get preferencesTools() { return app.preferences.then((value) => value.tools); },
+    get preferencesTransparencyAndGamut() { return app.preferences.then((value) => value.transparencyAndGamut); },
+    get preferencesType() { return app.preferences.then((value) => value.type); },
+    get preferencesUnitsAndRulers() { return app.preferences.then((value) => value.unitsAndRulers); },
     constants: PhotoshopConstants,
     ...PhotoshopConstants
   };
@@ -89,61 +100,115 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
  * collections declare their `getByName`/`add` RPC capabilities so every `Layers` snapshot behaves
  * identically regardless of which property/method produced it.
  */
-function createPhotoshopContext(rpc: PhotoshopRpc): PhotoshopContext {
-  const registry = createPhotoshopTypeRegistry(rpc);
-  const context: PhotoshopContext = { rpc, registry };
+function createPhotoshopContext(rpc: PhotoshopRpc): { readonly context: PhotoshopContext; readonly app: PhotoshopApp } {
+  const argEncoders = [encodePhotoshopArgument, encodeUxpStorageArgument];
+  const registry = createPhotoshopTypeRegistry(rpc, argEncoders);
+  const context: PhotoshopContext = { rpc, registry, argEncoders };
 
+  const AppClass = createPhotoshopAppClass(context);
   const DocumentClass = createDocumentClass(context);
   const LayerClass = createLayerClass(context);
   const ChannelClass = createChannelClass(context);
   const SelectionClass = createSelectionClass(context);
   const HistoryStateClass = createHistoryStateClass(context);
+  const GuideClass = createGuideClass(context);
   const PathItemClass = createPathItemClass(context);
+  const SubPathItemClass = createSubPathItemClass(context);
+  const PathPointClass = createPathPointClass(context);
+  const TextFontClass = createTextFontClass(context);
+  const ToolClass = createToolClass(context);
+  const ActionSetClass = createActionSetClass(context);
+  const ActionClass = createActionClass(context);
+  const PreferencesClass = createPreferencesClass(context);
+
+  let appInstance: PhotoshopApp;
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Photoshop, (reference) => appInstance ??= new AppClass(reference));
 
   registry.register(PHOTOSHOP_REMOTE_TYPE.Document, (reference) => new DocumentClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Layer, (reference) => new LayerClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Channel, (reference) => new ChannelClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Selection, (reference) => new SelectionClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.HistoryState, (reference) => new HistoryStateClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Guide, (reference) => new GuideClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.PathItem, (reference) => new PathItemClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.SubPathItem, (reference) => new SubPathItemClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.PathPoint, (reference) => new PathPointClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.TextFont, (reference) => new TextFontClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Tool, (reference) => new ToolClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.ActionSet, (reference) => new ActionSetClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Action, (reference) => new ActionClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Preferences, (reference) => new PreferencesClass(reference));
+  for (const type of [
+    PHOTOSHOP_REMOTE_TYPE.PreferencesCursors,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesFileHandling,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesGeneral,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesGuidesGridsAndSlices,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesHistory,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesInterface,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesNotifications,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesPerformance,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesTools,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesTransparencyAndGamut,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesType,
+    PHOTOSHOP_REMOTE_TYPE.PreferencesUnitsAndRulers
+  ] as const) {
+    const PreferenceClass = createPreferenceClass(context, type);
+    registry.register(type, (reference) => new PreferenceClass(reference));
+  }
+  appInstance = new AppClass({
+    kind: REMOTE_REFERENCE_KIND,
+    type: PHOTOSHOP_REMOTE_TYPE.Photoshop,
+    id: PHOTOSHOP_APP_REFERENCE_ID
+  });
+
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Document, {
+    getByName: "documents.getByName", add: "documents.add", parent: true, typename: "Documents"
+  });
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
     getByName: "layers.getByName",
-    add: "layers.add"
+    add: "layers.add",
+    typename: "Layers"
   });
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Channel, {
     getByName: "channels.getByName",
-    add: "channels.add"
+    add: "channels.add",
+    typename: "Channels"
   });
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.HistoryState, {
     getByName: "historyStates.getByName",
-    parent: true
+    parent: true,
+    typename: "HistoryStates"
   });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Guide, {
+    add: "guides.add",
+    removeAll: "guides.removeAll",
+    parent: true,
+    typename: "Guides"
+  });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.PathItem, {
+    getByName: "pathItems.getByName",
+    add: "pathItems.add",
+    removeAll: "pathItems.removeAll",
+    parent: true,
+    typename: "PathItems"
+  });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.SubPathItem, { parent: true, typename: "SubPathItems" });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.PathPoint, { parent: true, typename: "PathPoints" });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.TextFont, {
+    getByName: "textFonts.getByName", parent: true, typename: "TextFonts"
+  });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.ActionSet, { parent: true });
+  registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Action, { parent: true });
 
-  return context;
+  return { context, app: appInstance };
 }
 
-function decodeDocument(context: PhotoshopContext, raw: unknown): PsDocument {
-  const decoded = context.registry.decodeContext.decodeRef(PHOTOSHOP_REMOTE_TYPE.Document, raw);
-  if (decoded == null) {
-    throw new Error("Expected a document reference.");
-  }
-  return decoded as PsDocument;
-}
-
-async function getActiveDocument(context: PhotoshopContext): Promise<PsDocument> {
-  const raw = await context.rpc.call<unknown>(PHOTOSHOP_MODULE_ID, "app.activeDocument");
-  return decodeDocument(context, raw);
-}
-
-async function getDocuments(context: PhotoshopContext): Promise<readonly PsDocument[]> {
-  const raw = await context.rpc.call<unknown[]>(PHOTOSHOP_MODULE_ID, "app.documents");
-  return raw.map((entry) => decodeDocument(context, entry));
-}
-
-async function openDocument(context: PhotoshopContext, options?: OpenOptions): Promise<PsDocument> {
-  const raw = await context.rpc.call<unknown>(PHOTOSHOP_MODULE_ID, "app.open", [options]);
-  return decodeDocument(context, raw);
-}
+const encodeUxpStorageArgument: RemoteArgEncoder = (value) => {
+  const holder = value as Partial<UxpStorageProxyInternals> | null;
+  return typeof holder?.toUxpStorageReference === "function"
+    ? holder.toUxpStorageReference()
+    : undefined;
+};
 
 /**
  * Verbatim `batchPlay` passthrough (ADR 0010): one RPC carrying `[commands, options]` as plain JSON;

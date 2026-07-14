@@ -87,6 +87,7 @@ import type {
   PsLayer,
   PsLayerReadableKey,
   PsLayerWritableProps,
+  PsPathItem,
   PsSelection,
   PsSelectionReadableKey,
   PsSelectionWritableProps,
@@ -106,9 +107,8 @@ type AssertMutual<A extends B, B extends C, C = A> = true;
  * Constant compatibility (ADR 0006 / RFC-0004).
  *
  * Strategy (RFC-0007 option "a"): the real Adobe enums are declared as `export enum` in
- * `src/shared/types/photoshop/internal/dom/Constants.d.ts`. The dedicated `@shared-types/photoshop/*`
- * alias is broken (it points at a non-existent `.../src/*` bucket), so instead of touching that
- * alias we reach the enum *types* through the working `@shared/*` alias with a `type`-only import.
+ * `src/shared/types/photoshop/internal/dom/Constants.d.ts`. We reach the enum *types* through the
+ * runtime-free `@shared/*` alias with a `type`-only import.
  * `<Enum>[keyof <Enum>]` is the union of the enum's member *values*; each transcribed `...Value`
  * union must be mutually assignable to it. A drift in any hand-copied value fails to compile here.
  */
@@ -178,6 +178,7 @@ type PsDocumentReadableMembers = Exclude<
   "layers" | "activeLayers" | "artboards" | "backgroundLayer" |
   "channels" | "componentChannels" | "activeChannels" |
   "selection" | "historyStates" | "activeHistoryState" | "activeHistoryBrushSource"
+  | "guides" | "pathItems"
 >;
 type _DocReadableKeysLocked = AssertMutual<PsDocumentReadableMembers, PsDocumentReadableKey>;
 
@@ -304,7 +305,7 @@ export default defineWebviewCdpCases([
       );
 
       const constantEntries = Object.entries(photoshop).filter(
-        ([name]) => !["app", "action", "core", "imaging", "constants"].includes(name)
+        ([name]) => name === "ColorConversionModel" || name in photoshop.constants
       );
       assert.equal(
         constantEntries.length,
@@ -363,6 +364,71 @@ export default defineWebviewCdpCases([
         nativeEnumsChecked: Object.keys(nativeConstants ?? {}).length,
         nativeMembersChecked
       };
+    }
+  },
+  {
+    name: "photoshop.app-complete-surface",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+      const app = bridge.photoshop.app;
+      const documentedMembers = [
+        "typename", "preferences", "displayDialogs", "activeDocument", "getColorProfiles", "currentTool",
+        "actionTree", "documents", "foregroundColor", "convertUnits", "backgroundColor", "fonts",
+        "showAlert", "batchPlay", "bringToFront", "open", "createDocument", "updateUI"
+      ];
+      for (const member of documentedMembers) assert.ok(member in app, `photoshop.app.${member} must exist.`);
+      assert.equal(await app.typename, "Photoshop", "app.typename should resolve to Photoshop.");
+
+      const profiles = await app.getColorProfiles("RGB");
+      assert.ok(Array.isArray(profiles), "app.getColorProfiles should return an array.");
+      const fonts = await app.fonts;
+      assert.equal(fonts.typename, "TextFonts", "app.fonts should decode to TextFonts.");
+      assert.equal(fonts.parent, app, "TextFonts.parent should preserve app identity.");
+      if (fonts[0]) {
+        assert.nonEmptyString(await fonts[0].postScriptName, "TextFont.postScriptName");
+        assert.equal(await fonts[0].parent, app, "TextFont.parent should preserve app identity.");
+      }
+      const tool = await app.currentTool;
+      assert.equal(await tool.typename, "Tool", "currentTool should decode to Tool.");
+      const [foregroundColor, backgroundColor] = await Promise.all([app.foregroundColor, app.backgroundColor]);
+      assert.equal(foregroundColor.typename, "SolidColor", "foregroundColor should decode to SolidColor.");
+      assert.equal(backgroundColor.typename, "SolidColor", "backgroundColor should decode to SolidColor.");
+      assert.ok(/^([0-9A-F]{6})$/.test(foregroundColor.nearestWebColor.hexValue), "nearestWebColor should expose a hex value.");
+
+      try {
+        const preferences = await app.preferences;
+        assert.equal(await preferences.typename, "Preferences", "app.preferences should decode to Preferences.");
+        const general = await preferences.general;
+        assert.equal(await general.typename, "PreferencesGeneral", "preferences.general should decode correctly.");
+        assert.equal(typeof await general.exportClipboard, "boolean", "a general preference should be readable.");
+      } catch (error) {
+        return skip("Photoshop runtime does not expose Preferences (requires Photoshop 24+).", { error: normalizeError(error) });
+      }
+
+      const actionTree = await app.actionTree;
+      assert.ok(Array.isArray(actionTree), "app.actionTree should be an array snapshot.");
+      await app.updateUI();
+      return { members: documentedMembers.length, profiles: profiles.length, fonts: fonts.length, actionSets: actionTree.length, foreground: foregroundColor.rgb.hexValue };
+    }
+  },
+  {
+    name: "photoshop.app-create-document",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+      const name = `uxp-bridge-app-${Date.now()}`;
+      let document: PsDocument | null | undefined;
+      try {
+        document = await bridge.photoshop.app.createDocument({ name, width: 32, height: 24, resolution: 72 });
+        if (!document) return skip("app.createDocument returned null.");
+        assert.equal(await document.name, name, "created document should retain its requested name.");
+        const documents = await bridge.photoshop.app.documents;
+        assert.equal(documents.typename, "Documents", "app.documents should decode to Documents.");
+        assert.equal(documents.parent, bridge.photoshop.app, "Documents.parent should preserve app identity.");
+        assert.equal(await documents.getByName(name), document, "Documents.getByName should preserve Document identity.");
+        return { name, documentId: await document.id, documents: documents.length };
+      } finally {
+        await closeDocumentQuietly(document ?? undefined);
+      }
     }
   },
   {
@@ -809,6 +875,47 @@ export default defineWebviewCdpCases([
       } finally {
         await closeDocumentQuietly(document);
       }
+    }
+  },
+  {
+    name: "photoshop.guides",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured(); const source = await getActiveDocument(bridge, skip); if (isSkip(source)) return source;
+      let document: PsDocument | undefined;
+      try {
+        document = await source.duplicate(`uxp-bridge-guides-${Date.now()}`);
+        const guides = await document.guides; assert.equal(guides.parent, document, "guides.parent should be the owner document.");
+        const guide = await guides.add(bridge.photoshop.Direction.VERTICAL, 12);
+        assert.equal(await guide.parent, document, "guide.parent should preserve document identity.");
+        assert.equal(await guide.direction, bridge.photoshop.Direction.VERTICAL, "guide direction should round-trip.");
+        guide.coordinate = 24 as unknown as Promise<number>; assert.equal(Math.round(await guide.coordinate), 24, "guide coordinate writes should flush before reads.");
+        await guide.delete(); assert.equal((await document.guides).length, guides.length, "deleting the added guide should restore the prior count.");
+        return { priorLength: guides.length, writeRead: true };
+      } finally { await closeDocumentQuietly(document); }
+    }
+  },
+  {
+    name: "photoshop.path-items",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured(); const source = await getActiveDocument(bridge, skip); if (isSkip(source)) return source;
+      let document: PsDocument | undefined; let path: PsPathItem | undefined; let duplicate: PsPathItem | undefined;
+      try {
+        document = await source.duplicate(`uxp-bridge-paths-${Date.now()}`); const paths = await document.pathItems;
+        assert.equal(paths.parent, document, "pathItems.parent should be the owner document.");
+        const pathName = `Bridge Path ${Date.now()}`;
+        path = await paths.add(pathName, [{ closed: false, operation: bridge.photoshop.ShapeOperation.SHAPEADD, entireSubPath: [
+          { anchor: [10, 10], leftDirection: [10, 10], rightDirection: [10, 10], kind: bridge.photoshop.PointKind.CORNERPOINT },
+          { anchor: [30, 30], leftDirection: [30, 30], rightDirection: [30, 30], kind: bridge.photoshop.PointKind.CORNERPOINT }
+        ] }]);
+        assert.equal(await path.parent, document, "path.parent should preserve document identity.");
+        const subPaths = await path.subPathItems; assert.equal(subPaths.parent, path, "subPathItems.parent should be the path."); assert.equal(subPaths.length, 1, "created path should have one subpath.");
+        const subPath = subPaths[0]!; const points = await subPath.pathPoints; assert.equal(points.parent, subPath, "pathPoints.parent should be the subpath."); assert.equal(points.length, 2, "created subpath should have two points.");
+        const anchor = await points[0]!.anchor; assert.equal(anchor[0], 10, "path point x should round-trip."); assert.equal(anchor[1], 10, "path point y should round-trip."); assert.equal(await points[0]!.parent, subPath, "pathPoint.parent should preserve identity.");
+        const byName = await (await document.pathItems).getByName(pathName); assert.equal(byName, path, "getByName should resolve the stable path proxy.");
+        path.name = "Bridge Path Renamed" as unknown as Promise<string>; assert.equal(await path.name, "Bridge Path Renamed", "path name writes should flush.");
+        duplicate = await path.duplicate("Bridge Path Copy"); await duplicate.select(); await duplicate.deselect();
+        return { subPaths: subPaths.length, points: points.length, stableIdentity: true };
+      } finally { try { await duplicate?.remove(); } catch {} try { await path?.remove(); } catch {} await closeDocumentQuietly(document); }
     }
   },
   {

@@ -96,7 +96,7 @@ export function createSelectionClass(context: PhotoshopContext): { new (referenc
     methodNames,
     properties,
     methods,
-    argEncoders: [],
+    argEncoders: context.argEncoders,
     decodeContext: context.registry.decodeContext
   };
 

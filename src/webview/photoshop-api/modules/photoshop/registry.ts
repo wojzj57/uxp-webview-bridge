@@ -19,7 +19,9 @@
 
 import {
   decodeValue as decodeSharedValue,
-  isPhotoshopValueTransport
+  isPhotoshopValueTransport,
+  SOLID_COLOR_VALUE_KIND,
+  type SolidColorTransport
 } from "@shared/photoshop-api/value-objects.js";
 import {
   isPhotoshopSnapshotTransport,
@@ -28,12 +30,15 @@ import {
 import { REMOTE_REFERENCE_KIND } from "@shared/uxp-api/remote-protocol.js";
 import {
   createIdentityCache,
+  encodeRemoteArgs,
   isRemoteReference,
   type IdentityCache,
   type RemoteDecodeContext,
   type RemoteReference,
+  type RemoteArgEncoder,
   type RemoteRpc
 } from "@webview/uxp-api/remote/index.js";
+import { createSolidColorFromTransport } from "./solid-color.js";
 
 /** Factory that builds a remote proxy instance from its reference envelope. */
 export type RemoteInstanceFactory = (reference: RemoteReference) => object;
@@ -51,8 +56,11 @@ interface TypeRegistration {
 export interface SnapshotCollectionCapabilities {
   readonly getByName?: string;
   readonly add?: string;
+  readonly removeAll?: string;
   /** Expose the snapshot owner as a synchronous local `parent` property. */
   readonly parent?: boolean;
+  /** Expose the documented local collection typename without another RPC. */
+  readonly typename?: string;
 }
 
 /**
@@ -75,7 +83,10 @@ export interface PhotoshopTypeRegistry {
   readonly decodeContext: RemoteDecodeContext;
 }
 
-export function createPhotoshopTypeRegistry(rpc: RemoteRpc): PhotoshopTypeRegistry {
+export function createPhotoshopTypeRegistry(
+  rpc: RemoteRpc,
+  argEncoders: readonly RemoteArgEncoder[] = []
+): PhotoshopTypeRegistry {
   const types = new Map<string, TypeRegistration>();
   const collectionCapabilities = new Map<string, SnapshotCollectionCapabilities>();
 
@@ -120,7 +131,10 @@ export function createPhotoshopTypeRegistry(rpc: RemoteRpc): PhotoshopTypeRegist
       if (!isPhotoshopValueTransport(raw) || raw.valueKind !== valueKind) {
         throw new Error(`Expected a ${valueKind} value envelope.`);
       }
-      return decodeSharedValue(raw);
+      const decoded = decodeSharedValue(raw);
+      return valueKind === SOLID_COLOR_VALUE_KIND
+        ? createSolidColorFromTransport(decoded as SolidColorTransport)
+        : decoded;
     },
     decodeCollection(memberKind, raw) {
       if (!isPhotoshopSnapshotTransport(raw) || raw.memberKind !== memberKind) {
@@ -152,18 +166,26 @@ export function createPhotoshopTypeRegistry(rpc: RemoteRpc): PhotoshopTypeRegist
         return raw == null ? null : (decodeContext.decodeRef(memberKind, raw) as object);
       }
 
-      async add(options?: unknown): Promise<object> {
+      async add(...args: unknown[]): Promise<object> {
         const method = capabilities.add;
         if (!method) {
           throw new Error(`This ${memberKind} collection does not support add.`);
         }
-        const args = options === undefined ? [owner] : [owner, options];
-        const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method, args);
+        const encoded = await encodeRemoteArgs(args, argEncoders);
+        const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method, [owner, ...encoded]);
         const decoded = decodeContext.decodeRef(memberKind, raw);
         if (decoded == null) {
           throw new Error(`${method} did not return a ${memberKind} reference.`);
         }
         return decoded as object;
+      }
+
+      async removeAll(): Promise<void> {
+        const method = capabilities.removeAll;
+        if (!method) {
+          throw new Error(`This ${memberKind} collection does not support removeAll.`);
+        }
+        await rpc.call<void>(PHOTOSHOP_MODULE_ID, method, [owner]);
       }
     }
 
@@ -172,6 +194,13 @@ export function createPhotoshopTypeRegistry(rpc: RemoteRpc): PhotoshopTypeRegist
         enumerable: false,
         configurable: false,
         get: () => resolveReference(owner)
+      });
+    }
+    if (capabilities.typename) {
+      Object.defineProperty(SnapshotCollection.prototype, "typename", {
+        enumerable: false,
+        configurable: false,
+        value: capabilities.typename
       });
     }
 

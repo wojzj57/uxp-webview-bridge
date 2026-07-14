@@ -31,11 +31,8 @@ test("all declared Photoshop enums are exact synchronous WebView constants", asy
     assert.equal(typeof photoshop[name]?.then, "undefined", `photoshop.${name} must not be Promise-like`);
   }
 
-  assert.equal(
-    Object.keys(photoshop).filter((name) => !["app", "action", "core", "imaging", "constants"].includes(name)).length,
-    103,
-    "102 Constants.d.ts enums plus ColorConversionModel should be public"
-  );
+  const publicConstantKeys = Object.keys(photoshop).filter((name) => name in PhotoshopConstants || name === "ColorConversionModel");
+  assert.equal(publicConstantKeys.length, 103, "102 Constants.d.ts enums plus ColorConversionModel should be public");
 });
 
 async function readDeclaredEnums() {

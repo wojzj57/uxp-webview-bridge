@@ -14,15 +14,37 @@
 import type { RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 
 export const PHOTOSHOP_MODULE_ID = "photoshop-api/modules/photoshop";
+export const PHOTOSHOP_APP_REFERENCE_ID = "photoshop.app";
 
 /** Remote-reference `type` discriminators for the stateful DOM objects in this batch. */
 export const PHOTOSHOP_REMOTE_TYPE = {
+  Photoshop: "Photoshop",
   Document: "Document",
   Layer: "Layer",
   Channel: "Channel",
+  TextFont: "TextFont",
+  Tool: "Tool",
+  ActionSet: "ActionSet",
+  Action: "Action",
+  Preferences: "Preferences",
+  PreferencesCursors: "PreferencesCursors",
+  PreferencesFileHandling: "PreferencesFileHandling",
+  PreferencesGeneral: "PreferencesGeneral",
+  PreferencesGuidesGridsAndSlices: "PreferencesGuidesGridsAndSlices",
+  PreferencesHistory: "PreferencesHistory",
+  PreferencesInterface: "PreferencesInterface",
+  PreferencesNotifications: "PreferencesNotifications",
+  PreferencesPerformance: "PreferencesPerformance",
+  PreferencesTools: "PreferencesTools",
+  PreferencesTransparencyAndGamut: "PreferencesTransparencyAndGamut",
+  PreferencesType: "PreferencesType",
+  PreferencesUnitsAndRulers: "PreferencesUnitsAndRulers",
   Selection: "Selection",
   HistoryState: "HistoryState",
-  PathItem: "PathItem"
+  Guide: "Guide",
+  PathItem: "PathItem",
+  SubPathItem: "SubPathItem",
+  PathPoint: "PathPoint"
 } as const;
 export type PhotoshopRemoteType = (typeof PHOTOSHOP_REMOTE_TYPE)[keyof typeof PHOTOSHOP_REMOTE_TYPE];
 
@@ -109,6 +131,22 @@ export interface PhotoshopClassResultKinds {
 
 /** Result-kind tables keyed by remote type name. */
 export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResultKinds>> = {
+  [PHOTOSHOP_REMOTE_TYPE.Photoshop]: {
+    properties: {
+      preferences: ref(PHOTOSHOP_REMOTE_TYPE.Preferences),
+      activeDocument: ref(PHOTOSHOP_REMOTE_TYPE.Document),
+      currentTool: ref(PHOTOSHOP_REMOTE_TYPE.Tool),
+      actionTree: collection(PHOTOSHOP_REMOTE_TYPE.ActionSet),
+      documents: collection(PHOTOSHOP_REMOTE_TYPE.Document),
+      foregroundColor: value("SolidColor"),
+      backgroundColor: value("SolidColor"),
+      fonts: collection(PHOTOSHOP_REMOTE_TYPE.TextFont)
+    },
+    methods: {
+      createDocument: ref(PHOTOSHOP_REMOTE_TYPE.Document),
+      open: ref(PHOTOSHOP_REMOTE_TYPE.Document)
+    }
+  },
   [PHOTOSHOP_REMOTE_TYPE.Document]: {
     properties: {
       layers: collection(PHOTOSHOP_REMOTE_TYPE.Layer),
@@ -121,7 +159,9 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       selection: ref(PHOTOSHOP_REMOTE_TYPE.Selection),
       historyStates: collection(PHOTOSHOP_REMOTE_TYPE.HistoryState),
       activeHistoryState: ref(PHOTOSHOP_REMOTE_TYPE.HistoryState),
-      activeHistoryBrushSource: ref(PHOTOSHOP_REMOTE_TYPE.HistoryState)
+      activeHistoryBrushSource: ref(PHOTOSHOP_REMOTE_TYPE.HistoryState),
+      guides: collection(PHOTOSHOP_REMOTE_TYPE.Guide),
+      pathItems: collection(PHOTOSHOP_REMOTE_TYPE.PathItem)
     },
     methods: {
       duplicate: ref(PHOTOSHOP_REMOTE_TYPE.Document),
@@ -174,10 +214,70 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
     },
     methods: {}
   },
-  [PHOTOSHOP_REMOTE_TYPE.PathItem]: {
-    properties: {},
+  [PHOTOSHOP_REMOTE_TYPE.Guide]: {
+    properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.Document) },
     methods: {}
-  }
+  },
+  [PHOTOSHOP_REMOTE_TYPE.PathItem]: {
+    properties: {
+      parent: ref(PHOTOSHOP_REMOTE_TYPE.Document),
+      subPathItems: collection(PHOTOSHOP_REMOTE_TYPE.SubPathItem)
+    },
+    methods: { duplicate: ref(PHOTOSHOP_REMOTE_TYPE.PathItem) }
+  },
+  [PHOTOSHOP_REMOTE_TYPE.SubPathItem]: {
+    properties: {
+      parent: ref(PHOTOSHOP_REMOTE_TYPE.PathItem),
+      pathPoints: collection(PHOTOSHOP_REMOTE_TYPE.PathPoint)
+    },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.PathPoint]: {
+    properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.SubPathItem) },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.TextFont]: {
+    properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.Photoshop) },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.Tool]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.ActionSet]: {
+    properties: { actions: collection(PHOTOSHOP_REMOTE_TYPE.Action) },
+    methods: { duplicate: ref(PHOTOSHOP_REMOTE_TYPE.ActionSet) }
+  },
+  [PHOTOSHOP_REMOTE_TYPE.Action]: {
+    properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.ActionSet) },
+    methods: { duplicate: ref(PHOTOSHOP_REMOTE_TYPE.Action) }
+  },
+  [PHOTOSHOP_REMOTE_TYPE.Preferences]: {
+    properties: {
+      general: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesGeneral),
+      interface: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesInterface),
+      tools: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesTools),
+      history: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesHistory),
+      fileHandling: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesFileHandling),
+      performance: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesPerformance),
+      cursors: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesCursors),
+      transparencyAndGamut: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesTransparencyAndGamut),
+      unitsAndRulers: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesUnitsAndRulers),
+      guidesGridsAndSlices: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesGuidesGridsAndSlices),
+      type: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesType),
+      notifications: ref(PHOTOSHOP_REMOTE_TYPE.PreferencesNotifications)
+    },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesCursors]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesFileHandling]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesGeneral]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesGuidesGridsAndSlices]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesHistory]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesInterface]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesNotifications]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesPerformance]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesTools]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesTransparencyAndGamut]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesType]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.PreferencesUnitsAndRulers]: { properties: {}, methods: {} }
 };
 
 /** Resolve the result kind of a class property read (defaults to `scalar`). */
@@ -204,7 +304,62 @@ export const PHOTOSHOP_METHOD_NAMES = [
   // app namespace
   "app.activeDocument",
   "app.documents",
+  "app.propertyGet",
+  "app.propertySet",
+  "app.batchGet",
+  "app.batchSet",
+  "app.dispose",
+  "app.getColorProfiles",
+  "app.convertUnits",
+  "app.showAlert",
+  "app.batchPlay",
+  "app.bringToFront",
   "app.open",
+  "app.createDocument",
+  "app.updateUI",
+
+  // Documents collection
+  "documents.getByName",
+  "documents.add",
+
+  // TextFont + TextFonts collection
+  "textFont.propertyGet",
+  "textFont.batchGet",
+  "textFont.batchSet",
+  "textFont.dispose",
+  "textFonts.getByName",
+
+  // Current Tool
+  "tool.propertyGet",
+  "tool.propertySet",
+  "tool.batchGet",
+  "tool.batchSet",
+  "tool.dispose",
+
+  // Action tree
+  "actionSet.propertyGet",
+  "actionSet.propertySet",
+  "actionSet.batchGet",
+  "actionSet.batchSet",
+  "actionSet.dispose",
+  "actionSet.delete",
+  "actionSet.duplicate",
+  "actionSet.play",
+  "actionObject.propertyGet",
+  "actionObject.propertySet",
+  "actionObject.batchGet",
+  "actionObject.batchSet",
+  "actionObject.dispose",
+  "actionObject.delete",
+  "actionObject.duplicate",
+  "actionObject.play",
+
+  // Preferences root and categories share one descriptor-driven family
+  "preferences.propertyGet",
+  "preferences.propertySet",
+  "preferences.batchGet",
+  "preferences.batchSet",
+  "preferences.dispose",
 
   // Document: shared property accessors + lifecycle
   "document.propertyGet",
@@ -310,8 +465,43 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "historyStates.snapshot",
   "historyStates.getByName",
 
-  // PathItem placeholder; batch 2 fills its public surface.
+  // Guide + collection
+  "guide.propertyGet",
+  "guide.propertySet",
+  "guide.batchGet",
+  "guide.batchSet",
+  "guide.dispose",
+  "guide.delete",
+  "guides.snapshot",
+  "guides.add",
+  "guides.removeAll",
+
+  // PathItem, nested geometry, and collections
+  "pathItem.propertyGet",
+  "pathItem.propertySet",
+  "pathItem.batchGet",
+  "pathItem.batchSet",
   "pathItem.dispose",
+  "pathItem.deselect",
+  "pathItem.duplicate",
+  "pathItem.fillPath",
+  "pathItem.makeClippingPath",
+  "pathItem.makeSelection",
+  "pathItem.remove",
+  "pathItem.select",
+  "pathItem.strokePath",
+  "pathItems.snapshot",
+  "pathItems.add",
+  "pathItems.removeAll",
+  "pathItems.getByName",
+  "subPathItem.propertyGet",
+  "subPathItem.batchGet",
+  "subPathItem.batchSet",
+  "subPathItem.dispose",
+  "pathPoint.propertyGet",
+  "pathPoint.batchGet",
+  "pathPoint.batchSet",
+  "pathPoint.dispose",
 
   // action namespace: opaque native descriptors/references (never bridge-reference decoded)
   "action.batchPlay",

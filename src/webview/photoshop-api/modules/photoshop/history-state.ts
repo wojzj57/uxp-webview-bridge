@@ -44,7 +44,7 @@ export function createHistoryStateClass(
     methodNames,
     properties,
     methods: {},
-    argEncoders: [],
+    argEncoders: context.argEncoders,
     decodeContext: context.registry.decodeContext
   };
 

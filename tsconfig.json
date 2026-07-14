@@ -7,7 +7,7 @@
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["src/shared/*"],
-      "@shared-types/photoshop/*": ["src/shared/types/photoshop/src/*"],
+      "@shared-types/photoshop/*": ["src/shared/types/photoshop/*"],
       "@shared-types/uxp/*": ["src/shared/types/uxp/src/*"],
       "@test/*": ["test/*"],
       "@webview/*": ["src/webview/*"],

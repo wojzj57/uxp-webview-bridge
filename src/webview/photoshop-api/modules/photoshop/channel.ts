@@ -92,7 +92,7 @@ export function createChannelClass(context: PhotoshopContext): {
     methodNames,
     properties,
     methods,
-    argEncoders: [],
+    argEncoders: context.argEncoders,
     decodeContext: registry.decodeContext
   };
 

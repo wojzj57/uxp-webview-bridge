@@ -8,6 +8,10 @@ const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js
 const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
 const selectionModule = "../../dist/webview/photoshop-api/modules/photoshop/selection.js";
 const historyStateModule = "../../dist/webview/photoshop-api/modules/photoshop/history-state.js";
+const guideModule = "../../dist/webview/photoshop-api/modules/photoshop/guide.js";
+const pathItemModule = "../../dist/webview/photoshop-api/modules/photoshop/path-item.js";
+const subPathItemModule = "../../dist/webview/photoshop-api/modules/photoshop/sub-path-item.js";
+const pathPointModule = "../../dist/webview/photoshop-api/modules/photoshop/path-point.js";
 
 /**
  * A recording rpc that resolves every call to a benign value and never throws. The only way a member
@@ -50,6 +54,9 @@ async function createStubContext(rpc) {
   registry.register(PHOTOSHOP_REMOTE_TYPE.Selection, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.HistoryState, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.PathItem, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.Guide, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.SubPathItem, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.PathPoint, placeholder);
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
     getByName: "layers.getByName",
     add: "layers.add"
@@ -171,6 +178,22 @@ const CASES = [
       const HistoryStateClass = createHistoryStateClass(await createStubContext(rpc));
       return { rpc, instance: new HistoryStateClass(reference("HistoryState")) };
     }
+  },
+  {
+    name: "WebviewPsGuide", type: "Guide", batchGetName: "guide.batchGet", batchSetName: "guide.batchSet", writableProp: "coordinate",
+    async build() { const { createGuideClass } = await import(guideModule); const rpc = createRecordingRpc(); const C = createGuideClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("Guide")) }; }
+  },
+  {
+    name: "WebviewPsPathItem", type: "PathItem", batchGetName: "pathItem.batchGet", batchSetName: "pathItem.batchSet", writableProp: "name",
+    async build() { const { createPathItemClass } = await import(pathItemModule); const rpc = createRecordingRpc(); const C = createPathItemClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("PathItem")) }; }
+  },
+  {
+    name: "WebviewPsSubPathItem", type: "SubPathItem", batchGetName: "subPathItem.batchGet", batchSetName: "subPathItem.batchSet",
+    async build() { const { createSubPathItemClass } = await import(subPathItemModule); const rpc = createRecordingRpc(); const C = createSubPathItemClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("SubPathItem")) }; }
+  },
+  {
+    name: "WebviewPsPathPoint", type: "PathPoint", batchGetName: "pathPoint.batchGet", batchSetName: "pathPoint.batchSet",
+    async build() { const { createPathPointClass } = await import(pathPointModule); const rpc = createRecordingRpc(); const C = createPathPointClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("PathPoint")) }; }
   }
 ];
 
@@ -198,7 +221,7 @@ for (const testCase of CASES) {
     const { type, batchGetName, batchSetName, writableProp } = testCase;
     const module = "photoshop-api/modules/photoshop";
     // Channel has no `id` scalar; read a property it actually exposes for the batchGet probe.
-    const readableProp = type === "Channel" ? "name" : "id";
+    const readableProp = type === "Channel" || type === "PathItem" ? "name" : type === "Guide" ? "coordinate" : type === "SubPathItem" || type === "PathPoint" ? "typename" : "id";
 
     await instance.batchGet([readableProp]);
     const batchGetCall = rpc.calls.find((call) => call.method === batchGetName);
@@ -222,7 +245,7 @@ for (const testCase of CASES) {
     // A read-only property on each proxy; the base guard should reject it even though the compile-time
     // signature already forbids it (belt and suspenders — see photoshop.test.ts @ts-expect-error).
     // Channel has no `id`, so use its read-only `histogram` instead.
-    const readOnlyProp = testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : "id";
+    const readOnlyProp = testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : testCase.type === "SubPathItem" || testCase.type === "PathPoint" ? "typename" : "id";
     assert.throws(
       () => instance.batchSet({ [readOnlyProp]: 1 }),
       new RegExp(`Cannot batchSet non-writable property: ${readOnlyProp}`)

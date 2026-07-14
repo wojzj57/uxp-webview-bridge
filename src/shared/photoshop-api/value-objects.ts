@@ -160,9 +160,9 @@ registerValueObject({
 export const SOLID_COLOR_VALUE_KIND = "SolidColor";
 
 /**
- * Transport (and WebView value) shape of a `SolidColor`. Photoshop's `SolidColor` implicitly
- * switches its base color model as views are accessed, so instead of leaking that statefulness the
- * envelope carries *every* model view plus the base `typename` at read time (ADR 0009 value object,
+ * Transport shape of a `SolidColor`. Photoshop's `SolidColor` implicitly switches its base color
+ * model as views are accessed, so instead of leaking that statefulness the envelope carries *every*
+ * model view plus `typename` at read time (ADR 0009 value object,
  * not a remote handle — `new SolidColor()` is synchronous and disposable-free). Each nested view is
  * a plain number bag; `rgb.hexValue` is the sole string field.
  */
@@ -195,7 +195,7 @@ registerValueObject<SolidColorTransport>({
   valueKind: SOLID_COLOR_VALUE_KIND,
   // Host side: read each color-model view off the live `SolidColor` into a plain bag. Accessing a
   // view converts the color in Photoshop, but since we read them all the returned envelope is a
-  // complete, model-independent snapshot. `typename` is captured last as the base model at read time.
+  // complete, model-independent snapshot. `typename` is captured last.
   serialize(hostObject: unknown): SolidColorTransport {
     if (!hostObject || typeof hostObject !== "object") {
       throw new Error("Expected a SolidColor host object.");

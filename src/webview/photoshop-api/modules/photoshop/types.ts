@@ -4,8 +4,7 @@
  * These are the proxy shapes seen by WebView callers, not Adobe's native DOM types. Every scalar
  * getter is a `Promise<T>` and every setter is fire-and-forget (ADR 0003); methods return promises.
  * Following the xmp precedent, this module defines its own remote shapes rather than depending on
- * the ambient Adobe `photoshop` types (whose `.d.ts` carries no runtime values and whose
- * `@shared-types/photoshop/*` path alias points at a non-existent directory). The transcribed
+ * the ambient Adobe `photoshop` types (whose `.d.ts` carries no runtime values). The transcribed
  * constant *value* types come from RFC-0004's `photoshop-constants.ts`.
  */
 
@@ -13,12 +12,37 @@ import type {
   AnchorPositionValue,
   BlendModeValue,
   ChannelTypeValue,
+  ColorModelValue,
+  ColorBlendModeValue,
+  DirectionValue,
+  DialogModesValue,
+  DocumentFillValue,
+  EditLogItemsTypeValue,
   ElementPlacementValue,
   FlipAxisValue,
   InterpolationMethodValue,
+  FontSizeValue,
+  GridLineStyleValue,
+  GridSizeValue,
+  GuideLineStyleValue,
   LayerKindValue,
+  MaximizeCompatibilityValue,
+  NewDocumentModeValue,
+  OtherCursorsValue,
+  PaintingCursorsValue,
+  PathKindValue,
+  PointKindValue,
+  PointTypeValue,
+  RulerUnitsValue,
+  SaveLogItemsTypeValue,
   SaveOptionsValue,
-  SelectionTypeValue
+  SavePreviewValue,
+  SelectionTypeValue,
+  ShapeOperationValue,
+  ToolTypeValue,
+  TypeInterfaceFeaturesValue,
+  TypeUnitsValue,
+  UnitsValue
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopConstantsNamespace } from "@shared/photoshop-api/photoshop-constants.js";
 import type {
@@ -42,6 +66,7 @@ export type {
 } from "@shared/types/photoshop/internal/util/unit.js";
 import { ColorConversionModel, type PhotoshopCore } from "../core/types.js";
 import type { PhotoshopImaging } from "../imaging/types.js";
+import type { UxpStorageFile } from "@webview/uxp-api/modules/uxp/persistent-file-storage/types.js";
 
 /**
  * A rectangle in document pixel coordinates. Plain value object — no remote handle, no methods.
@@ -78,44 +103,42 @@ export interface LayerCreateOptions {
 
 /** RGB color-model view of a {@link PsSolidColor} (`hexValue` is the sole string field). */
 export interface RgbColorView {
-  readonly red: number;
-  readonly green: number;
-  readonly blue: number;
-  readonly hexValue: string;
+  red: number;
+  green: number;
+  blue: number;
+  hexValue: string;
 }
 
 /** HSB color-model view of a {@link PsSolidColor}. */
 export interface HsbColorView {
-  readonly hue: number;
-  readonly saturation: number;
-  readonly brightness: number;
+  hue: number;
+  saturation: number;
+  brightness: number;
 }
 
 /** CMYK color-model view of a {@link PsSolidColor}. */
 export interface CmykColorView {
-  readonly cyan: number;
-  readonly magenta: number;
-  readonly yellow: number;
-  readonly black: number;
+  cyan: number;
+  magenta: number;
+  yellow: number;
+  black: number;
 }
 
 /** LAB color-model view of a {@link PsSolidColor}. */
 export interface LabColorView {
-  readonly l: number;
-  readonly a: number;
-  readonly b: number;
+  l: number;
+  a: number;
+  b: number;
 }
 
 /** Grayscale color-model view of a {@link PsSolidColor}. */
 export interface GrayColorView {
-  readonly gray: number;
+  gray: number;
 }
 
 /**
- * A Photoshop `SolidColor` as a plain value object — every color-model view plus the base model's
- * `typename`, decoded synchronously from the transport envelope. No remote handle, no methods, no
- * `dispose` (mirrors {@link ImagingBounds}); reading a channel's `color` materializes it fully.
- * `nearestWebColor`/`isEqual` and WebView-side construction are out of scope in this batch.
+ * A WebView-local Photoshop `SolidColor` value object. It is synchronously constructible, switches
+ * its active model when a model view is accessed, and crosses the bridge as a value envelope.
  */
 export interface PsSolidColor {
   readonly rgb: RgbColorView;
@@ -124,6 +147,8 @@ export interface PsSolidColor {
   readonly lab: LabColorView;
   readonly gray: GrayColorView;
   readonly typename: string;
+  readonly nearestWebColor: RgbColorView;
+  isEqual(color: SolidColorInput): boolean;
 }
 
 /**
@@ -138,6 +163,25 @@ export type SolidColorInput =
   | { readonly cmyk: Partial<CmykColorView> }
   | { readonly lab: Partial<LabColorView> }
   | { readonly gray: Partial<GrayColorView> };
+
+/** Constructor input accepted by the WebView-local SolidColor implementation. */
+export type SolidColorConstructorInput = ColorModelValue | SolidColorInput;
+
+/** Options accepted by Photoshop.createDocument and Documents.add. */
+export interface DocumentCreateOptions {
+  readonly name?: string;
+  readonly preset?: string;
+  readonly presetJSON?: string;
+  readonly mode?: NewDocumentModeValue;
+  readonly width?: number;
+  readonly height?: number;
+  readonly resolution?: number;
+  readonly fill?: DocumentFillValue;
+  readonly fillColor?: SolidColorInput;
+  readonly depth?: number;
+  readonly pixelScaleFactor?: number;
+  readonly profile?: string;
+}
 
 /**
  * WebView-local collection of {@link PsChannel}. Same snapshot semantics as {@link Layers}: an
@@ -250,10 +294,94 @@ export interface HistoryStates extends ReadonlyArray<PsHistoryState> {
   getByName(name: string): Promise<PsHistoryState | null>;
 }
 
-/** Reference shell returned by Selection.makeWorkPath; completed by the Path batch. */
-export interface PsPathItem {
+export interface Guides extends ReadonlyArray<PsGuide> {
+  readonly parent: PsDocument;
+  add(direction: DirectionValue, coordinate: number): Promise<PsGuide>;
+  removeAll(): Promise<void>;
+}
+
+export interface PsGuide {
+  readonly typename: Promise<"Guide">;
+  readonly id: Promise<number>;
+  readonly docId: Promise<number>;
+  readonly parent: Promise<PsDocument>;
+  direction: Promise<DirectionValue>;
+  coordinate: Promise<number>;
+  delete(): Promise<void>;
+  batchGet<K extends PsGuideReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<PsGuideWritableProps>): void;
   dispose(): Promise<void>;
 }
+export type PsGuideReadableKey = "typename" | "id" | "docId" | "parent" | "direction" | "coordinate";
+export interface PsGuideWritableProps { direction: DirectionValue; coordinate: number; }
+
+export interface PathPointInfoInput {
+  readonly anchor: readonly number[];
+  readonly kind: PointKindValue;
+  readonly leftDirection: readonly number[];
+  readonly rightDirection: readonly number[];
+}
+export interface SubPathInfoInput {
+  readonly closed: boolean;
+  readonly entireSubPath: readonly PathPointInfoInput[];
+  readonly operation: ShapeOperationValue;
+}
+export interface PathItems extends ReadonlyArray<PsPathItem> {
+  readonly parent: PsDocument;
+  add(name: string, entirePath: readonly SubPathInfoInput[]): Promise<PsPathItem>;
+  removeAll(): Promise<void>;
+  getByName(name: string): Promise<PsPathItem | null>;
+}
+export interface SubPathItems extends ReadonlyArray<PsSubPathItem> { readonly parent: PsPathItem; }
+export interface PathPoints extends ReadonlyArray<PsPathPoint> { readonly parent: PsSubPathItem; }
+
+export interface PsPathItem {
+  readonly typename: Promise<"PathItem">;
+  readonly id: Promise<number>;
+  readonly docId: Promise<number>;
+  readonly parent: Promise<PsDocument>;
+  kind: Promise<PathKindValue>;
+  name: Promise<string>;
+  readonly subPathItems: Promise<SubPathItems>;
+  deselect(): Promise<void>;
+  duplicate(name?: string): Promise<PsPathItem>;
+  fillPath(fillColor?: SolidColorInput, mode?: ColorBlendModeValue, opacity?: number, preserveTransparency?: boolean, feather?: number, wholePath?: boolean, antiAlias?: boolean): Promise<void>;
+  makeClippingPath(flatness?: number): Promise<void>;
+  makeSelection(feather?: number, antiAlias?: boolean, operation?: SelectionTypeValue): Promise<void>;
+  remove(): Promise<void>;
+  select(): Promise<void>;
+  strokePath(tool?: ToolTypeValue, simulatePressure?: boolean, sourceOrigin?: SelectionPoint, sourceLayer?: PsLayer): Promise<void>;
+  batchGet<K extends PsPathItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<PsPathItemWritableProps>): void;
+  dispose(): Promise<void>;
+}
+export type PsPathItemReadableKey = "typename" | "id" | "docId" | "parent" | "kind" | "name" | "subPathItems";
+export interface PsPathItemWritableProps { kind: PathKindValue; name: string; }
+
+export interface PsSubPathItem {
+  readonly typename: Promise<"SubPathItem">;
+  readonly parent: Promise<PsPathItem>;
+  readonly operation: Promise<ShapeOperationValue>;
+  readonly closed: Promise<boolean>;
+  readonly pathPoints: Promise<PathPoints>;
+  batchGet<K extends PsSubPathItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Record<string, never>): void;
+  dispose(): Promise<void>;
+}
+export type PsSubPathItemReadableKey = "typename" | "parent" | "operation" | "closed" | "pathPoints";
+
+export interface PsPathPoint {
+  readonly typename: Promise<"PathPoint">;
+  readonly parent: Promise<PsSubPathItem>;
+  readonly anchor: Promise<number[]>;
+  readonly kind: Promise<PointKindValue>;
+  readonly leftDirection: Promise<number[]>;
+  readonly rightDirection: Promise<number[]>;
+  batchGet<K extends PsPathPointReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Record<string, never>): void;
+  dispose(): Promise<void>;
+}
+export type PsPathPointReadableKey = "typename" | "parent" | "anchor" | "kind" | "leftDirection" | "rightDirection";
 
 /** Options for {@link PsDocument.close}. */
 export interface DocumentCloseOptions {
@@ -294,6 +422,8 @@ export interface PsDocument {
   readonly channels: Promise<Channels>;
   readonly componentChannels: Promise<Channels>;
   readonly activeChannels: Promise<Channels>;
+  readonly guides: Promise<Guides>;
+  readonly pathItems: Promise<PathItems>;
   readonly selection: Promise<PsSelection>;
   readonly historyStates: Promise<HistoryStates>;
   activeHistoryState: Promise<PsHistoryState>;
@@ -510,7 +640,7 @@ export type PsChannelReadableKey =
   | "histogram"
   | "color";
 
-/** Options accepted by {@link PhotoshopApp.open}. */
+/** @deprecated Pass a {@link UxpStorageFile}; retained for bridge source compatibility. */
 export interface OpenOptions {
   readonly path?: string;
 }
@@ -598,12 +728,200 @@ export interface PhotoshopActions {
   validateReference(ref: ActionReference | readonly ActionReference[]): Promise<boolean>;
 }
 
-/** The `photoshop.app` entry surface. */
-export interface PhotoshopApp {
-  readonly activeDocument: Promise<PsDocument>;
-  readonly documents: Promise<readonly PsDocument[]>;
-  open(options?: OpenOptions): Promise<PsDocument>;
+export interface Documents extends ReadonlyArray<PsDocument> {
+  readonly parent: PhotoshopApp;
+  readonly typename: "Documents";
+  getByName(name: string): Promise<PsDocument | null>;
+  add(options?: DocumentCreateOptions): Promise<PsDocument | null>;
 }
+
+export interface TextFont {
+  readonly family: Promise<string>;
+  readonly name: Promise<string>;
+  readonly parent: Promise<PhotoshopApp>;
+  readonly postScriptName: Promise<string>;
+  readonly style: Promise<string>;
+  readonly typename: Promise<"TextFont">;
+  batchGet<K extends TextFontReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+}
+export type TextFontReadableKey = "family" | "name" | "parent" | "postScriptName" | "style" | "typename";
+
+export interface TextFonts extends ReadonlyArray<TextFont> {
+  readonly parent: PhotoshopApp;
+  readonly typename: "TextFonts";
+  getByName(name: string): Promise<TextFont | null>;
+}
+
+export interface Tool {
+  get id(): Promise<string>;
+  set id(value: string);
+  readonly typename: Promise<"Tool">;
+  batchGet(propertyNames: readonly ("id" | "typename")[]): Promise<Record<string, unknown>>;
+  batchSet(properties: { readonly id?: string }): void;
+}
+
+export interface ActionSet {
+  readonly typename: Promise<"ActionSet">;
+  readonly index: Promise<number>;
+  readonly id: Promise<number>;
+  get name(): Promise<string>;
+  set name(value: string);
+  readonly actions: Promise<readonly Action[]>;
+  delete(): Promise<void>;
+  duplicate(): Promise<ActionSet>;
+  play(): Promise<void>;
+}
+
+export interface Action {
+  readonly typename: Promise<"Action">;
+  readonly id: Promise<number>;
+  readonly index: Promise<number>;
+  get name(): Promise<string>;
+  set name(value: string);
+  readonly parent: Promise<ActionSet>;
+  delete(): Promise<void>;
+  duplicate(): Promise<Action>;
+  play(): Promise<void>;
+}
+
+export interface ColorPickerOption {
+  readonly type: "photoshopPicker" | "systemPicker" | "pluginPicker";
+  readonly pluginId?: string;
+}
+
+export interface PreferencesBase {
+  readonly typename: Promise<string>;
+  batchGet(propertyNames: readonly string[]): Promise<Record<string, unknown>>;
+  batchSet(properties: Readonly<Record<string, unknown>>): void;
+}
+
+export interface Preferences {
+  readonly typename: Promise<"Preferences">;
+  readonly general: Promise<PreferencesGeneral>;
+  readonly interface: Promise<PreferencesInterface>;
+  readonly tools: Promise<PreferencesTools>;
+  readonly history: Promise<PreferencesHistory>;
+  readonly fileHandling: Promise<PreferencesFileHandling>;
+  readonly performance: Promise<PreferencesPerformance>;
+  readonly cursors: Promise<PreferencesCursors>;
+  readonly transparencyAndGamut: Promise<PreferencesTransparencyAndGamut>;
+  readonly unitsAndRulers: Promise<PreferencesUnitsAndRulers>;
+  readonly guidesGridsAndSlices: Promise<PreferencesGuidesGridsAndSlices>;
+  readonly type: Promise<PreferencesType>;
+  readonly notifications: Promise<PreferencesNotifications>;
+}
+
+export interface PreferencesCursors extends PreferencesBase {
+  readonly typename: Promise<"PreferencesCursors">;
+  get paintingCursors(): Promise<PaintingCursorsValue>; set paintingCursors(value: PaintingCursorsValue);
+  get otherCursors(): Promise<OtherCursorsValue>; set otherCursors(value: OtherCursorsValue);
+}
+export interface PreferencesFileHandling extends PreferencesBase {
+  readonly typename: Promise<"PreferencesFileHandling">;
+  get imagePreviews(): Promise<SavePreviewValue>; set imagePreviews(value: SavePreviewValue);
+  get useLowerCaseExtension(): Promise<boolean>; set useLowerCaseExtension(value: boolean);
+  get askBeforeSavingLayeredTIFF(): Promise<boolean>; set askBeforeSavingLayeredTIFF(value: boolean);
+  get maximizeCompatibility(): Promise<MaximizeCompatibilityValue>; set maximizeCompatibility(value: MaximizeCompatibilityValue);
+  get recentFileListMaximum(): Promise<number>; set recentFileListMaximum(value: number);
+}
+export interface PreferencesGeneral extends PreferencesBase {
+  readonly typename: Promise<"PreferencesGeneral">;
+  get colorPicker(): Promise<ColorPickerOption>; set colorPicker(value: ColorPickerOption);
+  get imageInterpolation(): Promise<InterpolationMethodValue>; set imageInterpolation(value: InterpolationMethodValue);
+  get exportClipboard(): Promise<boolean>; set exportClipboard(value: boolean);
+  get autoUpdateOpenDocuments(): Promise<boolean>; set autoUpdateOpenDocuments(value: boolean);
+  get beepWhenDone(): Promise<boolean>; set beepWhenDone(value: boolean);
+}
+export interface PreferencesGuidesGridsAndSlices extends PreferencesBase {
+  readonly typename: Promise<"PreferencesGuidesGridsAndSlices">;
+  get guideStyle(): Promise<GuideLineStyleValue>; set guideStyle(value: GuideLineStyleValue);
+  get gridStyle(): Promise<GridLineStyleValue>; set gridStyle(value: GridLineStyleValue);
+  get gridSubDivisions(): Promise<number>; set gridSubDivisions(value: number);
+  get showSliceNumber(): Promise<boolean>; set showSliceNumber(value: boolean);
+}
+export interface PreferencesHistory extends PreferencesBase {
+  readonly typename: Promise<"PreferencesHistory">;
+  get createFirstSnapshot(): Promise<boolean>; set createFirstSnapshot(value: boolean);
+  get nonLinearHistory(): Promise<boolean>; set nonLinearHistory(value: boolean);
+  get numberOfHistoryStates(): Promise<number>; set numberOfHistoryStates(value: number);
+  get useHistoryLog(): Promise<boolean>; set useHistoryLog(value: boolean);
+  get editLogItems(): Promise<EditLogItemsTypeValue>; set editLogItems(value: EditLogItemsTypeValue);
+  get saveLogItems(): Promise<SaveLogItemsTypeValue>; set saveLogItems(value: SaveLogItemsTypeValue);
+}
+export interface PreferencesInterface extends PreferencesBase {
+  readonly typename: Promise<"PreferencesInterface">;
+  get dynamicColorSliders(): Promise<boolean>; set dynamicColorSliders(value: boolean);
+  get textFontSize(): Promise<FontSizeValue>; set textFontSize(value: FontSizeValue);
+  get colorChannelsInColor(): Promise<boolean>; set colorChannelsInColor(value: boolean);
+}
+export interface PreferencesNotifications extends PreferencesBase {
+  readonly typename: Promise<"PreferencesNotifications">;
+  get quietMode(): Promise<boolean>; set quietMode(value: boolean);
+  get showFeatureOnboarding(): Promise<boolean>; set showFeatureOnboarding(value: boolean);
+  get showToolTips(): Promise<boolean>; set showToolTips(value: boolean);
+  get showWhatsNew(): Promise<boolean>; set showWhatsNew(value: boolean);
+  get useRichToolTips(): Promise<boolean>; set useRichToolTips(value: boolean);
+}
+export interface PreferencesPerformance extends PreferencesBase {
+  readonly typename: Promise<"PreferencesPerformance">;
+  get imageCacheLevels(): Promise<number>; set imageCacheLevels(value: number);
+  get maxRAMuse(): Promise<number>; set maxRAMuse(value: number);
+}
+export interface PreferencesTools extends PreferencesBase {
+  readonly typename: Promise<"PreferencesTools">;
+  get showToolTips(): Promise<boolean>; set showToolTips(value: boolean);
+  get useShiftKeyForToolSwitch(): Promise<boolean>; set useShiftKeyForToolSwitch(value: boolean);
+  get keyboardZoomResizesWindows(): Promise<boolean>; set keyboardZoomResizesWindows(value: boolean);
+}
+export interface PreferencesTransparencyAndGamut extends PreferencesBase {
+  readonly typename: Promise<"PreferencesTransparencyAndGamut">;
+  get gridSize(): Promise<GridSizeValue>; set gridSize(value: GridSizeValue);
+  get gamutWarningOpacity(): Promise<number>; set gamutWarningOpacity(value: number);
+}
+export interface PreferencesType extends PreferencesBase {
+  readonly typename: Promise<"PreferencesType">;
+  get showTextFeatures(): Promise<TypeInterfaceFeaturesValue>; set showTextFeatures(value: TypeInterfaceFeaturesValue);
+  get showEnglishFontNames(): Promise<boolean>; set showEnglishFontNames(value: boolean);
+  get smartQuotes(): Promise<boolean>; set smartQuotes(value: boolean);
+}
+export interface PreferencesUnitsAndRulers extends PreferencesBase {
+  readonly typename: Promise<"PreferencesUnitsAndRulers">;
+  get rulerUnits(): Promise<RulerUnitsValue>; set rulerUnits(value: RulerUnitsValue);
+  get typeUnits(): Promise<TypeUnitsValue>; set typeUnits(value: TypeUnitsValue);
+  get pointSize(): Promise<PointTypeValue>; set pointSize(value: PointTypeValue);
+}
+
+/** The complete documented `photoshop.app` remote surface. */
+export interface PhotoshopApp {
+  readonly typename: Promise<"Photoshop">;
+  readonly preferences: Promise<Preferences>;
+  get displayDialogs(): Promise<DialogModesValue>;
+  set displayDialogs(value: DialogModesValue);
+  get activeDocument(): Promise<PsDocument>;
+  set activeDocument(value: PsDocument);
+  readonly currentTool: Promise<Tool>;
+  readonly actionTree: Promise<readonly ActionSet[]>;
+  readonly documents: Promise<Documents>;
+  get foregroundColor(): Promise<PsSolidColor>;
+  set foregroundColor(value: SolidColorInput);
+  get backgroundColor(): Promise<PsSolidColor>;
+  set backgroundColor(value: SolidColorInput);
+  readonly fonts: Promise<TextFonts>;
+  readonly SolidColor: typeof import("./solid-color.js").SolidColor;
+  getColorProfiles(colorMode?: string): Promise<string[]>;
+  convertUnits(fromValue: number, fromUnits: UnitsValue, toUnits: UnitsValue, resolution?: number): Promise<number>;
+  showAlert(message: string): Promise<void>;
+  batchPlay(commands: readonly ActionDescriptor[], options?: BatchPlayCommandOptions): Promise<ActionDescriptor[]>;
+  bringToFront(): Promise<void>;
+  open(entry?: UxpStorageFile | OpenOptions): Promise<PsDocument>;
+  createDocument(options?: DocumentCreateOptions): Promise<PsDocument | null>;
+  updateUI(): Promise<void>;
+  batchGet(propertyNames: readonly string[]): Promise<Record<string, unknown>>;
+  batchSet(properties: Readonly<Record<string, unknown>>): void;
+}
+
+/** Exact Adobe class name; PhotoshopApp remains as the compatibility name. */
+export type Photoshop = PhotoshopApp;
 
 /** The `photoshop` namespace: app entry plus every synchronous Photoshop enum table. */
 export interface PhotoshopNamespace extends PhotoshopConstantsNamespace {
@@ -612,6 +930,19 @@ export interface PhotoshopNamespace extends PhotoshopConstantsNamespace {
   readonly core: PhotoshopCore;
   readonly ColorConversionModel: typeof ColorConversionModel;
   readonly imaging: PhotoshopImaging;
+  readonly preferences: Promise<Preferences>;
+  readonly preferencesCursors: Promise<PreferencesCursors>;
+  readonly preferencesFileHandling: Promise<PreferencesFileHandling>;
+  readonly preferencesGeneral: Promise<PreferencesGeneral>;
+  readonly preferencesGuidesGridsAndSlices: Promise<PreferencesGuidesGridsAndSlices>;
+  readonly preferencesHistory: Promise<PreferencesHistory>;
+  readonly preferencesInterface: Promise<PreferencesInterface>;
+  readonly preferencesNotifications: Promise<PreferencesNotifications>;
+  readonly preferencesPerformance: Promise<PreferencesPerformance>;
+  readonly preferencesTools: Promise<PreferencesTools>;
+  readonly preferencesTransparencyAndGamut: Promise<PreferencesTransparencyAndGamut>;
+  readonly preferencesType: Promise<PreferencesType>;
+  readonly preferencesUnitsAndRulers: Promise<PreferencesUnitsAndRulers>;
   /** Native-compatible aggregate for callers that use `photoshop.constants.Xxx`. */
   readonly constants: PhotoshopConstantsNamespace;
 }

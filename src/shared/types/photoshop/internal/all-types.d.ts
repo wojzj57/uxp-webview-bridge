@@ -43,6 +43,7 @@ export type * from './dom/preferences/PreferencesGeneral.js';
 export type * from './dom/preferences/PreferencesGuidesGridsAndSlices.js';
 export type * from './dom/preferences/PreferencesHistory.js';
 export type * from './dom/preferences/PreferencesInterface.js';
+export type * from './dom/preferences/PreferencesNotifications.js';
 export type * from './dom/preferences/PreferencesPerformance.js';
 export type * from './dom/preferences/PreferencesTools.js';
 export type * from './dom/preferences/PreferencesTransparencyAndGamut.js';
