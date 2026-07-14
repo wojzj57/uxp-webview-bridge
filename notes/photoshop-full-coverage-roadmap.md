@@ -17,18 +17,20 @@
 
 ---
 
-## 1. 当前进度（2026-07-14 复核，已更新）
+## 1. 当前进度（2026-07-15 复核，已更新）
 
 > **重大更新**：本次复核发现 roadmap 原先列为"待办/欠账"的 **批次 0.5 地基、线 B、线 C 均已完整落地**。
 > 三块地基欠账已还清（原 §2），batchPlay 与 imaging 已实现并有 CDP 测试。
-> 线 A 已连续完成 Channels、Selection/History、Guide/Path、App 依赖簇与 RFC-0013 Document 完整表面。当前文档运行时覆盖为 523/665；最大剩余长尾已收敛到 Text 与 Layer。
+> 线 A 已连续完成 Channels、Selection/History、Guide/Path、App 依赖簇、RFC-0013 Document 与 RFC-0014 class surface completion。当前文档运行时覆盖为 649/665；48 个类/集合文档已达 506/507，唯一缺口是 `Document.suspendHistory(callback)`。
 
 ### 已完整落地
 - 通用底座：`src/webview/uxp-api/remote/`（RemoteClass、reference、identity-cache）+ `src/uxp/uxp-api/remote/handle-registry`。
 - shared 协议 + 常量（枚举表：SaveOptions/AnchorPosition/BlendMode/LayerKind/ElementPlacement/FlipAxis 等）。
 - **PsDocument**（webview/host 对称）：65/66 个文档成员；仅 `suspendHistory(callback)` 等待通用可重入 callback transport。
-- **PsLayer**（webview/host 对称）：只读 + 可写标量 + bounds/boundsNoEffects 值对象 + document/parent/linkedLayers 引用 + 11 方法、batchGet/Set、dispose。
-- **Layers** 集合（快照 + getByName + add）、**ImagingBounds** 值对象。
+- **PsLayer**（webview/host 对称）：文档成员 83/83，含 text/group 引用、排序/编辑、全部滤镜方法、batchGet/Set 与 `(documentId, layerId)` 稳定身份。
+- **Layers** 集合（Document/group owner、typename、快照 + getByName + add）、**ImagingBounds** 值对象。
+- **Text 完整对象图**：TextItem 14/14、CharacterStyle 34/34、ParagraphStyle 15/15、TextWarpStyle 6/6；owner-derived identity、queued writes 与 modal mutation 完整。
+- **构造值类**：CMYKColor、GrayColor、HSBColor、LabColor、RGBColor、PathPointInfo、SubPathInfo 可在 WebView 同步构造并安全传输。
 - executeAsModal 边界：按描述符 `mutating` 路由；batchSet 多属性合入单 modal scope。
 - **✅ 批次 0.5 三块地基（原 §2 欠账，已全部完成，声明式模型）**：
   - **值对象注册表**：`src/shared/photoshop-api/value-objects.ts`（`registerValueObject` / `serializeValue` / `decodeValue`，按 `valueKind` 查表）。ImagingBounds + PsImageDataMetadata 已注册。
@@ -42,9 +44,9 @@
 - **ADR 文档**：0001~0011 齐全（新增 0009 声明式注册表 / 0010 batchPlay 直通 / 0011 二进制传输 + imaging handle）。
 
 ### DOM 类覆盖度（线 A）
-- 48 个类/集合文档成员当前覆盖 **380/507（75.0%）**。
-- 已闭合 App/Documents、Channels、Selection/History、Guide、LayerComp、CountItem、ColorSampler、Action、Preferences、SolidColor、TextFont、Tool 及路径 RemoteObject/collection。
-- 主要未覆盖长尾：TextItem / CharacterStyle / ParagraphStyle / TextWarpStyle、Layer 的 group/text/filter 方法，以及 `Layers.typename`。
+- 48 个类/集合文档成员当前覆盖 **506/507（99.8%）**。
+- 56 个 Shared class 当前为 **55 个完整或基本完整、1 个部分、0 个缺失**。
+- 唯一类缺口：`Document.suspendHistory(callback)`，等待通用可重入 callback/event transport。
 
 ### 遗留细节（未完全达成的目标）
 - §4 步骤 1 目标"fs/crypto/fetch **全部**复用通用二进制层"：**fs、crypto 已复用**；**fetch 尚未复用**（`src/*/uxp-api/modules/fetch` 未引用 binary-transport）。若 fetch 有二进制传输需求，作为独立收尾项处理。
@@ -103,12 +105,13 @@
 | **0.5 — 地基** | ✅ 完成 | 值对象注册表 + 快照集合工厂 + 类型注册中心（含 Document/Layer/Layers 重构到新模型） | 三块一起做；全量前置，最高优先 |
 | **1 — Channels 验证** | ✅ 完成 | Channels / Channel（成员 RemoteObject）+ histogram 值对象 + `Channel.parent` 跨类引用 | RFC-0011 已完成；集合尾项在 RFC-0013 闭合 |
 | **2 — 批量同构集合** | ✅ 完成 | Guides/Guide、LayerComps/LayerComp、HistoryStates/HistoryState、Documents、ColorSamplers/ColorSampler、CountItems/CountItem、TextFonts/TextFont、ActionSets/Action 等 | 声明式集合工厂与 host dispatch 已验证 |
-| **3 — 值对象簇** | 🟡 进行中 | SolidColor、TextFont、UnitValue 已完成；CharacterStyle、ParagraphStyle、WarpStyle 待实现 | 剩余项作为 TextItem 前置 |
-| **4 — TextItem 家族** | ⬜ 未开始 | TextItem + `Layer.textItem` 跨类引用（依赖 SolidColor/TextFont/字符段落样式） | 依赖链最长，放后面 |
-| **5 — 路径簇** | ✅ RemoteObject 完成 | PathItem(s) / PathPoint(s) / SubPathItem(s) 已完成；SubPathInfo / PathPointInfo 仍是输入子集 | 35/35 个运行时成员完成 |
+| **3 — 值对象簇** | ✅ 完成 | SolidColor、五个颜色模型、UnitValue、CharacterStyle、ParagraphStyle、TextWarpStyle | 本地值类与远程 mutable style 分层完成 |
+| **4 — TextItem 家族** | ✅ 完成 | TextItem + `Layer.textItem` 跨类引用 | 79/79，owner-derived identity 与 queued/modal 语义完整 |
+| **5 — 路径簇** | ✅ 完成 | PathItem(s) / PathPoint(s) / SubPathItem(s) + SubPathInfo / PathPointInfo 构造值类 | 44/44 |
 | **6 — Selection** | ✅ 完成 | Selection（几何方法 + Bounds/矩形值对象） | 26/26 |
 | **7 — App / Preferences / Tool / 长尾** | ✅ 完成 | RFC-0012 闭合 Photoshop app 18/18，并实现 Documents、TextFont(s)、Action/ActionSet、Preferences、Tool 与 SolidColor 尾项 | App 直接依赖集中落地 |
 | **8 — Document 完整表面** | ✅ 65/66 | RFC-0013：mode/profile/saveAs/sampler/count/comp、转换/计算/采样/拆分及依赖集合 | `suspendHistory` 等待 callback transport |
+| **9 — Class surface completion** | ✅ 完成 | RFC-0014：Layer/Layers 87/87、Text 79/79、Path 44/44、颜色模型构造类 | 实机 58 passed / 0 failed / 3 skipped |
 | **B — batchPlay** | ✅ 完成 | 见 §3；模型独立 | 已实现 + CDP 测试 |
 | **C — imaging** | ✅ 完成（fetch 复用待收尾） | 见 §4；通用二进制层 + PhotoshopImageData | 通用二进制层已抽出，fs/crypto 已复用；fetch 复用未做 |
 
@@ -131,13 +134,12 @@
 
 ---
 
-## 8. 下一步规划（2026-07-14）
+## 8. 下一步规划（2026-07-15）
 
-地基、B、C、批量集合与 Document 主体已完成，路线继续收敛到 Text/Layer 与 callback/event 两类问题。
+地基、B、C、批量集合、Document 主体与普通 class 表面已完成，路线收敛到 callback/event 与模块级长尾。
 
-1. **立即：** 补 `Layers.typename`，关闭单成员尾项。
-2. **Text 垂直切片：** CharacterStyle / ParagraphStyle / TextWarpStyle → TextItem → Layer.textItem。
-3. **Layer 长尾：** 先补 group/text/front-back/copy-cut，再生成化处理 `apply*` 滤镜方法。
-4. **独立协议 RFC：** 为 `Document.suspendHistory`、Core modal callback 与 listener 设计可重入、可取消、可传播错误的 UXP→WebView callback/event transport。
+1. **独立协议 RFC：** 为 `Document.suspendHistory`、Core modal callback 与 listener 设计可重入、可取消、可传播错误的 UXP→WebView callback/event transport。
+2. **Core/Action 模块长尾：** 协议确定后闭合 Core 剩余 13/31 与 Action 两个 listener。
+3. **严格命名与类型尾项：** 决定 `PhotoshopImageData.isChunky` 兼容别名，并继续补未具名公开的 Shared aliases/options。
 
 > 每批次仍走 §6 交付门槛（typecheck + test:static + build，涉及 CDP case 另跑 uxp 测试）。

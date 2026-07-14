@@ -1,5 +1,7 @@
 export { createPhotoshopNamespace, photoshop } from "./photoshop.js";
 export { SolidColor } from "./solid-color.js";
+export { CMYKColor, GrayColor, HSBColor, LabColor, RGBColor } from "./color-models.js";
+export { PathPointInfo, SubPathInfo } from "./path-builders.js";
 export { ColorConversionModel } from "../core/index.js";
 export type {
   CalculateDialogSizeOptions,
@@ -56,6 +58,10 @@ export type {
   Action,
   ActionSet,
   ActionReference,
+  ApplyImageChannelType,
+  ApplyImageLayerType,
+  ApplyImageOptions,
+  ApplyImageSource,
   AngleValue,
   BatchPlayCommandOptions,
   BitmapConversionOptions,
@@ -86,6 +92,9 @@ export type {
   SampledColor,
 
   Channels,
+  CharacterStyle,
+  CharacterStyleReadableKey,
+  CharacterStyleWritableProps,
   CentimeterValue,
   CmykColorView,
   ColorPickerOption,
@@ -96,6 +105,7 @@ export type {
   DistanceValue,
   GrayColorView,
   HsbColorView,
+  HyphenationProperties,
   HistoryStates,
   Guides,
   ImagingBounds,
@@ -108,6 +118,9 @@ export type {
   PathPoints,
   MillimeterValue,
   OpenOptions,
+  ParagraphStyle,
+  ParagraphStyleReadableKey,
+  ParagraphStyleWritableProps,
   PercentValue,
   PicaValue,
   PixelValue,
@@ -156,6 +169,13 @@ export type {
   SubPathInfoInput,
   SubPathItems,
   SolidColorInput,
+  JustificationProperties,
+  TextItem,
+  TextItemReadableKey,
+  TextItemWritableProps,
+  TextWarpStyle,
+  TextWarpStyleReadableKey,
+  TextWarpStyleWritableProps,
   TextFont,
   TextFonts,
   Tool,

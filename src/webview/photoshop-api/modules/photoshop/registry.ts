@@ -155,6 +155,9 @@ export function createPhotoshopTypeRegistry(
       return decoded;
     },
     decodeCollection(memberKind, raw) {
+      if (raw == null) {
+        return null;
+      }
       if (!isPhotoshopSnapshotTransport(raw) || raw.memberKind !== memberKind) {
         throw new Error(`Expected a ${memberKind} snapshot envelope.`);
       }

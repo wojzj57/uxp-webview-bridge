@@ -26,6 +26,7 @@ const textFontModule = "../../dist/webview/photoshop-api/modules/photoshop/text-
 const toolModule = "../../dist/webview/photoshop-api/modules/photoshop/tool.js";
 const actionsModule = "../../dist/webview/photoshop-api/modules/photoshop/actions.js";
 const preferencesModule = "../../dist/webview/photoshop-api/modules/photoshop/preferences.js";
+const textModule = "../../dist/webview/photoshop-api/modules/photoshop/text.js";
 
 const reference = (type, id) => ({ kind: "uxp.remote.ref", type, id });
 
@@ -112,6 +113,13 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
   const { createToolProperties } = await import(toolModule);
   const { createActionSetProperties, createActionProperties } = await import(actionsModule);
   const { createPreferenceProperties } = await import(preferencesModule);
+  const {
+    createCharacterStyleProperties,
+    createParagraphStyleProperties,
+    createTextItemMethods,
+    createTextItemProperties,
+    createTextWarpStyleProperties
+  } = await import(textModule);
 
   const cases = [
     { type: PHOTOSHOP_REMOTE_TYPE.Photoshop, properties: declaredResultKinds(createAppProperties()), methods: declaredResultKinds(createAppMethods()) },
@@ -151,6 +159,10 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
     { type: PHOTOSHOP_REMOTE_TYPE.PathItem, properties: declaredResultKinds(createPathItemProperties()), methods: declaredResultKinds(createPathItemMethods()) },
     { type: PHOTOSHOP_REMOTE_TYPE.SubPathItem, properties: declaredResultKinds(createSubPathItemProperties()), methods: {} },
     { type: PHOTOSHOP_REMOTE_TYPE.PathPoint, properties: declaredResultKinds(createPathPointProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.TextItem, properties: declaredResultKinds(createTextItemProperties()), methods: declaredResultKinds(createTextItemMethods()) },
+    { type: PHOTOSHOP_REMOTE_TYPE.CharacterStyle, properties: declaredResultKinds(createCharacterStyleProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.ParagraphStyle, properties: declaredResultKinds(createParagraphStyleProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.TextWarpStyle, properties: declaredResultKinds(createTextWarpStyleProperties()), methods: {} },
     { type: PHOTOSHOP_REMOTE_TYPE.TextFont, properties: declaredResultKinds(createTextFontProperties()), methods: {} },
     { type: PHOTOSHOP_REMOTE_TYPE.Tool, properties: declaredResultKinds(createToolProperties()), methods: {} },
     { type: PHOTOSHOP_REMOTE_TYPE.ActionSet, properties: declaredResultKinds(createActionSetProperties()), methods: { duplicate: { kind: "ref", refType: PHOTOSHOP_REMOTE_TYPE.ActionSet } } },

@@ -62,6 +62,10 @@ import type {
   PhotoshopSubPathItemLike,
   PhotoshopTextFontLike,
   PhotoshopToolLike,
+  PhotoshopTextItemLike,
+  PhotoshopCharacterStyleLike,
+  PhotoshopParagraphStyleLike,
+  PhotoshopTextWarpStyleLike,
   PhotoshopPreferencesLike,
   PhotoshopApp
 } from "./types.js";
@@ -93,6 +97,7 @@ const DOCUMENT_SCALARS = new Set([
 
 /** Layer properties that are readable scalars (keyed `layer.propertyGet`). */
 const LAYER_SCALARS = new Set([
+  "typename",
   "id",
   "locked",
   "isBackgroundLayer",
@@ -186,8 +191,36 @@ const LAYER_MUTATING_METHODS = new Set([
   "scale",
   "rotate",
   "merge",
-  "rasterize"
+  "rasterize",
+  "applyAddNoise", "applyAverage", "applyBlur", "applyBlurMore", "applyClouds",
+  "applyCustomFilter", "applyDeInterlace", "applyDespeckle", "applyDifferenceClouds",
+  "applyDiffuseGlow", "applyDisplace", "applyDustAndScratches", "applyGaussianBlur",
+  "applyGlassEffect", "applyHighPass", "applyLensBlur", "applyLensFlare", "applyMaximum",
+  "applyMinimum", "applyMedianNoise", "applyMotionBlur", "applyNTSC", "applyOceanRipple",
+  "applyOffset", "applyTwirl", "applyPinch", "applyPolarCoordinates", "applyRipple",
+  "applySharpen", "applySharpenEdges", "applySharpenMore", "applyShear", "applySmartBlur",
+  "applySpherize", "applyUnSharpMask", "applyWave", "applyZigZag", "applyImage",
+  "bringToFront", "sendToBack", "skew", "clear", "copy", "cut"
 ]);
+
+const TEXT_ITEM_SCALARS = new Set(["typename", "contents", "orientation", "isPointText", "isParagraphText"]);
+const TEXT_ITEM_WRITABLE = new Set(["contents", "textClickPoint", "orientation"]);
+const TEXT_ITEM_METHODS = new Set(["convertToParagraphText", "convertToPointText", "convertToShape", "createWorkPath"]);
+const CHARACTER_STYLE_PROPERTIES = new Set([
+  "font", "size", "horizontalScale", "verticalScale", "fauxBold", "fauxItalic",
+  "useAutoLeading", "leading", "tracking", "baselineShift", "horizontalDiacriticPosition",
+  "verticalDiacriticPosition", "autoKerning", "capitalization", "baseline", "strikeThrough",
+  "underline", "ligatures", "alternateLigatures", "fractions", "ordinals", "swash",
+  "titlingAlternates", "stylisticAlternates", "language", "characterAlignment", "noBreak",
+  "color", "kashidas", "middleEasternTextDirection", "middleEasternDigitsType",
+  "fractionalWidths", "antiAliasMethod"
+]);
+const PARAGRAPH_STYLE_PROPERTIES = new Set([
+  "justification", "justificationFeatures", "leftIndent", "rightIndent", "firstLineIndent",
+  "spaceBefore", "kashidaWidth", "kinsoku", "mojikumi", "spaceAfter", "hyphenation",
+  "hyphenationFeatures", "layoutMode", "features"
+]);
+const TEXT_WARP_STYLE_PROPERTIES = new Set(["style", "direction", "bend", "horizontalDistortion", "verticalDistortion"]);
 
 /**
  * Channel scalar properties that are readable (keyed `channel.propertyGet`). `histogram` is a raw
@@ -325,6 +358,16 @@ export function dispatchPhotoshopCall(method: string, args: readonly unknown[]):
   }
   if (method.startsWith("pathPoint.")) {
     return dispatchReadonlyPathObjectCall(PHOTOSHOP_REMOTE_TYPE.PathPoint, method, args);
+  }
+  if (method.startsWith("textItem.")) return dispatchTextItemCall(method, args);
+  if (method.startsWith("characterStyle.")) {
+    return dispatchTextStyleCall(PHOTOSHOP_REMOTE_TYPE.CharacterStyle, "characterStyle", CHARACTER_STYLE_PROPERTIES, method, args);
+  }
+  if (method.startsWith("paragraphStyle.")) {
+    return dispatchTextStyleCall(PHOTOSHOP_REMOTE_TYPE.ParagraphStyle, "paragraphStyle", PARAGRAPH_STYLE_PROPERTIES, method, args);
+  }
+  if (method.startsWith("textWarpStyle.")) {
+    return dispatchTextStyleCall(PHOTOSHOP_REMOTE_TYPE.TextWarpStyle, "textWarpStyle", TEXT_WARP_STYLE_PROPERTIES, method, args);
   }
   if (method.startsWith("action.")) {
     return dispatchActionCall(method, args);
@@ -796,7 +839,7 @@ function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly u
   }
   const [reference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
   const layer = getLayer(reference);
-  const methodArgs = decodeArgs(rest);
+  const methodArgs = decodeLayerMethodArgs(methodName, rest, method);
   const run = executeAsModal(methodName, () => callMethod(layer, methodName, methodArgs));
   return resolveMaybePromise(run, (value) => serializeLayerMethodResult(reference, methodName, value));
 }
@@ -806,11 +849,141 @@ function serializeLayerProperty(ownerReference: RemoteReference, name: string, v
   if (resultKind.kind === "scalar" && !LAYER_SCALARS.has(name)) {
     throw new Error(`Unknown layer property: ${name}`);
   }
+  if (name === "textItem" && value && typeof value === "object") {
+    textItemOwners.set(value as object, getLayer(ownerReference));
+  }
   return serializeResult(resultKind, ownerReference, value);
 }
 
 function serializeLayerMethodResult(ownerReference: RemoteReference, methodName: string, value: unknown): unknown {
   return serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.Layer, methodName), ownerReference, value);
+}
+
+function decodeLayerMethodArgs(methodName: string, values: readonly unknown[], method: string): unknown[] {
+  if (methodName === "applyDisplace") {
+    expectArgs(values, 5, 5, method);
+    if (!isUxpStorageEntryReference(values[4])) throw new Error(`${method} displacementMapFile must be a UXP storage File reference.`);
+  }
+  if (methodName === "applyGlassEffect" && values[5] != null && !isUxpStorageEntryReference(values[5])) {
+    throw new Error(`${method} textureFile must be a UXP storage File reference.`);
+  }
+  const decoded = decodeArgs(values);
+  if (methodName === "applyDisplace") decoded[4] = resolveUxpStorageEntryReference(values[4], "file");
+  if (methodName === "applyGlassEffect" && values[5] != null) decoded[5] = resolveUxpStorageEntryReference(values[5], "file");
+  return decoded;
+}
+
+// ---------------------------------------------------------------------------- text item and styles
+
+function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "textItem.dispose") {
+    const [reference] = expectReferenceArgs(args, 1, 1, method);
+    photoshopRegistry.dispose(reference);
+    return undefined;
+  }
+  if (method === "textItem.propertyGet") {
+    const [reference, key] = expectReferenceArgs(args, 2, 2, method);
+    const name = assertString(key, `${method} property`);
+    return serializeTextItemProperty(reference, name, getTextItem(reference)[name]);
+  }
+  if (method === "textItem.propertySet") {
+    const [reference, key, value] = expectReferenceArgs(args, 3, 3, method);
+    const name = assertString(key, `${method} property`);
+    if (!TEXT_ITEM_WRITABLE.has(name)) throw new Error(`TextItem property is not writable: ${name}`);
+    return executeAsModal(`textItem.set.${name}`, () => { getTextItem(reference)[name] = decodeValue(value); });
+  }
+  if (method === "textItem.batchGet") {
+    const [reference, names] = expectReferenceArgs(args, 2, 2, method);
+    const item = getTextItem(reference);
+    return Object.fromEntries(assertStringArray(names, method).map((name) => [name, serializeTextItemProperty(reference, name, item[name])]));
+  }
+  if (method === "textItem.batchSet") {
+    const [reference, values] = expectReferenceArgs(args, 2, 2, method);
+    const props = assertPropertyMap(values, method);
+    for (const name of Object.keys(props)) if (!TEXT_ITEM_WRITABLE.has(name)) throw new Error(`TextItem property is not writable: ${name}`);
+    return executeAsModal("textItem.batchSet", () => {
+      const item = getTextItem(reference);
+      for (const [name, value] of Object.entries(props)) item[name] = decodeValue(value);
+    });
+  }
+  const name = method.slice("textItem.".length);
+  if (!TEXT_ITEM_METHODS.has(name)) return unsupported(method);
+  const [reference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
+  const run = executeAsModal(name, () => callMethod(getTextItem(reference), name, decodeArgs(rest)));
+  return resolveMaybePromise(run, (value) => {
+    if (value && typeof value === "object") {
+      const owner = textItemOwners.get(getTextItem(reference) as object);
+      if (owner) textItemOwners.set(value as object, owner);
+    }
+    return serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.TextItem, name), reference, value);
+  });
+}
+
+function serializeTextItemProperty(reference: RemoteReference, name: string, value: unknown): unknown {
+  const kind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.TextItem, name);
+  if (kind.kind === "scalar" && !TEXT_ITEM_SCALARS.has(name)) throw new Error(`Unknown TextItem property: ${name}`);
+  if (value && typeof value === "object") {
+    const owner = textItemOwners.get(getTextItem(reference) as object);
+    if (owner && name === "characterStyle") characterStyleOwners.set(value as object, owner);
+    if (owner && name === "paragraphStyle") paragraphStyleOwners.set(value as object, owner);
+    if (owner && name === "warpStyle") textWarpStyleOwners.set(value as object, owner);
+  }
+  return serializeResult(kind, reference, value);
+}
+
+function dispatchTextStyleCall(
+  type: typeof PHOTOSHOP_REMOTE_TYPE.CharacterStyle | typeof PHOTOSHOP_REMOTE_TYPE.ParagraphStyle | typeof PHOTOSHOP_REMOTE_TYPE.TextWarpStyle,
+  prefix: "characterStyle" | "paragraphStyle" | "textWarpStyle",
+  properties: ReadonlySet<string>,
+  method: PhotoshopProtocolMethodName,
+  args: readonly unknown[]
+): unknown | Promise<unknown> {
+  if (method === `${prefix}.dispose`) {
+    const [reference] = expectReferenceArgs(args, 1, 1, method);
+    photoshopRegistry.dispose(reference);
+    return undefined;
+  }
+  if (method === `${prefix}.propertyGet`) {
+    const [reference, key] = expectReferenceArgs(args, 2, 2, method);
+    const name = assertString(key, `${method} property`);
+    if (!properties.has(name)) throw new Error(`Unknown ${type} property: ${name}`);
+    return serializeResult(photoshopPropertyResultKind(type, name), reference, getTextStyle(type, reference)[name]);
+  }
+  if (method === `${prefix}.propertySet`) {
+    const [reference, key, value] = expectReferenceArgs(args, 3, 3, method);
+    const name = assertString(key, `${method} property`);
+    if (!properties.has(name)) throw new Error(`Unknown ${type} property: ${name}`);
+    const decoded = type === PHOTOSHOP_REMOTE_TYPE.CharacterStyle && name === "color"
+      ? buildSolidColor(decodeValue(value))
+      : decodeValue(value);
+    return executeAsModal(`${prefix}.set.${name}`, () => { getTextStyle(type, reference)[name] = decoded; });
+  }
+  if (method === `${prefix}.batchGet`) {
+    const [reference, names] = expectReferenceArgs(args, 2, 2, method);
+    const target = getTextStyle(type, reference);
+    return Object.fromEntries(assertStringArray(names, method).map((name) => {
+      if (!properties.has(name)) throw new Error(`Unknown ${type} property: ${name}`);
+      return [name, serializeResult(photoshopPropertyResultKind(type, name), reference, target[name])];
+    }));
+  }
+  if (method === `${prefix}.batchSet`) {
+    const [reference, values] = expectReferenceArgs(args, 2, 2, method);
+    const props = assertPropertyMap(values, method);
+    for (const name of Object.keys(props)) if (!properties.has(name)) throw new Error(`Unknown ${type} property: ${name}`);
+    return executeAsModal(`${prefix}.batchSet`, () => {
+      const target = getTextStyle(type, reference);
+      for (const [name, value] of Object.entries(props)) {
+        target[name] = type === PHOTOSHOP_REMOTE_TYPE.CharacterStyle && name === "color"
+          ? buildSolidColor(decodeValue(value))
+          : decodeValue(value);
+      }
+    });
+  }
+  if (method === `${prefix}.reset`) {
+    const [reference] = expectReferenceArgs(args, 1, 1, method);
+    return executeAsModal(`${prefix}.reset`, () => callMethod(getTextStyle(type, reference), "reset", []));
+  }
+  return unsupported(method);
 }
 
 // ---------------------------------------------------------------------------- layers.*
@@ -834,8 +1007,15 @@ function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly 
   if (method === "layers.add") {
     const [reference, options] = expectReferenceArgs(args, 1, 2, method);
     const owner = resolveOwner(reference) as Record<string, unknown>;
-    const decodedOptions = decodeValue(options);
-    const run = executeAsModal("layers.add", () => callMethod(owner, "createLayer", [decodedOptions]));
+    const decodedOptions = decodeValue(options) as Record<string, unknown> | undefined;
+    const run = executeAsModal("layers.add", async () => {
+      if (reference.type === PHOTOSHOP_REMOTE_TYPE.Document) {
+        return callMethod(owner, "createLayer", decodedOptions === undefined ? [] : [decodedOptions]);
+      }
+      const layer = await callMethod(resolveOwnerLayers(reference), "add", []) as Record<string, unknown>;
+      if (decodedOptions) for (const [name, value] of Object.entries(decodedOptions)) layer[name] = value;
+      return layer;
+    });
     return resolveMaybePromise(run, (value) => serializeLayer(value as PhotoshopLayerLike));
   }
 
@@ -1613,8 +1793,16 @@ function serializeDocument(document: PhotoshopDocumentLike): RemoteReference {
 }
 
 function serializeLayer(layer: PhotoshopLayerLike): RemoteReference {
-  const key = `${PHOTOSHOP_REMOTE_TYPE.Layer}:${layer.id}`;
+  const key = `${PHOTOSHOP_REMOTE_TYPE.Layer}:${layerIdentityKey(layer)}`;
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.Layer, key, () => layer);
+}
+
+function layerIdentityKey(layer: PhotoshopLayerLike): string {
+  const nativeDocument = layer.document as PhotoshopDocumentLike | undefined;
+  const documentId = nativeDocument && typeof nativeDocument.id === "number"
+    ? nativeDocument.id
+    : typeof layer._docId === "number" ? layer._docId : "unknown";
+  return `${documentId}:${layer.id}`;
 }
 
 /**
@@ -1629,6 +1817,10 @@ function serializeChannel(channel: PhotoshopChannelLike): RemoteReference {
 const colorSamplerOwners = new WeakMap<object, PhotoshopDocumentLike>();
 const countItemOwners = new WeakMap<object, PhotoshopDocumentLike>();
 const layerCompOwners = new WeakMap<object, PhotoshopDocumentLike>();
+const textItemOwners = new WeakMap<object, PhotoshopLayerLike>();
+const characterStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
+const paragraphStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
+const textWarpStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
 
 function serializeColorSampler(value: PhotoshopColorSamplerLike): RemoteReference {
   return photoshopRegistry.register(PHOTOSHOP_REMOTE_TYPE.ColorSampler, value);
@@ -1656,6 +1848,25 @@ function serializePhotoshop(app: PhotoshopApp): RemoteReference {
 function serializeTextFont(font: PhotoshopTextFontLike): RemoteReference {
   const key = `${PHOTOSHOP_REMOTE_TYPE.TextFont}:${font.postScriptName ?? geometryKey("TextFont", font)}`;
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.TextFont, key, () => font);
+}
+
+function serializeTextItem(value: PhotoshopTextItemLike, owner?: PhotoshopLayerLike): RemoteReference {
+  const layer = owner ?? textItemOwners.get(value as object) ?? value.parent as PhotoshopLayerLike | undefined;
+  if (!layer || typeof layer.id !== "number") throw new Error("TextItem owner Layer is unavailable.");
+  textItemOwners.set(value as object, layer);
+  return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.TextItem, `TextItem:${layerIdentityKey(layer)}`, () => value);
+}
+
+function serializeTextStyle(
+  type: typeof PHOTOSHOP_REMOTE_TYPE.CharacterStyle | typeof PHOTOSHOP_REMOTE_TYPE.ParagraphStyle | typeof PHOTOSHOP_REMOTE_TYPE.TextWarpStyle,
+  value: PhotoshopCharacterStyleLike | PhotoshopParagraphStyleLike | PhotoshopTextWarpStyleLike
+): RemoteReference {
+  const owners = type === PHOTOSHOP_REMOTE_TYPE.CharacterStyle
+    ? characterStyleOwners
+    : type === PHOTOSHOP_REMOTE_TYPE.ParagraphStyle ? paragraphStyleOwners : textWarpStyleOwners;
+  const layer = owners.get(value as object);
+  if (!layer) throw new Error(`${type} owner Layer is unavailable.`);
+  return photoshopRegistry.getOrCreate(type, `${type}:${layerIdentityKey(layer)}`, () => value);
 }
 
 function serializeTool(tool: PhotoshopToolLike): RemoteReference {
@@ -1734,7 +1945,7 @@ function serializeResult(resultKind: PhotoshopResultKind, ownerReference: Remote
       return serializeReference(typename, value);
     }
     case "collection":
-      return serializeSnapshot(resultKind.memberKind, ownerReference, value);
+      return value == null ? null : serializeSnapshot(resultKind.memberKind, ownerReference, value);
     default:
       throw new Error("Unknown photoshop result kind.");
   }
@@ -1768,6 +1979,14 @@ function serializeReference(refType: string, value: unknown): RemoteReference {
   if (refType === PHOTOSHOP_REMOTE_TYPE.SubPathItem) return serializeSubPathItem(value as PhotoshopSubPathItemLike);
   if (refType === PHOTOSHOP_REMOTE_TYPE.PathPoint) return serializePathPoint(value as PhotoshopPathPointLike);
   if (refType === PHOTOSHOP_REMOTE_TYPE.TextFont) return serializeTextFont(value as PhotoshopTextFontLike);
+  if (refType === PHOTOSHOP_REMOTE_TYPE.TextItem) return serializeTextItem(value as PhotoshopTextItemLike);
+  if (
+    refType === PHOTOSHOP_REMOTE_TYPE.CharacterStyle ||
+    refType === PHOTOSHOP_REMOTE_TYPE.ParagraphStyle ||
+    refType === PHOTOSHOP_REMOTE_TYPE.TextWarpStyle
+  ) {
+    return serializeTextStyle(refType, value as PhotoshopCharacterStyleLike | PhotoshopParagraphStyleLike | PhotoshopTextWarpStyleLike);
+  }
   if (refType === PHOTOSHOP_REMOTE_TYPE.Tool) return serializeTool(value as PhotoshopToolLike);
   if (refType === PHOTOSHOP_REMOTE_TYPE.ActionSet) return serializeActionSet(value as PhotoshopActionSetLike);
   if (refType === PHOTOSHOP_REMOTE_TYPE.Action) return serializeAction(value as PhotoshopActionLike);
@@ -1857,6 +2076,15 @@ function getHistoryState(reference: RemoteReference): PhotoshopHistoryStateLike 
 
 function getGuide(reference: RemoteReference): PhotoshopGuideLike { return photoshopRegistry.resolve(reference, PHOTOSHOP_REMOTE_TYPE.Guide) as PhotoshopGuideLike; }
 function getPathItem(reference: RemoteReference): PhotoshopPathItemLike { return photoshopRegistry.resolve(reference, PHOTOSHOP_REMOTE_TYPE.PathItem) as PhotoshopPathItemLike; }
+function getTextItem(reference: RemoteReference): PhotoshopTextItemLike {
+  return photoshopRegistry.resolve(reference, PHOTOSHOP_REMOTE_TYPE.TextItem) as PhotoshopTextItemLike;
+}
+function getTextStyle(
+  type: typeof PHOTOSHOP_REMOTE_TYPE.CharacterStyle | typeof PHOTOSHOP_REMOTE_TYPE.ParagraphStyle | typeof PHOTOSHOP_REMOTE_TYPE.TextWarpStyle,
+  reference: RemoteReference
+): Record<string, unknown> {
+  return photoshopRegistry.resolve(reference, type) as Record<string, unknown>;
+}
 
 function decodeArgs(args: readonly unknown[]): unknown[] {
   return args.map((arg) => decodeValue(arg));
@@ -1879,6 +2107,9 @@ function decodeReferenceArrayOfType(value: unknown, type: string, label: string)
 function decodeValue(value: unknown): unknown {
   if (isPhotoshopValueTransport(value)) {
     return value.data;
+  }
+  if (isUxpStorageEntryReference(value)) {
+    return resolveUxpStorageEntryReference(value);
   }
   if (isRemoteReference(value)) {
     return photoshopRegistry.resolve(value, value.type);

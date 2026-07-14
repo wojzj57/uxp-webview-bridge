@@ -15,6 +15,7 @@ const guideModule = "../../dist/webview/photoshop-api/modules/photoshop/guide.js
 const pathItemModule = "../../dist/webview/photoshop-api/modules/photoshop/path-item.js";
 const subPathItemModule = "../../dist/webview/photoshop-api/modules/photoshop/sub-path-item.js";
 const pathPointModule = "../../dist/webview/photoshop-api/modules/photoshop/path-point.js";
+const textModule = "../../dist/webview/photoshop-api/modules/photoshop/text.js";
 
 /**
  * A recording rpc that resolves every call to a benign value and never throws. The only way a member
@@ -63,6 +64,10 @@ async function createStubContext(rpc) {
   registry.register(PHOTOSHOP_REMOTE_TYPE.Guide, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.SubPathItem, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.PathPoint, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.TextItem, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.CharacterStyle, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.ParagraphStyle, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.TextWarpStyle, placeholder);
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
     methods: {
       getByName: { rpc: "layers.getByName", result: { refType: PHOTOSHOP_REMOTE_TYPE.Layer } },
@@ -216,6 +221,22 @@ const CASES = [
   {
     name: "WebviewPsPathPoint", type: "PathPoint", batchGetName: "pathPoint.batchGet", batchSetName: "pathPoint.batchSet",
     async build() { const { createPathPointClass } = await import(pathPointModule); const rpc = createRecordingRpc(); const C = createPathPointClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("PathPoint")) }; }
+  },
+  {
+    name: "WebviewTextItem", type: "TextItem", batchGetName: "textItem.batchGet", batchSetName: "textItem.batchSet", writableProp: "contents", readableProp: "typename", readOnlyProp: "typename",
+    async build() { const { createTextItemClass } = await import(textModule); const rpc = createRecordingRpc(); const C = createTextItemClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("TextItem")) }; }
+  },
+  {
+    name: "WebviewCharacterStyle", type: "CharacterStyle", batchGetName: "characterStyle.batchGet", batchSetName: "characterStyle.batchSet", writableProp: "size", readableProp: "size", readOnlyProp: "id",
+    async build() { const { createCharacterStyleClass } = await import(textModule); const rpc = createRecordingRpc(); const C = createCharacterStyleClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("CharacterStyle")) }; }
+  },
+  {
+    name: "WebviewParagraphStyle", type: "ParagraphStyle", batchGetName: "paragraphStyle.batchGet", batchSetName: "paragraphStyle.batchSet", writableProp: "leftIndent", readableProp: "leftIndent", readOnlyProp: "id",
+    async build() { const { createParagraphStyleClass } = await import(textModule); const rpc = createRecordingRpc(); const C = createParagraphStyleClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("ParagraphStyle")) }; }
+  },
+  {
+    name: "WebviewTextWarpStyle", type: "TextWarpStyle", batchGetName: "textWarpStyle.batchGet", batchSetName: "textWarpStyle.batchSet", writableProp: "bend", readableProp: "bend", readOnlyProp: "id",
+    async build() { const { createTextWarpStyleClass } = await import(textModule); const rpc = createRecordingRpc(); const C = createTextWarpStyleClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("TextWarpStyle")) }; }
   }
 ];
 
@@ -243,7 +264,7 @@ for (const testCase of CASES) {
     const { type, batchGetName, batchSetName, writableProp } = testCase;
     const module = "photoshop-api/modules/photoshop";
     // Channel has no `id` scalar; read a property it actually exposes for the batchGet probe.
-    const readableProp = type === "Channel" || type === "PathItem" || type === "LayerComp" ? "name" : type === "Guide" ? "coordinate" : type === "SubPathItem" || type === "PathPoint" || type === "ColorSampler" || type === "CountItem" ? "typename" : "id";
+    const readableProp = testCase.readableProp ?? (type === "Channel" || type === "PathItem" || type === "LayerComp" ? "name" : type === "Guide" ? "coordinate" : type === "SubPathItem" || type === "PathPoint" || type === "ColorSampler" || type === "CountItem" ? "typename" : "id");
 
     await instance.batchGet([readableProp]);
     const batchGetCall = rpc.calls.find((call) => call.method === batchGetName);
@@ -267,7 +288,7 @@ for (const testCase of CASES) {
     // A read-only property on each proxy; the base guard should reject it even though the compile-time
     // signature already forbids it (belt and suspenders — see photoshop.test.ts @ts-expect-error).
     // Channel has no `id`, so use its read-only `histogram` instead.
-    const readOnlyProp = testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : testCase.type === "SubPathItem" || testCase.type === "PathPoint" || testCase.type === "ColorSampler" || testCase.type === "CountItem" ? "typename" : "id";
+    const readOnlyProp = testCase.readOnlyProp ?? (testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : testCase.type === "SubPathItem" || testCase.type === "PathPoint" || testCase.type === "ColorSampler" || testCase.type === "CountItem" ? "typename" : "id");
     assert.throws(
       () => instance.batchSet({ [readOnlyProp]: 1 }),
       new RegExp(`Cannot batchSet non-writable property: ${readOnlyProp}`)

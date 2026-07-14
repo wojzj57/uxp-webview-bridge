@@ -33,7 +33,15 @@ import { createPreferenceClass, createPreferencesClass } from "./preferences.js"
 import { createPhotoshopTypeRegistry } from "./registry.js";
 import { createSelectionClass } from "./selection.js";
 import { createSubPathItemClass } from "./sub-path-item.js";
-import { encodePhotoshopArgument } from "./solid-color.js";
+import { SolidColor, encodePhotoshopArgument } from "./solid-color.js";
+import { CMYKColor, GrayColor, HSBColor, LabColor, RGBColor } from "./color-models.js";
+import { PathPointInfo, SubPathInfo } from "./path-builders.js";
+import {
+  createCharacterStyleClass,
+  createParagraphStyleClass,
+  createTextItemClass,
+  createTextWarpStyleClass
+} from "./text.js";
 import { createTextFontClass } from "./text-font.js";
 import { createToolClass } from "./tool.js";
 import type {
@@ -77,6 +85,14 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
     action,
     core: createCoreNamespace(rpc),
     ColorConversionModel,
+    SolidColor,
+    CMYKColor,
+    GrayColor,
+    HSBColor,
+    LabColor,
+    RGBColor,
+    PathPointInfo,
+    SubPathInfo,
     imaging: createImagingNamespace(rpc),
     get preferences() { return app.preferences; },
     get preferencesCursors() { return app.preferences.then((value) => value.cursors); },
@@ -122,6 +138,10 @@ function createPhotoshopContext(rpc: PhotoshopRpc): { readonly context: Photosho
   const SubPathItemClass = createSubPathItemClass(context);
   const PathPointClass = createPathPointClass(context);
   const TextFontClass = createTextFontClass(context);
+  const TextItemClass = createTextItemClass(context);
+  const CharacterStyleClass = createCharacterStyleClass(context);
+  const ParagraphStyleClass = createParagraphStyleClass(context);
+  const TextWarpStyleClass = createTextWarpStyleClass(context);
   const ToolClass = createToolClass(context);
   const ActionSetClass = createActionSetClass(context);
   const ActionClass = createActionClass(context);
@@ -143,6 +163,10 @@ function createPhotoshopContext(rpc: PhotoshopRpc): { readonly context: Photosho
   registry.register(PHOTOSHOP_REMOTE_TYPE.SubPathItem, (reference) => new SubPathItemClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.PathPoint, (reference) => new PathPointClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.TextFont, (reference) => new TextFontClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.TextItem, (reference) => new TextItemClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.CharacterStyle, (reference) => new CharacterStyleClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.ParagraphStyle, (reference) => new ParagraphStyleClass(reference));
+  registry.register(PHOTOSHOP_REMOTE_TYPE.TextWarpStyle, (reference) => new TextWarpStyleClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Tool, (reference) => new ToolClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.ActionSet, (reference) => new ActionSetClass(reference));
   registry.register(PHOTOSHOP_REMOTE_TYPE.Action, (reference) => new ActionClass(reference));

@@ -10,53 +10,84 @@
 
 import type {
   AnchorPositionValue,
+  AntiAliasValue,
+  ApplyImageBlendModeValue,
+  ApplyImageChannelValue,
+  ApplyImageLayerValue,
+  AutoKernTypeValue,
+  BaselineValue,
   BitsPerChannelTypeValue,
   BitmapConversionTypeValue,
   BitmapHalfToneTypeValue,
   BMPDepthTypeValue,
   BlendModeValue,
   ChannelTypeValue,
+  CharacterAlignmentValue,
   ColorModelValue,
   ColorProfileTypeValue,
   ColorBlendModeValue,
   DirectionValue,
+  DisplacementMapTypeValue,
   DialogModesValue,
   DitherValue,
   DocumentFillValue,
+  DepthMapSourceValue,
   EditLogItemsTypeValue,
   ElementPlacementValue,
+  EliminateFieldsValue,
+  CreateFieldsValue,
   FlipAxisValue,
   ForcedColorsValue,
   InterpolationMethodValue,
   FontSizeValue,
   GridLineStyleValue,
   GridSizeValue,
+  GeometryValue,
   GuideLineStyleValue,
   LayerKindValue,
+  LanguageValue,
+  LensTypeValue,
   JPEGFormatOptionsValue,
   MatteColorValue,
+  MiddleEasternDigitsTypeValue,
+  MiddleEasternTextDirectionValue,
   MaximizeCompatibilityValue,
   NewDocumentModeValue,
+  NoiseDistributionValue,
   DocumentModeValue,
   ChangeModeValue,
   IntentValue,
   OperatingSystemValue,
   OtherCursorsValue,
+  OffsetUndefinedAreasValue,
+  OrientationValue,
   PaintingCursorsValue,
   PathKindValue,
   PointKindValue,
   PointTypeValue,
   PNGMethodValue,
   PaletteValue,
+  ParagraphLayoutValue,
+  PolarConversionTypeValue,
+  PreserveShapeValue,
   ResampleMethodValue,
   RulerUnitsValue,
+  RippleSizeValue,
   SaveLogItemsTypeValue,
   SaveOptionsValue,
   SavePreviewValue,
   SelectionTypeValue,
   ShapeOperationValue,
+  SmartBlurModeValue,
+  SmartBlurQualityValue,
+  SpherizeModeValue,
+  StrikeThroughValue,
+  TextCaseValue,
+  TextureTypeValue,
   ToolTypeValue,
   TrimTypeValue,
+  UnderlineValue,
+  UndefinedAreasValue,
   GenerativeUpscaleModelValue,
   CalculationsBlendModeValue,
   CalculationsChannelValue,
@@ -64,7 +95,15 @@ import type {
   CalculationsResultValue,
   TypeInterfaceFeaturesValue,
   TypeUnitsValue,
-  UnitsValue
+  UnitsValue,
+  WarpStyleValue,
+  WaveTypeValue,
+  ZigZagTypeValue,
+  JustificationValue,
+  KashidaWidthTypeValue,
+  KinsokuValue,
+  MojikumiValue,
+  RasterizeTypeValue
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopConstantsNamespace } from "@shared/photoshop-api/photoshop-constants.js";
 import type {
@@ -110,6 +149,7 @@ export interface ImagingBounds {
  * `BridgeRemoteError`; re-await the owning property to get a fresh snapshot.
  */
 export interface Layers extends ReadonlyArray<PsLayer> {
+  readonly typename: "Layers";
   /** Resolve the layer with the given name via a single host RPC (`null` if none). */
   getByName(name: string): Promise<PsLayer | null>;
   /** Create/add a layer on the owning document or group (mutating host call). */
@@ -767,12 +807,174 @@ export type PsDocumentReadableKey =
   | "countItems"
   | "layerComps";
 
+export interface JustificationProperties {
+  readonly autoLeadingAmount?: number;
+  readonly wordSpacingMinimum?: number;
+  readonly wordSpacingDesired?: number;
+  readonly wordSpacingMaximum?: number;
+  readonly letterSpacingMinimum?: number;
+  readonly letterSpacingDesired?: number;
+  readonly letterSpacingMaximum?: number;
+  readonly glyphScalingMinimum?: number;
+  readonly glyphScalingDesired?: number;
+  readonly glyphScalingMaximum?: number;
+}
+
+export interface HyphenationProperties {
+  readonly wordsLongerThan?: number;
+  readonly afterFirst?: number;
+  readonly beforeLast?: number;
+  readonly limit?: number;
+  readonly zone?: number;
+  readonly capitalWords?: boolean;
+}
+
+export interface CharacterStyle {
+  get font(): Promise<string>; set font(value: string);
+  get size(): Promise<number>; set size(value: number);
+  get horizontalScale(): Promise<number>; set horizontalScale(value: number);
+  get verticalScale(): Promise<number>; set verticalScale(value: number);
+  get fauxBold(): Promise<boolean>; set fauxBold(value: boolean);
+  get fauxItalic(): Promise<boolean>; set fauxItalic(value: boolean);
+  get useAutoLeading(): Promise<boolean>; set useAutoLeading(value: boolean);
+  get leading(): Promise<number>; set leading(value: number);
+  get tracking(): Promise<number>; set tracking(value: number);
+  get baselineShift(): Promise<number>; set baselineShift(value: number);
+  get horizontalDiacriticPosition(): Promise<number>; set horizontalDiacriticPosition(value: number);
+  get verticalDiacriticPosition(): Promise<number>; set verticalDiacriticPosition(value: number);
+  get autoKerning(): Promise<AutoKernTypeValue>; set autoKerning(value: AutoKernTypeValue);
+  get capitalization(): Promise<TextCaseValue>; set capitalization(value: TextCaseValue);
+  get baseline(): Promise<BaselineValue>; set baseline(value: BaselineValue);
+  get strikeThrough(): Promise<StrikeThroughValue>; set strikeThrough(value: StrikeThroughValue);
+  get underline(): Promise<UnderlineValue>; set underline(value: UnderlineValue);
+  get ligatures(): Promise<boolean>; set ligatures(value: boolean);
+  get alternateLigatures(): Promise<boolean>; set alternateLigatures(value: boolean);
+  get fractions(): Promise<boolean>; set fractions(value: boolean);
+  get ordinals(): Promise<boolean>; set ordinals(value: boolean);
+  get swash(): Promise<boolean>; set swash(value: boolean);
+  get titlingAlternates(): Promise<boolean>; set titlingAlternates(value: boolean);
+  get stylisticAlternates(): Promise<boolean>; set stylisticAlternates(value: boolean);
+  get language(): Promise<LanguageValue>; set language(value: LanguageValue);
+  get characterAlignment(): Promise<CharacterAlignmentValue>; set characterAlignment(value: CharacterAlignmentValue);
+  get noBreak(): Promise<boolean>; set noBreak(value: boolean);
+  get color(): Promise<PsSolidColor>; set color(value: SolidColorInput);
+  get kashidas(): Promise<boolean>; set kashidas(value: boolean);
+  get middleEasternTextDirection(): Promise<MiddleEasternTextDirectionValue>; set middleEasternTextDirection(value: MiddleEasternTextDirectionValue);
+  get middleEasternDigitsType(): Promise<MiddleEasternDigitsTypeValue>; set middleEasternDigitsType(value: MiddleEasternDigitsTypeValue);
+  get fractionalWidths(): Promise<boolean>; set fractionalWidths(value: boolean);
+  get antiAliasMethod(): Promise<AntiAliasValue>; set antiAliasMethod(value: AntiAliasValue);
+  reset(): Promise<void>;
+  batchGet<K extends CharacterStyleReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<CharacterStyleWritableProps>): void;
+  dispose(): Promise<void>;
+}
+
+export interface CharacterStyleWritableProps {
+  font: string; size: number; horizontalScale: number; verticalScale: number;
+  fauxBold: boolean; fauxItalic: boolean; useAutoLeading: boolean; leading: number;
+  tracking: number; baselineShift: number; horizontalDiacriticPosition: number; verticalDiacriticPosition: number;
+  autoKerning: AutoKernTypeValue; capitalization: TextCaseValue; baseline: BaselineValue;
+  strikeThrough: StrikeThroughValue; underline: UnderlineValue; ligatures: boolean;
+  alternateLigatures: boolean; fractions: boolean; ordinals: boolean; swash: boolean;
+  titlingAlternates: boolean; stylisticAlternates: boolean; language: LanguageValue;
+  characterAlignment: CharacterAlignmentValue; noBreak: boolean; color: SolidColorInput;
+  kashidas: boolean; middleEasternTextDirection: MiddleEasternTextDirectionValue;
+  middleEasternDigitsType: MiddleEasternDigitsTypeValue; fractionalWidths: boolean; antiAliasMethod: AntiAliasValue;
+}
+export type CharacterStyleReadableKey = keyof CharacterStyleWritableProps;
+
+export interface ParagraphStyle {
+  get justification(): Promise<JustificationValue>; set justification(value: JustificationValue);
+  get justificationFeatures(): Promise<JustificationProperties | null>; set justificationFeatures(value: JustificationProperties);
+  get leftIndent(): Promise<number>; set leftIndent(value: number);
+  get rightIndent(): Promise<number>; set rightIndent(value: number);
+  get firstLineIndent(): Promise<number>; set firstLineIndent(value: number);
+  get spaceBefore(): Promise<number>; set spaceBefore(value: number);
+  get kashidaWidth(): Promise<KashidaWidthTypeValue>; set kashidaWidth(value: KashidaWidthTypeValue);
+  get kinsoku(): Promise<KinsokuValue>; set kinsoku(value: KinsokuValue);
+  get mojikumi(): Promise<MojikumiValue>; set mojikumi(value: MojikumiValue);
+  get spaceAfter(): Promise<number>; set spaceAfter(value: number);
+  get hyphenation(): Promise<boolean>; set hyphenation(value: boolean);
+  get hyphenationFeatures(): Promise<HyphenationProperties>; set hyphenationFeatures(value: HyphenationProperties);
+  get layoutMode(): Promise<ParagraphLayoutValue>; set layoutMode(value: ParagraphLayoutValue);
+  get features(): Promise<TypeInterfaceFeaturesValue>; set features(value: TypeInterfaceFeaturesValue);
+  reset(): Promise<void>;
+  batchGet<K extends ParagraphStyleReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<ParagraphStyleWritableProps>): void;
+  dispose(): Promise<void>;
+}
+export interface ParagraphStyleWritableProps {
+  justification: JustificationValue; justificationFeatures: JustificationProperties;
+  leftIndent: number; rightIndent: number; firstLineIndent: number; spaceBefore: number;
+  kashidaWidth: KashidaWidthTypeValue; kinsoku: KinsokuValue; mojikumi: MojikumiValue;
+  spaceAfter: number; hyphenation: boolean; hyphenationFeatures: HyphenationProperties;
+  layoutMode: ParagraphLayoutValue; features: TypeInterfaceFeaturesValue;
+}
+export type ParagraphStyleReadableKey = keyof ParagraphStyleWritableProps;
+
+export interface TextWarpStyle {
+  get style(): Promise<WarpStyleValue>; set style(value: WarpStyleValue);
+  get direction(): Promise<DirectionValue>; set direction(value: DirectionValue);
+  get bend(): Promise<number>; set bend(value: number);
+  get horizontalDistortion(): Promise<number>; set horizontalDistortion(value: number);
+  get verticalDistortion(): Promise<number>; set verticalDistortion(value: number);
+  reset(): Promise<void>;
+  batchGet<K extends TextWarpStyleReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<TextWarpStyleWritableProps>): void;
+  dispose(): Promise<void>;
+}
+export interface TextWarpStyleWritableProps {
+  style: WarpStyleValue; direction: DirectionValue; bend: number; horizontalDistortion: number; verticalDistortion: number;
+}
+export type TextWarpStyleReadableKey = keyof TextWarpStyleWritableProps;
+
+export interface TextItem {
+  readonly parent: Promise<PsLayer>;
+  readonly typename: Promise<"TextItem">;
+  get contents(): Promise<string>; set contents(value: string);
+  get textClickPoint(): Promise<PsPoint>; set textClickPoint(value: PsPoint);
+  get orientation(): Promise<OrientationValue>; set orientation(value: OrientationValue);
+  readonly isPointText: Promise<boolean>;
+  readonly isParagraphText: Promise<boolean>;
+  readonly characterStyle: Promise<CharacterStyle>;
+  readonly paragraphStyle: Promise<ParagraphStyle>;
+  readonly warpStyle: Promise<TextWarpStyle>;
+  convertToParagraphText(): Promise<TextItem>;
+  convertToPointText(): Promise<TextItem>;
+  convertToShape(): Promise<void>;
+  createWorkPath(): Promise<void>;
+  batchGet<K extends TextItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<TextItemWritableProps>): void;
+  dispose(): Promise<void>;
+}
+export interface TextItemWritableProps { contents: string; textClickPoint: PsPoint; orientation: OrientationValue; }
+export type TextItemReadableKey =
+  | keyof TextItemWritableProps | "parent" | "typename" | "isPointText" | "isParagraphText"
+  | "characterStyle" | "paragraphStyle" | "warpStyle";
+
+export type ApplyImageLayerType = PsLayer | ApplyImageLayerValue;
+export type ApplyImageChannelType = PsChannel | ApplyImageChannelValue;
+export interface ApplyImageSource {
+  readonly document: PsDocument;
+  readonly layer: ApplyImageLayerType;
+  readonly channel: ApplyImageChannelType;
+  readonly invert?: boolean;
+}
+export interface ApplyImageOptions {
+  readonly source: ApplyImageSource;
+  readonly blending?: ApplyImageBlendModeValue;
+  readonly opacity?: number;
+  readonly preserveTransparency?: boolean;
+  readonly mask?: ApplyImageSource;
+}
+
 /**
  * Remote proxy for a Photoshop `Layer`. Read-only scalars plus many writable scalars; `bounds`
  * decode to {@link ImagingBounds} value objects; reference properties resolve to related proxies.
  */
 export interface PsLayer {
   // Read-only scalars
+  readonly typename: Promise<"Layer">;
   readonly id: Promise<number>;
   readonly locked: Promise<boolean>;
   readonly isBackgroundLayer: Promise<boolean>;
@@ -802,10 +1004,16 @@ export interface PsLayer {
   readonly document: Promise<PsDocument>;
   readonly parent: Promise<PsLayer | null>;
   readonly linkedLayers: Promise<Layers>;
+  readonly textItem: Promise<TextItem>;
+  readonly layers: Promise<Layers | null>;
 
   // Mutating methods (host wraps in executeAsModal)
   delete(): Promise<void>;
-  duplicate(targetDocument?: PsDocument, name?: string): Promise<PsLayer>;
+  duplicate(
+    relativeObject?: PsDocument | PsLayer,
+    insertionLocation?: ElementPlacementValue,
+    name?: string
+  ): Promise<PsLayer | null>;
   link(layer: PsLayer): Promise<Layers>;
   unlink(): Promise<void>;
   move(relativeObject: PsLayer, placement: ElementPlacementValue): Promise<void>;
@@ -817,11 +1025,106 @@ export interface PsLayer {
   scale(
     width: number | PercentValue,
     height: number | PercentValue,
-    anchor?: AnchorPositionValue
+    anchor?: AnchorPositionValue,
+    options?: { readonly interpolation?: InterpolationMethodValue }
   ): Promise<void>;
-  rotate(angle: number | AngleValue, anchor?: AnchorPositionValue): Promise<void>;
+  rotate(
+    angle: number | AngleValue,
+    anchor?: AnchorPositionValue,
+    options?: { readonly interpolation?: InterpolationMethodValue }
+  ): Promise<void>;
+  skew(
+    angleH: number | AngleValue,
+    angleV: number | AngleValue,
+    options?: { readonly interpolation?: InterpolationMethodValue }
+  ): Promise<void>;
+  bringToFront(): Promise<void>;
+  sendToBack(): Promise<void>;
+  clear(): Promise<void>;
+  copy(merge?: boolean): Promise<void>;
+  cut(): Promise<void>;
   merge(): Promise<PsLayer>;
-  rasterize(target?: string): Promise<void>;
+  rasterize(target: RasterizeTypeValue): Promise<void>;
+  applyAddNoise(amount: number, distribution: NoiseDistributionValue, monochromatic: boolean): Promise<void>;
+  applyAverage(): Promise<void>;
+  applyBlur(): Promise<void>;
+  applyBlurMore(): Promise<void>;
+  applyClouds(): Promise<void>;
+  applyCustomFilter(characteristics: readonly number[], scale: number, offset: number): Promise<void>;
+  applyDeInterlace(eliminateFields: EliminateFieldsValue, createFields: CreateFieldsValue): Promise<void>;
+  applyDespeckle(): Promise<void>;
+  applyDifferenceClouds(): Promise<void>;
+  applyDiffuseGlow(graininess: number, glowAmount: number, clearAmount: number): Promise<void>;
+  applyDisplace(
+    horizontalScale: number,
+    verticalScale: number,
+    displacementType: DisplacementMapTypeValue,
+    undefinedAreas: UndefinedAreasValue,
+    displacementMapFile: UxpStorageFile
+  ): Promise<void>;
+  applyDustAndScratches(radius: number, threshold: number): Promise<void>;
+  applyGaussianBlur(radius: number): Promise<void>;
+  applyGlassEffect(
+    distortion: number,
+    smoothness: number,
+    scaling: number,
+    invert?: boolean,
+    texture?: TextureTypeValue,
+    textureFile?: UxpStorageFile
+  ): Promise<void>;
+  applyHighPass(radius: number): Promise<void>;
+  applyLensBlur(
+    source?: DepthMapSourceValue,
+    focalDistance?: number,
+    invertDepthMask?: boolean,
+    shape?: GeometryValue,
+    radius?: number,
+    bladeCurvature?: number,
+    rotation?: number,
+    brightness?: number,
+    threshold?: number,
+    amount?: number,
+    distribution?: NoiseDistributionValue,
+    monochromatic?: boolean
+  ): Promise<void>;
+  applyLensFlare(brightness: number, flareCenter: PsPoint, lensType?: LensTypeValue): Promise<void>;
+  applyMaximum(radius: number, preserveShape?: PreserveShapeValue): Promise<void>;
+  applyMinimum(radius: number, preserveShape?: PreserveShapeValue): Promise<void>;
+  applyMedianNoise(radius: number): Promise<void>;
+  applyMotionBlur(angle: number, distance: number): Promise<void>;
+  applyNTSC(): Promise<void>;
+  applyOceanRipple(size: number, magnitude: number): Promise<void>;
+  applyOffset(horizontal: number, vertical: number, undefinedAreas?: OffsetUndefinedAreasValue): Promise<void>;
+  applyTwirl(angle: number): Promise<void>;
+  applyPinch(amount: number): Promise<void>;
+  applyPolarCoordinates(conversion: PolarConversionTypeValue): Promise<void>;
+  applyRipple(amount: number, size: RippleSizeValue): Promise<void>;
+  applySharpen(): Promise<void>;
+  applySharpenEdges(): Promise<void>;
+  applySharpenMore(): Promise<void>;
+  applyShear(curve: readonly PsPoint[], undefinedArea: UndefinedAreasValue): Promise<void>;
+  applySmartBlur(
+    radius: number,
+    threshold: number,
+    blurQuality: SmartBlurQualityValue,
+    mode: SmartBlurModeValue
+  ): Promise<void>;
+  applySpherize(amount: number, mode: SpherizeModeValue): Promise<void>;
+  applyUnSharpMask(amount: number, radius: number, threshold: number): Promise<void>;
+  applyWave(
+    generatorNumber: number,
+    minimumWavelength: number,
+    maximumWavelength: number,
+    minimumAmplitude: number,
+    maximumAmplitude: number,
+    horizontalScale: number,
+    verticalScale: number,
+    waveType?: WaveTypeValue,
+    undefinedAreas?: UndefinedAreasValue,
+    randomSeed?: number
+  ): Promise<void>;
+  applyZigZag(amount: number, ridges: number, style: ZigZagTypeValue): Promise<void>;
+  applyImage(options: ApplyImageOptions): Promise<void>;
 
   // Batch
   batchGet<K extends PsLayerReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
@@ -852,6 +1155,7 @@ export interface PsLayerWritableProps {
 
 /** Every readable Layer property key (input to {@link PsLayer.batchGet}). */
 export type PsLayerReadableKey =
+  | "typename"
   | "id"
   | "locked"
   | "isBackgroundLayer"
@@ -874,7 +1178,12 @@ export type PsLayerReadableKey =
   | "vectorMaskFeather"
   | "selected"
   | "bounds"
-  | "boundsNoEffects";
+  | "boundsNoEffects"
+  | "document"
+  | "parent"
+  | "linkedLayers"
+  | "textItem"
+  | "layers";
 
 /**
  * Remote proxy for a Photoshop `Channel`. The first new DOM class built on the batch-0.5 registry
@@ -1194,6 +1503,8 @@ export interface PhotoshopApp {
   set backgroundColor(value: SolidColorInput);
   readonly fonts: Promise<TextFonts>;
   readonly SolidColor: typeof import("./solid-color.js").SolidColor;
+  readonly PathPointInfo: typeof import("./path-builders.js").PathPointInfo;
+  readonly SubPathInfo: typeof import("./path-builders.js").SubPathInfo;
   getColorProfiles(colorMode?: string): Promise<string[]>;
   convertUnits(fromValue: number, fromUnits: UnitsValue, toUnits: UnitsValue, resolution?: number): Promise<number>;
   showAlert(message: string): Promise<void>;
@@ -1215,6 +1526,14 @@ export interface PhotoshopNamespace extends PhotoshopConstantsNamespace {
   readonly action: PhotoshopActions;
   readonly core: PhotoshopCore;
   readonly ColorConversionModel: typeof ColorConversionModel;
+  readonly SolidColor: typeof import("./solid-color.js").SolidColor;
+  readonly CMYKColor: typeof import("./color-models.js").CMYKColor;
+  readonly GrayColor: typeof import("./color-models.js").GrayColor;
+  readonly HSBColor: typeof import("./color-models.js").HSBColor;
+  readonly LabColor: typeof import("./color-models.js").LabColor;
+  readonly RGBColor: typeof import("./color-models.js").RGBColor;
+  readonly PathPointInfo: typeof import("./path-builders.js").PathPointInfo;
+  readonly SubPathInfo: typeof import("./path-builders.js").SubPathInfo;
   readonly imaging: PhotoshopImaging;
   readonly preferences: Promise<Preferences>;
   readonly preferencesCursors: Promise<PreferencesCursors>;

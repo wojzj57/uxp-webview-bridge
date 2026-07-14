@@ -33,7 +33,20 @@ import type {
 } from "./types.js";
 
 /** Read-only scalar Layer properties. */
-const LAYER_READONLY_SCALARS = ["id", "locked", "isBackgroundLayer", "kind"] as const;
+const LAYER_READONLY_SCALARS = ["typename", "id", "locked", "isBackgroundLayer", "kind"] as const;
+
+const LAYER_VOID_METHODS = [
+  "delete", "unlink", "move", "translate", "flip", "scale", "rotate", "rasterize",
+  "applyAddNoise", "applyAverage", "applyBlur", "applyBlurMore", "applyClouds",
+  "applyCustomFilter", "applyDeInterlace", "applyDespeckle", "applyDifferenceClouds",
+  "applyDiffuseGlow", "applyDisplace", "applyDustAndScratches", "applyGaussianBlur",
+  "applyGlassEffect", "applyHighPass", "applyLensBlur", "applyLensFlare", "applyMaximum",
+  "applyMinimum", "applyMedianNoise", "applyMotionBlur", "applyNTSC", "applyOceanRipple",
+  "applyOffset", "applyTwirl", "applyPinch", "applyPolarCoordinates", "applyRipple",
+  "applySharpen", "applySharpenEdges", "applySharpenMore", "applyShear", "applySmartBlur",
+  "applySpherize", "applyUnSharpMask", "applyWave", "applyZigZag", "applyImage",
+  "bringToFront", "sendToBack", "skew", "clear", "copy", "cut"
+] as const;
 
 /** Read/write scalar Layer properties. */
 const LAYER_WRITABLE_SCALARS = [
@@ -75,6 +88,8 @@ export function createLayerProperties(): Record<string, RemotePropertyDescriptor
   properties.document = { writable: false, mutating: false, remoteKey: "document", refType: Document };
   properties.parent = { writable: false, mutating: false, remoteKey: "parent", refType: Layer };
   properties.linkedLayers = { writable: false, mutating: false, remoteKey: "linkedLayers", collectionOf: Layer };
+  properties.textItem = { writable: false, mutating: false, remoteKey: "textItem", refType: PHOTOSHOP_REMOTE_TYPE.TextItem };
+  properties.layers = { writable: false, mutating: false, remoteKey: "layers", collectionOf: Layer };
   return properties;
 }
 
@@ -82,17 +97,10 @@ export function createLayerProperties(): Record<string, RemotePropertyDescriptor
 export function createLayerMethods(): Record<string, RemoteMethodDescriptor> {
   const { Layer } = PHOTOSHOP_REMOTE_TYPE;
   return {
-    delete: { mutating: true },
+    ...Object.fromEntries(LAYER_VOID_METHODS.map((name) => [name, { mutating: true }])),
     duplicate: { mutating: true, refType: Layer },
     link: { mutating: true, collectionOf: Layer },
-    unlink: { mutating: true },
-    move: { mutating: true },
-    translate: { mutating: true },
-    flip: { mutating: true },
-    scale: { mutating: true },
-    rotate: { mutating: true },
-    merge: { mutating: true, refType: Layer },
-    rasterize: { mutating: true }
+    merge: { mutating: true, refType: Layer }
   };
 }
 
@@ -102,29 +110,16 @@ export function createLayerClass(context: PhotoshopContext): {
   const { rpc, registry } = context;
 
   const properties = createLayerProperties();
+  const methods = createLayerMethods();
 
   const methodNames: RemoteMethodNames = {
     propertyGet: Object.fromEntries(Object.keys(properties).map((name) => [name, "layer.propertyGet"])),
     propertySet: Object.fromEntries(LAYER_WRITABLE_SCALARS.map((name) => [name, "layer.propertySet"])),
-    method: {
-      delete: "layer.delete",
-      duplicate: "layer.duplicate",
-      link: "layer.link",
-      unlink: "layer.unlink",
-      move: "layer.move",
-      translate: "layer.translate",
-      flip: "layer.flip",
-      scale: "layer.scale",
-      rotate: "layer.rotate",
-      merge: "layer.merge",
-      rasterize: "layer.rasterize"
-    },
+    method: Object.fromEntries(Object.keys(methods).map((name) => [name, `layer.${name}`])),
     batchGet: "layer.batchGet",
     batchSet: "layer.batchSet",
     dispose: "layer.dispose"
   };
-
-  const methods = createLayerMethods();
 
   const config: RemoteClassConfig = {
     rpc,
@@ -137,6 +132,7 @@ export function createLayerClass(context: PhotoshopContext): {
   };
 
   class WebviewPsLayer extends RemoteClass implements PsLayer {
+    declare readonly typename: Promise<"Layer">;
     declare readonly id: Promise<number>;
     declare readonly locked: Promise<boolean>;
     declare readonly isBackgroundLayer: Promise<boolean>;
@@ -163,9 +159,11 @@ export function createLayerClass(context: PhotoshopContext): {
     declare readonly document: Promise<PsDocument>;
     declare readonly parent: Promise<PsLayer | null>;
     declare readonly linkedLayers: Promise<Layers>;
+    declare readonly textItem: PsLayer["textItem"];
+    declare readonly layers: PsLayer["layers"];
 
     declare delete: () => Promise<void>;
-    declare duplicate: (targetDocument?: PsDocument, name?: string) => Promise<PsLayer>;
+    declare duplicate: PsLayer["duplicate"];
     declare link: (layer: PsLayer) => Promise<Layers>;
     declare unlink: () => Promise<void>;
     declare move: (relativeObject: PsLayer, placement: ElementPlacementValue) => Promise<void>;
@@ -174,14 +172,54 @@ export function createLayerClass(context: PhotoshopContext): {
       vertical: number | PercentValue | PixelValue
     ) => Promise<void>;
     declare flip: (axis: FlipAxisValue) => Promise<void>;
-    declare scale: (
-      width: number | PercentValue,
-      height: number | PercentValue,
-      anchor?: AnchorPositionValue
-    ) => Promise<void>;
-    declare rotate: (angle: number | AngleValue, anchor?: AnchorPositionValue) => Promise<void>;
+    declare scale: PsLayer["scale"];
+    declare rotate: PsLayer["rotate"];
     declare merge: () => Promise<PsLayer>;
-    declare rasterize: (target?: string) => Promise<void>;
+    declare rasterize: PsLayer["rasterize"];
+    declare applyAddNoise: PsLayer["applyAddNoise"];
+    declare applyAverage: PsLayer["applyAverage"];
+    declare applyBlur: PsLayer["applyBlur"];
+    declare applyBlurMore: PsLayer["applyBlurMore"];
+    declare applyClouds: PsLayer["applyClouds"];
+    declare applyCustomFilter: PsLayer["applyCustomFilter"];
+    declare applyDeInterlace: PsLayer["applyDeInterlace"];
+    declare applyDespeckle: PsLayer["applyDespeckle"];
+    declare applyDifferenceClouds: PsLayer["applyDifferenceClouds"];
+    declare applyDiffuseGlow: PsLayer["applyDiffuseGlow"];
+    declare applyDisplace: PsLayer["applyDisplace"];
+    declare applyDustAndScratches: PsLayer["applyDustAndScratches"];
+    declare applyGaussianBlur: PsLayer["applyGaussianBlur"];
+    declare applyGlassEffect: PsLayer["applyGlassEffect"];
+    declare applyHighPass: PsLayer["applyHighPass"];
+    declare applyLensBlur: PsLayer["applyLensBlur"];
+    declare applyLensFlare: PsLayer["applyLensFlare"];
+    declare applyMaximum: PsLayer["applyMaximum"];
+    declare applyMinimum: PsLayer["applyMinimum"];
+    declare applyMedianNoise: PsLayer["applyMedianNoise"];
+    declare applyMotionBlur: PsLayer["applyMotionBlur"];
+    declare applyNTSC: PsLayer["applyNTSC"];
+    declare applyOceanRipple: PsLayer["applyOceanRipple"];
+    declare applyOffset: PsLayer["applyOffset"];
+    declare applyTwirl: PsLayer["applyTwirl"];
+    declare applyPinch: PsLayer["applyPinch"];
+    declare applyPolarCoordinates: PsLayer["applyPolarCoordinates"];
+    declare applyRipple: PsLayer["applyRipple"];
+    declare applySharpen: PsLayer["applySharpen"];
+    declare applySharpenEdges: PsLayer["applySharpenEdges"];
+    declare applySharpenMore: PsLayer["applySharpenMore"];
+    declare applyShear: PsLayer["applyShear"];
+    declare applySmartBlur: PsLayer["applySmartBlur"];
+    declare applySpherize: PsLayer["applySpherize"];
+    declare applyUnSharpMask: PsLayer["applyUnSharpMask"];
+    declare applyWave: PsLayer["applyWave"];
+    declare applyZigZag: PsLayer["applyZigZag"];
+    declare applyImage: PsLayer["applyImage"];
+    declare bringToFront: PsLayer["bringToFront"];
+    declare sendToBack: PsLayer["sendToBack"];
+    declare skew: PsLayer["skew"];
+    declare clear: PsLayer["clear"];
+    declare copy: PsLayer["copy"];
+    declare cut: PsLayer["cut"];
 
     constructor(source: RemoteReference | RemoteConstructionRequest) {
       super(config, source);

@@ -21,7 +21,8 @@ export type PhotoshopHandleType =
   | "PreferencesNotifications" | "PreferencesPerformance" | "PreferencesTools"
   | "PreferencesTransparencyAndGamut" | "PreferencesType" | "PreferencesUnitsAndRulers"
   | "Selection" | "HistoryState" | "Guide" | "PathItem" | "SubPathItem" | "PathPoint"
-  | "ColorSampler" | "CountItem" | "LayerComp";
+  | "ColorSampler" | "CountItem" | "LayerComp" | "TextItem" | "CharacterStyle"
+  | "ParagraphStyle" | "TextWarpStyle";
 
 /** Options passed to `core.executeAsModal`. */
 export interface ExecuteAsModalOptions {
@@ -58,6 +59,11 @@ export interface PhotoshopLayerLike {
   readonly id: number;
   [member: string]: unknown;
 }
+
+export interface PhotoshopTextItemLike { [member: string]: unknown; }
+export interface PhotoshopCharacterStyleLike { [member: string]: unknown; }
+export interface PhotoshopParagraphStyleLike { [member: string]: unknown; }
+export interface PhotoshopTextWarpStyleLike { [member: string]: unknown; }
 
 /**
  * Structural Channel shape the adapter reads/mutates. Unlike Document/Layer, Channel has NO

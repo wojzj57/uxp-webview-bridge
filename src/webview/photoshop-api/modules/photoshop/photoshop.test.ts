@@ -61,16 +61,43 @@ import type {
   ActionReference as AdobeActionReference,
   BatchPlayCommandOptions as AdobeBatchPlayCommandOptions
 } from "@shared/types/photoshop/internal/dom/CoreModules.js";
+import type { Layer as AdobeLayer } from "@shared/types/photoshop/internal/dom/Layer.js";
+import type { TextItem as AdobeTextItem } from "@shared/types/photoshop/internal/dom/TextItem.js";
+import type { CharacterStyle as AdobeCharacterStyle } from "@shared/types/photoshop/internal/dom/text/CharacterStyle.js";
+import type { ParagraphStyle as AdobeParagraphStyle } from "@shared/types/photoshop/internal/dom/text/ParagraphStyle.js";
+import type { TextWarpStyle as AdobeTextWarpStyle } from "@shared/types/photoshop/internal/dom/text/TextWarpStyle.js";
+import type {
+  CMYKColor as AdobeCMYKColor,
+  GrayColor as AdobeGrayColor,
+  HSBColor as AdobeHSBColor,
+  LabColor as AdobeLabColor,
+  RGBColor as AdobeRGBColor
+} from "@shared/types/photoshop/internal/dom/objects/Colors.js";
+import type { PathPointInfo as AdobePathPointInfo } from "@shared/types/photoshop/internal/dom/objects/PathPointInfo.js";
+import type { SubPathInfo as AdobeSubPathInfo } from "@shared/types/photoshop/internal/dom/objects/SubPathInfo.js";
+import type {
+  CMYKColor as WebviewCMYKColor,
+  GrayColor as WebviewGrayColor,
+  HSBColor as WebviewHSBColor,
+  LabColor as WebviewLabColor,
+  RGBColor as WebviewRGBColor
+} from "./color-models.js";
+import type {
+  PathPointInfo as WebviewPathPointInfo,
+  SubPathInfo as WebviewSubPathInfo
+} from "./path-builders.js";
 import type {
   ActionDescriptor,
   ActionReference,
   AngleValue,
   BatchPlayCommandOptions,
   CentimeterValue,
+  CharacterStyle,
   DensityValue,
   DistanceValue,
   InchValue,
   MillimeterValue,
+  ParagraphStyle,
   PercentValue,
   PicaValue,
   PixelValue,
@@ -92,6 +119,8 @@ import type {
   PsSelectionReadableKey,
   PsSelectionWritableProps,
   PhotoshopNamespace,
+  TextItem,
+  TextWarpStyle,
   UnitTypeEnum,
   UnitValue
 } from "./types.js";
@@ -205,10 +234,50 @@ type _HistoryStateRejectsWrites = AssertMutual<
 type PsLayerReadableMembers = Exclude<
   keyof PsLayer,
   "delete" | "duplicate" | "link" | "unlink" | "move" | "translate" | "flip" | "scale" | "rotate" |
-  "merge" | "rasterize" | "batchGet" | "batchSet" | "dispose" |
-  "document" | "parent" | "linkedLayers"
+  "merge" | "rasterize" | "batchGet" | "batchSet" | "dispose" | "bringToFront" | "sendToBack" |
+  "skew" | "clear" | "copy" | "cut" | "applyAddNoise" | "applyAverage" | "applyBlur" |
+  "applyBlurMore" | "applyClouds" | "applyCustomFilter" | "applyDeInterlace" | "applyDespeckle" |
+  "applyDifferenceClouds" | "applyDiffuseGlow" | "applyDisplace" | "applyDustAndScratches" |
+  "applyGaussianBlur" | "applyGlassEffect" | "applyHighPass" | "applyLensBlur" | "applyLensFlare" |
+  "applyMaximum" | "applyMinimum" | "applyMedianNoise" | "applyMotionBlur" | "applyNTSC" |
+  "applyOceanRipple" | "applyOffset" | "applyTwirl" | "applyPinch" | "applyPolarCoordinates" |
+  "applyRipple" | "applySharpen" | "applySharpenEdges" | "applySharpenMore" | "applyShear" |
+  "applySmartBlur" | "applySpherize" | "applyUnSharpMask" | "applyWave" | "applyZigZag" | "applyImage"
 >;
 type _LayerReadableKeysLocked = AssertMutual<PsLayerReadableMembers, PsLayerReadableKey>;
+
+/** Exact public class key coverage against the vendored Photoshop declarations. */
+type RemoteInfrastructureMembers = "batchGet" | "batchSet" | "dispose";
+type _LayerClassKeysExact = AssertMutual<
+  Exclude<keyof PsLayer, RemoteInfrastructureMembers>,
+  Exclude<keyof AdobeLayer, `_${string}`>
+>;
+type _TextItemClassKeysExact = AssertMutual<Exclude<keyof TextItem, RemoteInfrastructureMembers>, keyof AdobeTextItem>;
+type _CharacterStyleClassKeysExact = AssertMutual<
+  Exclude<keyof CharacterStyle, RemoteInfrastructureMembers>,
+  keyof AdobeCharacterStyle
+>;
+type _ParagraphStyleClassKeysExact = AssertMutual<
+  Exclude<keyof ParagraphStyle, RemoteInfrastructureMembers>,
+  keyof AdobeParagraphStyle
+>;
+type _TextWarpStyleClassKeysExact = AssertMutual<
+  Exclude<keyof TextWarpStyle, RemoteInfrastructureMembers>,
+  keyof AdobeTextWarpStyle
+>;
+type _PathPointInfoClassKeysExact = AssertMutual<
+  Exclude<keyof WebviewPathPointInfo, "toInputData">,
+  keyof AdobePathPointInfo
+>;
+type _SubPathInfoClassKeysExact = AssertMutual<
+  Exclude<keyof WebviewSubPathInfo, "toInputData">,
+  keyof AdobeSubPathInfo
+>;
+type _CMYKColorClassKeysExact = AssertMutual<keyof WebviewCMYKColor, keyof AdobeCMYKColor>;
+type _GrayColorClassKeysExact = AssertMutual<keyof WebviewGrayColor, keyof AdobeGrayColor>;
+type _HSBColorClassKeysExact = AssertMutual<keyof WebviewHSBColor, keyof AdobeHSBColor>;
+type _LabColorClassKeysExact = AssertMutual<keyof WebviewLabColor, keyof AdobeLabColor>;
+type _RGBColorClassKeysExact = AssertMutual<keyof WebviewRGBColor, keyof AdobeRGBColor>;
 
 type PsChannelReadableMembers = Exclude<
   keyof PsChannel,
@@ -271,6 +340,18 @@ export type _StaticConsistencyProof = [
   _HistoryStateReadableKeysLocked,
   _HistoryStateRejectsWrites,
   _LayerReadableKeysLocked,
+  _LayerClassKeysExact,
+  _TextItemClassKeysExact,
+  _CharacterStyleClassKeysExact,
+  _ParagraphStyleClassKeysExact,
+  _TextWarpStyleClassKeysExact,
+  _PathPointInfoClassKeysExact,
+  _SubPathInfoClassKeysExact,
+  _CMYKColorClassKeysExact,
+  _GrayColorClassKeysExact,
+  _HSBColorClassKeysExact,
+  _LabColorClassKeysExact,
+  _RGBColorClassKeysExact,
   _ChannelReadableKeysLocked,
   _ChannelWritableIsExactlyWritable,
   _DescriptorToAdobe,
@@ -285,6 +366,42 @@ export type _StaticConsistencyProof = [
 // ---------------------------------------------------------------------------------------------------
 
 const SIX_BOUNDS_FIELDS = ["left", "right", "top", "bottom", "width", "height"] as const;
+const COMPLETE_LAYER_MEMBERS = [
+  "typename", "locked", "allLocked", "pixelsLocked", "positionLocked", "transparentPixelsLocked",
+  "isBackgroundLayer", "visible", "kind", "bounds", "boundsNoEffects", "opacity", "fillOpacity",
+  "filterMaskDensity", "filterMaskFeather", "layerMaskDensity", "layerMaskFeather", "vectorMaskDensity",
+  "vectorMaskFeather", "isClippingMask", "blendMode", "linkedLayers", "name", "id", "document", "parent",
+  "textItem", "layers", "applyAddNoise", "applyAverage", "applyBlur", "applyBlurMore", "applyClouds",
+  "applyCustomFilter", "applyDeInterlace", "applyDespeckle", "applyDifferenceClouds", "applyDiffuseGlow",
+  "applyDisplace", "applyDustAndScratches", "applyGaussianBlur", "applyGlassEffect", "applyHighPass",
+  "applyLensBlur", "applyLensFlare", "applyMaximum", "applyMinimum", "applyMedianNoise", "applyMotionBlur",
+  "applyNTSC", "applyOceanRipple", "applyOffset", "applyTwirl", "applyPinch", "applyPolarCoordinates",
+  "applyRipple", "applySharpen", "applySharpenEdges", "applySharpenMore", "applyShear", "applySmartBlur",
+  "applySpherize", "applyUnSharpMask", "applyWave", "applyZigZag", "applyImage", "delete", "duplicate",
+  "link", "unlink", "move", "bringToFront", "sendToBack", "translate", "flip", "scale", "rotate", "skew",
+  "clear", "copy", "cut", "merge", "rasterize"
+] as const;
+const COMPLETE_CHARACTER_STYLE_MEMBERS = [
+  "font", "size", "horizontalScale", "verticalScale", "fauxBold", "fauxItalic", "useAutoLeading", "leading",
+  "tracking", "baselineShift", "horizontalDiacriticPosition", "verticalDiacriticPosition", "autoKerning",
+  "capitalization", "baseline", "strikeThrough", "underline", "ligatures", "alternateLigatures", "fractions",
+  "ordinals", "swash", "titlingAlternates", "stylisticAlternates", "language", "characterAlignment", "noBreak",
+  "color", "kashidas", "middleEasternTextDirection", "middleEasternDigitsType", "fractionalWidths",
+  "antiAliasMethod", "reset"
+] as const;
+const COMPLETE_PARAGRAPH_STYLE_MEMBERS = [
+  "justification", "justificationFeatures", "leftIndent", "rightIndent", "firstLineIndent", "spaceBefore",
+  "kashidaWidth", "kinsoku", "mojikumi", "spaceAfter", "hyphenation", "hyphenationFeatures", "layoutMode",
+  "features", "reset"
+] as const;
+const COMPLETE_WARP_STYLE_MEMBERS = [
+  "style", "direction", "bend", "horizontalDistortion", "verticalDistortion", "reset"
+] as const;
+const COMPLETE_TEXT_ITEM_MEMBERS = [
+  "parent", "typename", "contents", "textClickPoint", "orientation", "isPointText", "isParagraphText",
+  "characterStyle", "paragraphStyle", "warpStyle", "convertToParagraphText", "convertToPointText",
+  "convertToShape", "createWorkPath"
+] as const;
 
 export default defineWebviewCdpCases([
   {
@@ -393,6 +510,11 @@ export default defineWebviewCdpCases([
       const [foregroundColor, backgroundColor] = await Promise.all([app.foregroundColor, app.backgroundColor]);
       assert.equal(foregroundColor.typename, "SolidColor", "foregroundColor should decode to SolidColor.");
       assert.equal(backgroundColor.typename, "SolidColor", "backgroundColor should decode to SolidColor.");
+      assert.equal(foregroundColor.rgb.typename, "RGBColor", "SolidColor.rgb should decode to the RGBColor value class.");
+      assert.ok(
+        foregroundColor.rgb instanceof bridge.photoshop.RGBColor,
+        "SolidColor.rgb should preserve the public RGBColor constructor identity."
+      );
       assert.ok(/^([0-9A-F]{6})$/.test(foregroundColor.nearestWebColor.hexValue), "nearestWebColor should expose a hex value.");
 
       try {
@@ -591,8 +713,9 @@ export default defineWebviewCdpCases([
         const createdId = await created.id;
         assert.ok(typeof createdId === "number", "created layer should expose a numeric id.");
 
-        duplicated = await created.duplicate();
+        duplicated = (await created.duplicate()) ?? undefined;
         assert.ok(typeof duplicated === "object" && duplicated !== null, "duplicate should return a layer proxy.");
+        if (!duplicated) throw new Error("duplicate returned null.");
         const duplicatedId = await duplicated.id;
         assert.ok(duplicatedId !== createdId, "duplicate should produce a distinct layer id.");
 
@@ -615,7 +738,8 @@ export default defineWebviewCdpCases([
 
       let duplicate: PsLayer | undefined;
       try {
-        duplicate = await source.duplicate();
+        duplicate = (await source.duplicate()) ?? undefined;
+        if (!duplicate) throw new Error("duplicate returned null.");
         const pixelOffset: PixelValue = { _unit: "pixelsUnit", _value: 1 };
         const noPixelOffset: PixelValue = { _unit: "pixelsUnit", _value: 0 };
         const fullScale: PercentValue = { _unit: "percentUnit", _value: 100 };
@@ -904,10 +1028,24 @@ export default defineWebviewCdpCases([
         document = await source.duplicate(`uxp-bridge-paths-${Date.now()}`); const paths = await document.pathItems;
         assert.equal(paths.parent, document, "pathItems.parent should be the owner document.");
         const pathName = `Bridge Path ${Date.now()}`;
-        path = await paths.add(pathName, [{ closed: false, operation: bridge.photoshop.ShapeOperation.SHAPEADD, entireSubPath: [
-          { anchor: [10, 10], leftDirection: [10, 10], rightDirection: [10, 10], kind: bridge.photoshop.PointKind.CORNERPOINT },
-          { anchor: [30, 30], leftDirection: [30, 30], rightDirection: [30, 30], kind: bridge.photoshop.PointKind.CORNERPOINT }
-        ] }]);
+        const PathPointInfo = bridge.photoshop.PathPointInfo;
+        const SubPathInfo = bridge.photoshop.SubPathInfo;
+        const firstPoint = new PathPointInfo({
+          anchor: [10, 10], leftDirection: [10, 10], rightDirection: [10, 10],
+          kind: bridge.photoshop.PointKind.CORNERPOINT
+        });
+        const secondPoint = new PathPointInfo({
+          anchor: [30, 30], leftDirection: [30, 30], rightDirection: [30, 30],
+          kind: bridge.photoshop.PointKind.CORNERPOINT
+        });
+        assert.equal(firstPoint.typename, "PathPointInfo", "PathPointInfo should be constructible in the WebView.");
+        const subPathInput = new SubPathInfo({
+          closed: false,
+          operation: bridge.photoshop.ShapeOperation.SHAPEADD,
+          entireSubPath: [firstPoint, secondPoint]
+        });
+        assert.equal(subPathInput.typename, "SubPathInfo", "SubPathInfo should be constructible in the WebView.");
+        path = await paths.add(pathName, [subPathInput]);
         assert.equal(await path.parent, document, "path.parent should preserve document identity.");
         const subPaths = await path.subPathItems; assert.equal(subPaths.parent, path, "subPathItems.parent should be the path."); assert.equal(subPaths.length, 1, "created path should have one subpath.");
         const subPath = subPaths[0]!; const points = await subPath.pathPoints; assert.equal(points.parent, subPath, "pathPoints.parent should be the subpath."); assert.equal(points.length, 2, "created subpath should have two points.");
@@ -917,6 +1055,129 @@ export default defineWebviewCdpCases([
         duplicate = await path.duplicate("Bridge Path Copy"); await duplicate.select(); await duplicate.deselect();
         return { subPaths: subPaths.length, points: points.length, stableIdentity: true };
       } finally { try { await duplicate?.remove(); } catch {} try { await path?.remove(); } catch {} await closeDocumentQuietly(document); }
+    }
+  },
+  {
+    name: "photoshop.text-complete-surface",
+    async run({ bridge, assert, skip, reportDiagnostics }) {
+      bridge.ensureConfigured();
+      const source = await getActiveDocument(bridge, skip);
+      if (isSkip(source)) return source;
+
+      let document: PsDocument | undefined;
+      try {
+        document = await source.duplicate(`uxp-bridge-text-${Date.now()}`);
+        const layer = await document.createTextLayer({ name: `Bridge Text ${Date.now()}` });
+        if (!layer) return skip("Photoshop did not create the disposable text layer.");
+
+        const text = await layer.textItem;
+        assert.equal(await layer.textItem, text, "re-reading Layer.textItem should preserve identity.");
+        assert.equal(await text.parent, layer, "TextItem.parent should preserve Layer identity.");
+        for (const member of COMPLETE_TEXT_ITEM_MEMBERS) {
+          assert.ok(member in text, `photoshop.TextItem.${member} must exist.`);
+        }
+
+        const contents = `UXP bridge ${Date.now()}`;
+        text.contents = contents;
+        assert.equal(await text.contents, contents, "TextItem.contents should flush before a later read.");
+
+        const character = await text.characterStyle;
+        const paragraph = await text.paragraphStyle;
+        const warp = await text.warpStyle;
+        assert.equal(await text.characterStyle, character, "CharacterStyle identity should be stable.");
+        assert.equal(await text.paragraphStyle, paragraph, "ParagraphStyle identity should be stable.");
+        assert.equal(await text.warpStyle, warp, "TextWarpStyle identity should be stable.");
+        for (const member of COMPLETE_CHARACTER_STYLE_MEMBERS) {
+          assert.ok(member in character, `photoshop.CharacterStyle.${member} must exist.`);
+        }
+        for (const member of COMPLETE_PARAGRAPH_STYLE_MEMBERS) {
+          assert.ok(member in paragraph, `photoshop.ParagraphStyle.${member} must exist.`);
+        }
+        for (const member of COMPLETE_WARP_STYLE_MEMBERS) {
+          assert.ok(member in warp, `photoshop.TextWarpStyle.${member} must exist.`);
+        }
+
+        const size = await character.size;
+        character.size = size;
+        assert.equal(await character.size, size, "CharacterStyle.size should flush before a later read.");
+        const leftIndent = await paragraph.leftIndent;
+        paragraph.leftIndent = leftIndent;
+        assert.equal(await paragraph.leftIndent, leftIndent, "ParagraphStyle.leftIndent should flush before a later read.");
+        const bend = await warp.bend;
+        warp.bend = bend;
+        assert.equal(await warp.bend, bend, "TextWarpStyle.bend should flush before a later read.");
+
+        let conversionSupported = false;
+        try {
+          const paragraphText = await text.convertToParagraphText();
+          assert.equal(paragraphText, text, "text conversion should preserve the TextItem proxy identity.");
+          assert.equal(await text.isParagraphText, true, "convertToParagraphText should update the native text kind.");
+          const pointText = await text.convertToPointText();
+          assert.equal(pointText, text, "point conversion should preserve the TextItem proxy identity.");
+          conversionSupported = true;
+        } catch (error) {
+          reportDiagnostics({ textConversionUnsupported: normalizeError(error) });
+        }
+
+        return {
+          textMembers: COMPLETE_TEXT_ITEM_MEMBERS.length,
+          characterMembers: COMPLETE_CHARACTER_STYLE_MEMBERS.length,
+          paragraphMembers: COMPLETE_PARAGRAPH_STYLE_MEMBERS.length,
+          warpMembers: COMPLETE_WARP_STYLE_MEMBERS.length,
+          conversionSupported
+        };
+      } finally {
+        await closeDocumentQuietly(document);
+      }
+    }
+  },
+  {
+    name: "photoshop.layer-complete-surface",
+    async run({ bridge, assert, skip, reportDiagnostics }) {
+      bridge.ensureConfigured();
+      const source = await getActiveDocument(bridge, skip);
+      if (isSkip(source)) return source;
+
+      let document: PsDocument | undefined;
+      try {
+        document = await source.duplicate(`uxp-bridge-layer-${Date.now()}`);
+        const group = await document.createLayerGroup({ name: `Bridge Group ${Date.now()}` });
+        if (!group) return skip("Photoshop did not create the disposable layer group.");
+        assert.equal(COMPLETE_LAYER_MEMBERS.length, 83, "the live Layer manifest should contain 83 documented members.");
+        for (const member of COMPLETE_LAYER_MEMBERS) {
+          assert.ok(member in group, `photoshop.Layer.${member} must exist.`);
+        }
+        assert.equal(await group.typename, "Layer", "Layer.typename should resolve to Layer.");
+
+        const nested = await group.layers;
+        assert.ok(nested !== null, "a group layer should expose a nested Layers collection.");
+        assert.equal(nested?.typename, "Layers", "group.layers should decode to Layers.");
+        const childName = `Bridge Child ${Date.now()}`;
+        const child = await nested!.add({ name: childName });
+        assert.equal(await nested!.getByName(childName), child, "group Layers.getByName should preserve child identity.");
+        assert.equal(await child.parent, group, "a group-created child should preserve its parent Layer identity.");
+        assert.equal(await child.layers, null, "a non-group layer should expose null for layers.");
+        await child.bringToFront();
+        await child.sendToBack();
+        await child.translate(0, 0);
+
+        let filterSupported = false;
+        try {
+          await child.applyGaussianBlur(0.1);
+          filterSupported = true;
+        } catch (error) {
+          reportDiagnostics({ emptyPixelLayerFilterUnsupported: normalizeError(error) });
+        }
+
+        return {
+          documentedMembers: COMPLETE_LAYER_MEMBERS.length,
+          nestedLayers: nested!.length,
+          groupIdentity: true,
+          filterSupported
+        };
+      } finally {
+        await closeDocumentQuietly(document);
+      }
     }
   },
   {

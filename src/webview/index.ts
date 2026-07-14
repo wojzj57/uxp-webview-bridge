@@ -20,12 +20,27 @@ export type { LocalStorageNamespace } from "./uxp-api/global-members/local-stora
 export { os } from "./uxp-api/modules/os/os.js";
 export type { CpuInfo, OsNamespace } from "./uxp-api/modules/os/index.js";
 export { path } from "./uxp-api/global-members/path/index.js";
-export { ColorConversionModel, SolidColor, photoshop } from "./photoshop-api/modules/photoshop/index.js";
+export {
+  CMYKColor,
+  ColorConversionModel,
+  GrayColor,
+  HSBColor,
+  LabColor,
+  PathPointInfo,
+  RGBColor,
+  SolidColor,
+  SubPathInfo,
+  photoshop
+} from "./photoshop-api/modules/photoshop/index.js";
 export type {
   ActionDescriptor,
   Action,
   ActionSet,
   ActionReference,
+  ApplyImageChannelType,
+  ApplyImageLayerType,
+  ApplyImageOptions,
+  ApplyImageSource,
   AngleValue,
   BatchPlayCommandOptions,
   BitmapConversionOptions,
@@ -57,6 +72,9 @@ export type {
 
   CalculateDialogSizeOptions,
   Channels,
+  CharacterStyle,
+  CharacterStyleReadableKey,
+  CharacterStyleWritableProps,
   CentimeterValue,
   CMYKColorDescriptor,
   ColorDescriptor,
@@ -91,6 +109,7 @@ export type {
   GrayscaleColorDescriptor,
   GPUInfo,
   HsbColorView,
+  HyphenationProperties,
   HistorySuspendedOptions,
   HistoryStates,
   Guides,
@@ -113,6 +132,9 @@ export type {
   MenuCommandOptions,
   MillimeterValue,
   OpenOptions,
+  ParagraphStyle,
+  ParagraphStyleReadableKey,
+  ParagraphStyleWritableProps,
   PercentValue,
   PicaValue,
   PixelValue,
@@ -172,8 +194,15 @@ export type {
   SubPathInfoInput,
   SubPathItems,
   SolidColorInput,
+  JustificationProperties,
+  TextItem,
+  TextItemReadableKey,
+  TextItemWritableProps,
   TextFont,
   TextFonts,
+  TextWarpStyle,
+  TextWarpStyleReadableKey,
+  TextWarpStyleWritableProps,
   Tool,
   UnitTypeEnum,
   UnitValue

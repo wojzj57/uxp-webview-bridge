@@ -6,6 +6,8 @@ import {
 } from "@shared/photoshop-api/value-objects.js";
 import type { ColorModelValue } from "@shared/photoshop-api/photoshop-constants.js";
 import type { RemoteArgEncoder } from "@webview/uxp-api/remote/index.js";
+import { CMYKColor, GrayColor, HSBColor, LabColor, RGBColor, colorModelData } from "./color-models.js";
+import { PathPointInfo, SubPathInfo } from "./path-builders.js";
 import type {
   CmykColorView,
   GrayColorView,
@@ -16,74 +18,78 @@ import type {
   SolidColorInput
 } from "./types.js";
 
-const DEFAULT_RGB: RgbColorView = { red: 255, green: 255, blue: 255, hexValue: "FFFFFF" };
+const DEFAULT_RGB: RgbColorView = new RGBColor();
 type ColorModelName = "rgb" | "hsb" | "cmyk" | "lab" | "gray";
 
 /** WebView-local value object matching Photoshop's constructible SolidColor ergonomics. */
 export class SolidColor implements PsSolidColor {
   #model: ColorModelName;
-  #rgb: RgbColorView;
-  #hsb: HsbColorView;
-  #cmyk: CmykColorView;
-  #lab: LabColorView;
-  #gray: GrayColorView;
+  #rgb: RGBColor;
+  #hsb: HSBColor;
+  #cmyk: CMYKColor;
+  #lab: LabColor;
+  #gray: GrayColor;
   readonly typename = "SolidColor";
 
   constructor(input: ColorModelValue | SolidColorInput = "RGBColor") {
     const source = (typeof input === "string" ? {} : input) as Partial<PsSolidColor>;
     this.#model = typeof input === "string" ? modelFromColorModel(input) : modelFor(source);
-    const rgb = { ...DEFAULT_RGB, ...rgbFor(source, this.#model), ...source.rgb };
-    this.#rgb = { ...rgb, hexValue: source.rgb?.hexValue ?? rgbHex(rgb.red, rgb.green, rgb.blue) };
-    this.#hsb = { hue: 360, saturation: 0, brightness: 100, ...source.hsb };
-    this.#cmyk = { cyan: 0, magenta: 0, yellow: 0, black: 0, ...source.cmyk };
-    this.#lab = { l: 100, a: 0, b: 0, ...source.lab };
-    this.#gray = { gray: 0, ...source.gray };
+    const rgb = {
+      ...colorModelData(DEFAULT_RGB),
+      ...rgbFor(source, this.#model),
+      ...(source.rgb ? colorModelData(source.rgb) : {})
+    } as unknown as RgbColorView;
+    this.#rgb = new RGBColor({ ...rgb, hexValue: source.rgb?.hexValue ?? rgbHex(rgb.red, rgb.green, rgb.blue) });
+    this.#hsb = new HSBColor(source.hsb);
+    this.#cmyk = new CMYKColor(source.cmyk);
+    this.#lab = new LabColor(source.lab);
+    this.#gray = new GrayColor(source.gray);
   }
 
-  get rgb(): RgbColorView {
-    if (this.#model !== "rgb") this.#rgb = completeRgb(this.#currentRgb());
+  get rgb(): RGBColor {
+    if (this.#model !== "rgb") this.#rgb = new RGBColor(completeRgb(this.#currentRgb()));
     this.#model = "rgb";
     return this.#rgb;
   }
-  set rgb(value: RgbColorView) { this.#model = "rgb"; this.#rgb = { ...value }; }
-  get hsb(): HsbColorView {
-    if (this.#model !== "hsb") this.#hsb = rgbToHsb(this.#currentRgb());
+  set rgb(value: RgbColorView) { this.#model = "rgb"; this.#rgb = new RGBColor(value); }
+  get hsb(): HSBColor {
+    if (this.#model !== "hsb") this.#hsb = new HSBColor(rgbToHsb(this.#currentRgb()));
     this.#model = "hsb";
     return this.#hsb;
   }
-  set hsb(value: HsbColorView) { this.#model = "hsb"; this.#hsb = { ...value }; }
-  get cmyk(): CmykColorView {
-    if (this.#model !== "cmyk") this.#cmyk = rgbToCmyk(this.#currentRgb());
+  set hsb(value: HsbColorView) { this.#model = "hsb"; this.#hsb = new HSBColor(value); }
+  get cmyk(): CMYKColor {
+    if (this.#model !== "cmyk") this.#cmyk = new CMYKColor(rgbToCmyk(this.#currentRgb()));
     this.#model = "cmyk";
     return this.#cmyk;
   }
-  set cmyk(value: CmykColorView) { this.#model = "cmyk"; this.#cmyk = { ...value }; }
-  get lab(): LabColorView {
-    if (this.#model !== "lab") this.#lab = rgbToLab(this.#currentRgb());
+  set cmyk(value: CmykColorView) { this.#model = "cmyk"; this.#cmyk = new CMYKColor(value); }
+  get lab(): LabColor {
+    if (this.#model !== "lab") this.#lab = new LabColor(rgbToLab(this.#currentRgb()));
     this.#model = "lab";
     return this.#lab;
   }
-  set lab(value: LabColorView) { this.#model = "lab"; this.#lab = { ...value }; }
-  get gray(): GrayColorView {
-    if (this.#model !== "gray") this.#gray = rgbToGray(this.#currentRgb());
+  set lab(value: LabColorView) { this.#model = "lab"; this.#lab = new LabColor(value); }
+  get gray(): GrayColor {
+    if (this.#model !== "gray") this.#gray = new GrayColor(rgbToGray(this.#currentRgb()));
     this.#model = "gray";
     return this.#gray;
   }
-  set gray(value: GrayColorView) { this.#model = "gray"; this.#gray = { ...value }; }
+  set gray(value: GrayColorView) { this.#model = "gray"; this.#gray = new GrayColor(value); }
 
   #currentRgb(): RgbColorView {
-    if (this.#model === "rgb") return { ...this.#rgb };
+    if (this.#model === "rgb") return new RGBColor(this.#rgb);
     if (this.#model === "hsb") return completeRgb(rgbFor({ hsb: this.#hsb } as Partial<PsSolidColor>, "hsb"));
     if (this.#model === "cmyk") return completeRgb(rgbFor({ cmyk: this.#cmyk } as Partial<PsSolidColor>, "cmyk"));
     if (this.#model === "lab") return completeRgb(rgbFor({ lab: this.#lab } as Partial<PsSolidColor>, "lab"));
     return completeRgb(rgbFor({ gray: this.#gray } as Partial<PsSolidColor>, "gray"));
   }
 
-  get nearestWebColor(): RgbColorView {
+  get nearestWebColor(): RGBColor {
     const red = nearestWebChannel(this.rgb.red);
     const green = nearestWebChannel(this.rgb.green);
     const blue = nearestWebChannel(this.rgb.blue);
-    return { red, green, blue, hexValue: rgbHex(red, green, blue) };
+    return new RGBColor({ red, green, blue });
   }
 
   isEqual(color: SolidColorInput): boolean {
@@ -95,7 +101,7 @@ export class SolidColor implements PsSolidColor {
 
   toInputData(): Partial<SolidColorTransport> {
     const value = ({ rgb: this.#rgb, hsb: this.#hsb, cmyk: this.#cmyk, lab: this.#lab, gray: this.#gray })[this.#model];
-    return { [this.#model]: { ...value } };
+    return { [this.#model]: colorModelData(value) };
   }
 }
 
@@ -105,6 +111,8 @@ export function createSolidColorFromTransport(value: SolidColorTransport): Solid
 
 /** Encoder installed on every Photoshop RemoteClass and snapshot collection call. */
 export const encodePhotoshopArgument: RemoteArgEncoder = (value) => {
+  if (value instanceof PathPointInfo) return value.toInputData();
+  if (value instanceof SubPathInfo) return value.toInputData();
   const data = value instanceof SolidColor
     ? value.toInputData()
     : isSolidColorInput(value) ? value : undefined;

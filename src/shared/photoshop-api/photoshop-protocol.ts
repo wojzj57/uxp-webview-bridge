@@ -47,7 +47,11 @@ export const PHOTOSHOP_REMOTE_TYPE = {
   Guide: "Guide",
   PathItem: "PathItem",
   SubPathItem: "SubPathItem",
-  PathPoint: "PathPoint"
+  PathPoint: "PathPoint",
+  TextItem: "TextItem",
+  CharacterStyle: "CharacterStyle",
+  ParagraphStyle: "ParagraphStyle",
+  TextWarpStyle: "TextWarpStyle"
 } as const;
 export type PhotoshopRemoteType = (typeof PHOTOSHOP_REMOTE_TYPE)[keyof typeof PHOTOSHOP_REMOTE_TYPE];
 
@@ -193,7 +197,9 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       boundsNoEffects: value("ImagingBounds"),
       document: ref(PHOTOSHOP_REMOTE_TYPE.Document),
       parent: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
-      linkedLayers: collection(PHOTOSHOP_REMOTE_TYPE.Layer)
+      linkedLayers: collection(PHOTOSHOP_REMOTE_TYPE.Layer),
+      textItem: ref(PHOTOSHOP_REMOTE_TYPE.TextItem),
+      layers: collection(PHOTOSHOP_REMOTE_TYPE.Layer)
     },
     methods: {
       duplicate: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
@@ -266,6 +272,25 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
     properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.SubPathItem) },
     methods: {}
   },
+  [PHOTOSHOP_REMOTE_TYPE.TextItem]: {
+    properties: {
+      parent: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
+      textClickPoint: value("Point"),
+      characterStyle: ref(PHOTOSHOP_REMOTE_TYPE.CharacterStyle),
+      paragraphStyle: ref(PHOTOSHOP_REMOTE_TYPE.ParagraphStyle),
+      warpStyle: ref(PHOTOSHOP_REMOTE_TYPE.TextWarpStyle)
+    },
+    methods: {
+      convertToParagraphText: ref(PHOTOSHOP_REMOTE_TYPE.TextItem),
+      convertToPointText: ref(PHOTOSHOP_REMOTE_TYPE.TextItem)
+    }
+  },
+  [PHOTOSHOP_REMOTE_TYPE.CharacterStyle]: {
+    properties: { color: value("SolidColor") },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.ParagraphStyle]: { properties: {}, methods: {} },
+  [PHOTOSHOP_REMOTE_TYPE.TextWarpStyle]: { properties: {}, methods: {} },
   [PHOTOSHOP_REMOTE_TYPE.TextFont]: {
     properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.Photoshop) },
     methods: {}
@@ -451,6 +476,50 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "layer.rotate",
   "layer.merge",
   "layer.rasterize",
+  "layer.applyAddNoise",
+  "layer.applyAverage",
+  "layer.applyBlur",
+  "layer.applyBlurMore",
+  "layer.applyClouds",
+  "layer.applyCustomFilter",
+  "layer.applyDeInterlace",
+  "layer.applyDespeckle",
+  "layer.applyDifferenceClouds",
+  "layer.applyDiffuseGlow",
+  "layer.applyDisplace",
+  "layer.applyDustAndScratches",
+  "layer.applyGaussianBlur",
+  "layer.applyGlassEffect",
+  "layer.applyHighPass",
+  "layer.applyLensBlur",
+  "layer.applyLensFlare",
+  "layer.applyMaximum",
+  "layer.applyMinimum",
+  "layer.applyMedianNoise",
+  "layer.applyMotionBlur",
+  "layer.applyNTSC",
+  "layer.applyOceanRipple",
+  "layer.applyOffset",
+  "layer.applyTwirl",
+  "layer.applyPinch",
+  "layer.applyPolarCoordinates",
+  "layer.applyRipple",
+  "layer.applySharpen",
+  "layer.applySharpenEdges",
+  "layer.applySharpenMore",
+  "layer.applyShear",
+  "layer.applySmartBlur",
+  "layer.applySpherize",
+  "layer.applyUnSharpMask",
+  "layer.applyWave",
+  "layer.applyZigZag",
+  "layer.applyImage",
+  "layer.bringToFront",
+  "layer.sendToBack",
+  "layer.skew",
+  "layer.clear",
+  "layer.copy",
+  "layer.cut",
 
   // Layers collection (WebView-local wrapper; these RPCs feed/mutate it)
   "layers.snapshot",
@@ -590,6 +659,35 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "pathPoint.batchGet",
   "pathPoint.batchSet",
   "pathPoint.dispose",
+
+  // TextItem and nested style RemoteObjects
+  "textItem.propertyGet",
+  "textItem.propertySet",
+  "textItem.batchGet",
+  "textItem.batchSet",
+  "textItem.dispose",
+  "textItem.convertToParagraphText",
+  "textItem.convertToPointText",
+  "textItem.convertToShape",
+  "textItem.createWorkPath",
+  "characterStyle.propertyGet",
+  "characterStyle.propertySet",
+  "characterStyle.batchGet",
+  "characterStyle.batchSet",
+  "characterStyle.dispose",
+  "characterStyle.reset",
+  "paragraphStyle.propertyGet",
+  "paragraphStyle.propertySet",
+  "paragraphStyle.batchGet",
+  "paragraphStyle.batchSet",
+  "paragraphStyle.dispose",
+  "paragraphStyle.reset",
+  "textWarpStyle.propertyGet",
+  "textWarpStyle.propertySet",
+  "textWarpStyle.batchGet",
+  "textWarpStyle.batchSet",
+  "textWarpStyle.dispose",
+  "textWarpStyle.reset",
 
   // action namespace: opaque native descriptors/references (never bridge-reference decoded)
   "action.batchPlay",

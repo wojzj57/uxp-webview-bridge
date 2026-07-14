@@ -9,6 +9,7 @@ import {
   type RemoteReference
 } from "@webview/uxp-api/remote/index.js";
 import { SolidColor } from "./solid-color.js";
+import { PathPointInfo, SubPathInfo } from "./path-builders.js";
 import type { PhotoshopContext } from "./context.js";
 import type { PhotoshopApp } from "./types.js";
 
@@ -68,6 +69,8 @@ export function createPhotoshopAppClass(context: PhotoshopContext): {
 
   class WebviewPhotoshopApp extends RemoteClass {
     readonly SolidColor = SolidColor;
+    readonly PathPointInfo = PathPointInfo;
+    readonly SubPathInfo = SubPathInfo;
     constructor(source: RemoteReference | { readonly method: string; readonly args: readonly unknown[] }) {
       super(config, source);
     }

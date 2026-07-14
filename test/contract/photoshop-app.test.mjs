@@ -5,6 +5,7 @@ const namespaceModule = "../../dist/webview/photoshop-api/modules/photoshop/phot
 const hostModule = "../../dist/uxp/photoshop-api/modules/photoshop/host.js";
 const storageHostModule = "../../dist/uxp/uxp-api/modules/uxp/persistent-file-storage/host.js";
 const solidColorModule = "../../dist/webview/photoshop-api/modules/photoshop/solid-color.js";
+const colorModelsModule = "../../dist/webview/photoshop-api/modules/photoshop/color-models.js";
 
 const appRef = { kind: "uxp.remote.ref", type: "Photoshop", id: "photoshop.app" };
 const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id });
@@ -65,14 +66,20 @@ test("Documents snapshot exposes collection metadata and stable remote members",
 
 test("SolidColor is constructible, transport-safe, and completes nearestWebColor/isEqual", async () => {
   const { SolidColor, encodePhotoshopArgument } = await import(solidColorModule);
+  const { RGBColor } = await import(colorModelsModule);
   const white = new SolidColor();
   assert.equal(white.typename, "SolidColor");
-  assert.deepEqual(white.rgb, { red: 255, green: 255, blue: 255, hexValue: "FFFFFF" });
+  assert.ok(white.rgb instanceof RGBColor);
+  assert.deepEqual([white.rgb.red, white.rgb.green, white.rgb.blue, white.rgb.hexValue], [255, 255, 255, "FFFFFF"]);
   const cmyk = new SolidColor("CMYKColorEnum");
   cmyk.cmyk.black = 25;
   assert.deepEqual(Object.keys(encodePhotoshopArgument(cmyk).data), ["cmyk"], "the most recently accessed model must cross the bridge.");
   const color = new SolidColor({ rgb: { red: 250, green: 2, blue: 49 } });
-  assert.deepEqual(color.nearestWebColor, { red: 255, green: 0, blue: 51, hexValue: "FF0033" });
+  assert.ok(color.nearestWebColor instanceof RGBColor);
+  assert.deepEqual(
+    [color.nearestWebColor.red, color.nearestWebColor.green, color.nearestWebColor.blue, color.nearestWebColor.hexValue],
+    [255, 0, 51, "FF0033"]
+  );
   assert.equal(color.isEqual(new SolidColor({ rgb: { red: 250.2, green: 2.1, blue: 49.1 } })), true);
   const envelope = encodePhotoshopArgument(color);
   assert.equal(envelope.kind, "uxp.photoshop.value");
