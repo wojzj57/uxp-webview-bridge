@@ -20,7 +20,8 @@ export type PhotoshopHandleType =
   | "PreferencesGuidesGridsAndSlices" | "PreferencesHistory" | "PreferencesInterface"
   | "PreferencesNotifications" | "PreferencesPerformance" | "PreferencesTools"
   | "PreferencesTransparencyAndGamut" | "PreferencesType" | "PreferencesUnitsAndRulers"
-  | "Selection" | "HistoryState" | "Guide" | "PathItem" | "SubPathItem" | "PathPoint";
+  | "Selection" | "HistoryState" | "Guide" | "PathItem" | "SubPathItem" | "PathPoint"
+  | "ColorSampler" | "CountItem" | "LayerComp";
 
 /** Options passed to `core.executeAsModal`. */
 export interface ExecuteAsModalOptions {
@@ -66,6 +67,10 @@ export interface PhotoshopLayerLike {
 export interface PhotoshopChannelLike {
   [member: string]: unknown;
 }
+
+export interface PhotoshopColorSamplerLike { readonly docId?: number; [member: string]: unknown; }
+export interface PhotoshopCountItemLike { readonly itemIndex: number; readonly groupIndex: number; [member: string]: unknown; }
+export interface PhotoshopLayerCompLike { readonly id: number; readonly docId: number; [member: string]: unknown; }
 
 /** Document-owned Selection; identity is stable by docId. */
 export interface PhotoshopSelectionLike {

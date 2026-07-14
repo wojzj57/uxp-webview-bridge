@@ -158,6 +158,18 @@ registerValueObject({
 
 /** Canonical value-kind name for `SolidColor`. */
 export const SOLID_COLOR_VALUE_KIND = "SolidColor";
+export const POINT_VALUE_KIND = "Point";
+export const SAMPLED_COLOR_VALUE_KIND = "SampledColor";
+
+export interface PointTransport {
+  readonly x: number;
+  readonly y: number;
+}
+
+registerValueObject<PointTransport>({
+  valueKind: POINT_VALUE_KIND,
+  fields: ["x", "y"]
+});
 
 /**
  * Transport shape of a `SolidColor`. Photoshop's `SolidColor` implicitly switches its base color
@@ -217,6 +229,36 @@ registerValueObject<SolidColorTransport>({
   // WebView side: the payload is already the plain views object; pass it through unchanged so the
   // WebView `PsSolidColor` is exactly the transport shape (no RPC, no methods — like ImagingBounds).
   deserialize(data: unknown): SolidColorTransport {
+    return data as SolidColorTransport;
+  }
+});
+
+export interface NoColorTransport {
+  readonly typename: "NoColor";
+}
+
+export type SampledColorTransport = SolidColorTransport | NoColorTransport;
+
+registerValueObject<SampledColorTransport>({
+  valueKind: SAMPLED_COLOR_VALUE_KIND,
+  serialize(hostObject: unknown): SampledColorTransport {
+    if (!hostObject || typeof hostObject !== "object") {
+      throw new Error("Expected a sampled color host object.");
+    }
+    const source = hostObject as Record<string, unknown>;
+    if (source.typename === "NoColor") {
+      return { typename: "NoColor" };
+    }
+    const solidColorSpec = getValueObjectSpec(SOLID_COLOR_VALUE_KIND);
+    if (!solidColorSpec.serialize) {
+      throw new Error("SolidColor serializer is unavailable.");
+    }
+    return solidColorSpec.serialize(hostObject) as SolidColorTransport;
+  },
+  deserialize(data: unknown): SampledColorTransport {
+    if (data && typeof data === "object" && (data as { typename?: unknown }).typename === "NoColor") {
+      return Object.freeze({ typename: "NoColor" });
+    }
     return data as SolidColorTransport;
   }
 });

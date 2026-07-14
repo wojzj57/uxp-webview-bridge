@@ -13,8 +13,10 @@
  */
 
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
+import { SAMPLED_COLOR_VALUE_KIND } from "@shared/photoshop-api/value-objects.js";
 import {
   RemoteClass,
+  REMOTE_INVOKE,
   type RemoteClassConfig,
   type RemoteConstructionRequest,
   type RemoteMethodDescriptor,
@@ -24,24 +26,14 @@ import {
 } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopContext } from "./context.js";
 import type {
-  Channels,
-  DocumentCloseOptions,
-  Guides,
-  HistoryStates,
-  ImagingBounds,
-  LayerCreateOptions,
-  Layers,
-  PathItems,
+  DocumentSaveAs,
   PsDocument,
-  PsHistoryState,
-  PsLayer,
-  PsSelection,
-  ResizeOptions
 } from "./types.js";
 
 /** Read-only scalar Document properties (keyed shared get, no set). */
 const DOCUMENT_READONLY_SCALARS = [
   "id",
+  "typename",
   "saved",
   "name",
   "title",
@@ -50,12 +42,22 @@ const DOCUMENT_READONLY_SCALARS = [
   "height",
   "resolution",
   "cloudDocument",
-  "cloudWorkAreaDirectory"
+  "cloudWorkAreaDirectory",
+  "histogram",
+  "mode",
+  "zoom"
 ] as const;
 
 /** Read/write scalar Document properties (keyed shared get + set). */
-const DOCUMENT_WRITABLE_SCALARS = ["pixelAspectRatio"] as const;
+const DOCUMENT_WRITABLE_SCALARS = [
+  "pixelAspectRatio",
+  "quickMaskMode",
+  "bitsPerChannel",
+  "colorProfileName",
+  "colorProfileType"
+] as const;
 const DOCUMENT_WRITABLE_REFS = ["activeHistoryState", "activeHistoryBrushSource"] as const;
+const DOCUMENT_WRITABLE_COLLECTIONS = ["activeLayers", "activeChannels"] as const;
 
 /**
  * Build the Document property descriptor table. Exported (independently of the class factory) so the
@@ -73,14 +75,18 @@ export function createDocumentProperties(): Record<string, RemotePropertyDescrip
   }
   // Collection & reference properties: declarative result typing resolved via the type registry.
   properties.layers = { writable: false, mutating: false, remoteKey: "layers", collectionOf: Layer };
-  properties.activeLayers = { writable: false, mutating: false, remoteKey: "activeLayers", collectionOf: Layer };
+  properties.activeLayers = { writable: true, mutating: true, remoteKey: "activeLayers", collectionOf: Layer };
   properties.artboards = { writable: false, mutating: false, remoteKey: "artboards", collectionOf: Layer };
   properties.backgroundLayer = { writable: false, mutating: false, remoteKey: "backgroundLayer", refType: Layer };
   properties.channels = { writable: false, mutating: false, remoteKey: "channels", collectionOf: Channel };
   properties.componentChannels = { writable: false, mutating: false, remoteKey: "componentChannels", collectionOf: Channel };
-  properties.activeChannels = { writable: false, mutating: false, remoteKey: "activeChannels", collectionOf: Channel };
+  properties.activeChannels = { writable: true, mutating: true, remoteKey: "activeChannels", collectionOf: Channel };
+  properties.compositeChannels = { writable: false, mutating: false, remoteKey: "compositeChannels", collectionOf: Channel };
   properties.guides = { writable: false, mutating: false, remoteKey: "guides", collectionOf: PHOTOSHOP_REMOTE_TYPE.Guide };
   properties.pathItems = { writable: false, mutating: false, remoteKey: "pathItems", collectionOf: PHOTOSHOP_REMOTE_TYPE.PathItem };
+  properties.colorSamplers = { writable: false, mutating: false, remoteKey: "colorSamplers", collectionOf: PHOTOSHOP_REMOTE_TYPE.ColorSampler };
+  properties.countItems = { writable: false, mutating: false, remoteKey: "countItems", collectionOf: PHOTOSHOP_REMOTE_TYPE.CountItem };
+  properties.layerComps = { writable: false, mutating: false, remoteKey: "layerComps", collectionOf: PHOTOSHOP_REMOTE_TYPE.LayerComp };
   properties.selection = { writable: false, mutating: false, remoteKey: "selection", refType: Selection };
   properties.historyStates = {
     writable: false,
@@ -107,7 +113,7 @@ export function createDocumentMethods(): Record<string, RemoteMethodDescriptor> 
     close: { mutating: true },
     closeWithoutSaving: { mutating: true },
     flatten: { mutating: true },
-    mergeVisibleLayers: { mutating: true, refType: Layer },
+    mergeVisibleLayers: { mutating: true },
     revealAll: { mutating: true },
     rasterizeAllLayers: { mutating: true },
     crop: { mutating: true },
@@ -123,7 +129,14 @@ export function createDocumentMethods(): Record<string, RemoteMethodDescriptor> 
     groupLayers: { mutating: true, refType: Layer },
     duplicateLayers: { mutating: true, collectionOf: Layer },
     linkLayers: { mutating: true, collectionOf: Layer },
-    paste: { mutating: true, refType: Layer }
+    paste: { mutating: true, refType: Layer },
+    calculations: { mutating: true, refTypes: [Document, PHOTOSHOP_REMOTE_TYPE.Channel] },
+    changeMode: { mutating: true },
+    convertProfile: { mutating: true },
+    generativeUpscale: { mutating: true },
+    sampleColor: { mutating: true, valueKind: SAMPLED_COLOR_VALUE_KIND },
+    splitChannels: { mutating: true, collectionOf: Document },
+    trap: { mutating: true }
   };
 }
 
@@ -139,7 +152,7 @@ export function createDocumentClass(context: PhotoshopContext): {
       Object.keys(properties).map((name) => [name, "document.propertyGet"])
     ),
     propertySet: Object.fromEntries(
-      [...DOCUMENT_WRITABLE_SCALARS, ...DOCUMENT_WRITABLE_REFS].map((name) => [name, "document.propertySet"])
+      [...DOCUMENT_WRITABLE_SCALARS, ...DOCUMENT_WRITABLE_REFS, ...DOCUMENT_WRITABLE_COLLECTIONS].map((name) => [name, "document.propertySet"])
     ),
     method: {
       duplicate: "document.duplicate",
@@ -162,7 +175,14 @@ export function createDocumentClass(context: PhotoshopContext): {
       groupLayers: "document.groupLayers",
       duplicateLayers: "document.duplicateLayers",
       linkLayers: "document.linkLayers",
-      paste: "document.paste"
+      paste: "document.paste",
+      calculations: "document.calculations",
+      changeMode: "document.changeMode",
+      convertProfile: "document.convertProfile",
+      generativeUpscale: "document.generativeUpscale",
+      sampleColor: "document.sampleColor",
+      splitChannels: "document.splitChannels",
+      trap: "document.trap"
     },
     batchGet: "document.batchGet",
     batchSet: "document.batchSet",
@@ -181,53 +201,19 @@ export function createDocumentClass(context: PhotoshopContext): {
     decodeContext: registry.decodeContext
   };
 
-  class WebviewPsDocument extends RemoteClass implements PsDocument {
-    declare readonly id: Promise<number>;
-    declare readonly saved: Promise<boolean>;
-    declare readonly name: Promise<string>;
-    declare readonly title: Promise<string>;
-    declare readonly path: Promise<string>;
-    declare readonly width: Promise<number>;
-    declare readonly height: Promise<number>;
-    declare readonly resolution: Promise<number>;
-    declare readonly cloudDocument: Promise<boolean>;
-    declare readonly cloudWorkAreaDirectory: Promise<string>;
-    declare pixelAspectRatio: Promise<number>;
-    declare readonly layers: Promise<Layers>;
-    declare readonly activeLayers: Promise<Layers>;
-    declare readonly artboards: Promise<Layers>;
-    declare readonly backgroundLayer: Promise<PsLayer | null>;
-    declare readonly channels: Promise<Channels>;
-    declare readonly componentChannels: Promise<Channels>;
-    declare readonly activeChannels: Promise<Channels>;
-    declare readonly guides: Promise<Guides>;
-    declare readonly pathItems: Promise<PathItems>;
-    declare readonly selection: Promise<PsSelection>;
-    declare readonly historyStates: Promise<HistoryStates>;
-    declare activeHistoryState: Promise<PsHistoryState>;
-    declare activeHistoryBrushSource: Promise<PsHistoryState>;
+  class WebviewPsDocument extends RemoteClass {
+    #saveAs: DocumentSaveAs | undefined;
 
-    declare duplicate: (name?: string, mergeLayersOnly?: boolean) => Promise<PsDocument>;
-    declare close: (options?: DocumentCloseOptions) => Promise<void>;
-    declare closeWithoutSaving: () => Promise<void>;
-    declare flatten: () => Promise<void>;
-    declare mergeVisibleLayers: () => Promise<PsLayer>;
-    declare revealAll: () => Promise<void>;
-    declare rasterizeAllLayers: () => Promise<void>;
-    declare crop: (bounds: ImagingBounds, angle?: number, width?: number, height?: number) => Promise<void>;
-    declare resizeCanvas: (options?: ResizeOptions) => Promise<void>;
-    declare resizeImage: (options?: ResizeOptions) => Promise<void>;
-    declare trim: (trimType?: string, top?: boolean, left?: boolean, bottom?: boolean, right?: boolean) => Promise<void>;
-    declare rotate: (angle: number) => Promise<void>;
-    declare save: () => Promise<void>;
-    declare createLayer: (options?: LayerCreateOptions) => Promise<PsLayer>;
-    declare createPixelLayer: (options?: LayerCreateOptions) => Promise<PsLayer>;
-    declare createTextLayer: (options?: LayerCreateOptions) => Promise<PsLayer>;
-    declare createLayerGroup: (options?: LayerCreateOptions) => Promise<PsLayer>;
-    declare groupLayers: (layers: readonly PsLayer[]) => Promise<PsLayer>;
-    declare duplicateLayers: (layers: readonly PsLayer[], targetDocument?: PsDocument) => Promise<Layers>;
-    declare linkLayers: (layers: readonly PsLayer[]) => Promise<Layers>;
-    declare paste: (intoSelection?: boolean) => Promise<PsLayer>;
+    get saveAs(): DocumentSaveAs {
+      return this.#saveAs ??= {
+        bmp: (entry, options, asCopy) => this[REMOTE_INVOKE]("document.saveAs.bmp", [entry, options, asCopy]),
+        gif: (entry, options, asCopy) => this[REMOTE_INVOKE]("document.saveAs.gif", [entry, options, asCopy]),
+        jpg: (entry, options, asCopy) => this[REMOTE_INVOKE]("document.saveAs.jpg", [entry, options, asCopy]),
+        png: (entry, options, asCopy) => this[REMOTE_INVOKE]("document.saveAs.png", [entry, options, asCopy]),
+        psb: (entry, options, asCopy) => this[REMOTE_INVOKE]("document.saveAs.psb", [entry, options, asCopy]),
+        psd: (entry, options, asCopy) => this[REMOTE_INVOKE]("document.saveAs.psd", [entry, options, asCopy])
+      };
+    }
 
     constructor(source: RemoteReference | RemoteConstructionRequest) {
       super(config, source);

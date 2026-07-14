@@ -155,7 +155,9 @@ type _PicaValueExact = AssertMutual<PicaValue, AdobePicaValue>;
  */
 type _DocWritableIsExactlyWritable = AssertMutual<
   keyof PsDocumentWritableProps,
-  "pixelAspectRatio" | "activeHistoryState" | "activeHistoryBrushSource"
+  "pixelAspectRatio" | "quickMaskMode" | "bitsPerChannel" | "colorProfileName" |
+  "colorProfileType" | "activeLayers" | "activeChannels" | "activeHistoryState" |
+  "activeHistoryBrushSource"
 >;
 type _LayerWritableExcludesReadonly = "id" extends keyof PsLayerWritableProps ? never : true;
 const _layerWritableExcludesReadonly: _LayerWritableExcludesReadonly = true;
@@ -175,10 +177,8 @@ type PsDocumentReadableMembers = Exclude<
   "rasterizeAllLayers" | "crop" | "resizeCanvas" | "resizeImage" | "trim" | "rotate" | "save" |
   "createLayer" | "createPixelLayer" | "createTextLayer" | "createLayerGroup" | "groupLayers" |
   "duplicateLayers" | "linkLayers" | "paste" | "batchGet" | "batchSet" | "dispose" |
-  "layers" | "activeLayers" | "artboards" | "backgroundLayer" |
-  "channels" | "componentChannels" | "activeChannels" |
-  "selection" | "historyStates" | "activeHistoryState" | "activeHistoryBrushSource"
-  | "guides" | "pathItems"
+  "calculations" | "changeMode" | "convertProfile" | "generativeUpscale" | "sampleColor" |
+  "splitChannels" | "trap" | "saveAs"
 >;
 type _DocReadableKeysLocked = AssertMutual<PsDocumentReadableMembers, PsDocumentReadableKey>;
 
@@ -585,8 +585,9 @@ export default defineWebviewCdpCases([
       let created: PsLayer | undefined;
       let duplicated: PsLayer | undefined;
       try {
-        created = await document.createLayer({ name: `uxp-bridge-cdp-${Date.now()}` });
+        created = (await document.createLayer({ name: `uxp-bridge-cdp-${Date.now()}` })) ?? undefined;
         assert.ok(typeof created === "object" && created !== null, "createLayer should return a layer proxy.");
+        if (!created) throw new Error("createLayer returned null.");
         const createdId = await created.id;
         assert.ok(typeof createdId === "number", "created layer should expose a numeric id.");
 
@@ -868,7 +869,7 @@ export default defineWebviewCdpCases([
         const byName = await states.getByName(name);
         assert.equal(byName, active, "historyStates.getByName should resolve the cached active state.");
 
-        document.activeHistoryState = active as unknown as Promise<PsHistoryState>;
+        document.activeHistoryState = active;
         assert.equal(await document.activeHistoryState, active, "activeHistoryState write should flush before a later read.");
 
         return { length: states.length, activeName: name, stableIdentity: true };
@@ -916,6 +917,130 @@ export default defineWebviewCdpCases([
         duplicate = await path.duplicate("Bridge Path Copy"); await duplicate.select(); await duplicate.deselect();
         return { subPaths: subPaths.length, points: points.length, stableIdentity: true };
       } finally { try { await duplicate?.remove(); } catch {} try { await path?.remove(); } catch {} await closeDocumentQuietly(document); }
+    }
+  },
+  {
+    name: "photoshop.document-complete-surface",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const source = await getActiveDocument(bridge, skip);
+      if (isSkip(source)) {
+        return source;
+      }
+
+      const documentedMembers = [
+        "saveAs", "selection", "activeChannels", "activeHistoryBrushSource", "activeHistoryState", "activeLayers",
+        "artboards", "backgroundLayer", "bitsPerChannel", "channels", "cloudDocument", "cloudWorkAreaDirectory",
+        "colorProfileName", "colorProfileType", "colorSamplers", "componentChannels", "compositeChannels", "countItems",
+        "guides", "height", "histogram", "historyStates", "id", "layerComps", "layers", "mode", "name", "path",
+        "pathItems", "pixelAspectRatio", "quickMaskMode", "resolution", "saved", "title", "typename", "width", "zoom",
+        "calculations", "changeMode", "close", "closeWithoutSaving", "convertProfile", "createLayer", "createLayerGroup",
+        "createPixelLayer", "createTextLayer", "crop", "duplicate", "duplicateLayers", "flatten", "generativeUpscale",
+        "groupLayers", "linkLayers", "mergeVisibleLayers", "paste", "rasterizeAllLayers", "resizeCanvas", "resizeImage",
+        "revealAll", "rotate", "sampleColor", "save", "splitChannels", "trap", "trim"
+      ];
+      assert.equal(documentedMembers.length, 65, "the transportable Document manifest should contain 65 members.");
+      for (const member of documentedMembers) {
+        assert.ok(member in source, `photoshop.Document.${member} must exist.`);
+      }
+      assert.equal("suspendHistory" in source, false, "suspendHistory must remain absent until callback transport exists.");
+
+      const scalars = await source.batchGet([
+        "typename", "histogram", "mode", "zoom", "bitsPerChannel", "colorProfileName", "colorProfileType"
+      ]);
+      assert.equal(scalars.typename, "Document", "document.typename should be Document.");
+      assert.ok(Array.isArray(scalars.histogram), "document.histogram should be an array.");
+      assert.nonEmptyString(scalars.mode, "document.mode");
+      assert.ok(typeof scalars.zoom === "number", "document.zoom should be a number.");
+      assert.nonEmptyString(scalars.bitsPerChannel, "document.bitsPerChannel");
+      assert.ok(typeof scalars.colorProfileName === "string", "document.colorProfileName should be a string.");
+      assert.nonEmptyString(scalars.colorProfileType, "document.colorProfileType");
+
+      const readCollection = async <T>(name: string, read: Promise<T>): Promise<T> => {
+        try {
+          return await read;
+        } catch (error) {
+          throw new Error(`document.${name} failed: ${normalizeError(error).message}`);
+        }
+      };
+      const channels = await readCollection("compositeChannels", source.compositeChannels);
+      const samplers = await readCollection("colorSamplers", source.colorSamplers);
+      const layerComps = await readCollection("layerComps", source.layerComps);
+      assert.equal(channels.parent, source, "compositeChannels.parent should preserve document identity.");
+      assert.equal(samplers.parent, source, "colorSamplers.parent should preserve document identity.");
+      assert.equal(layerComps.parent, source, "layerComps.parent should preserve document identity.");
+      assert.equal(layerComps.typename, "LayerComps", "layerComps.typename should be LayerComps.");
+      assert.functions(samplers, ["add", "removeAll"], "document.colorSamplers");
+      assert.functions(layerComps, ["add", "getAllByName", "removeAll"], "document.layerComps");
+
+      const sampled = await source.sampleColor({ x: 0, y: 0 });
+      assert.ok(sampled.typename === "SolidColor" || sampled.typename === "NoColor", "sampleColor should decode its color union.");
+
+      return {
+        documentedMembers: documentedMembers.length,
+        samplers: samplers.length,
+        layerComps: layerComps.length
+      };
+    }
+  },
+  {
+    name: "photoshop.count-items",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const source = await getActiveDocument(bridge, skip);
+      if (isSkip(source)) {
+        return source;
+      }
+
+      let countItems;
+      try {
+        countItems = await source.countItems;
+      } catch (error) {
+        return skip("this Photoshop runtime cannot construct CountItems for the active document.", {
+          error: normalizeError(error)
+        });
+      }
+      assert.equal(countItems.parent, source, "countItems.parent should preserve document identity.");
+      assert.equal(countItems.typename, "CountItems", "countItems.typename should be CountItems.");
+      assert.functions(
+        countItems,
+        ["add", "removeAllFromActiveGroup", "getAll", "createGroup", "renameActiveGroup", "removeGroupByIndex",
+          "toggleActiveGroupVisibility", "activateGroupByIndex", "setActiveMarkerSize", "setActiveLabelSize", "setActiveColor"],
+        "document.countItems"
+      );
+      return { length: countItems.length };
+    }
+  },
+  {
+    name: "photoshop.document-save-as",
+    async run({ bridge, assert, skip }) {
+      bridge.ensureConfigured();
+
+      const source = await getActiveDocument(bridge, skip);
+      if (isSkip(source)) {
+        return source;
+      }
+
+      let document: PsDocument | undefined;
+      let file: { delete(): Promise<number>; dispose(): Promise<void>; getMetadata(): Promise<{ size?: number }> } | undefined;
+      try {
+        document = await source.duplicate(`uxp-bridge-save-as-${Date.now()}`);
+        const folder = await bridge.uxp.storage.localFileSystem.getTemporaryFolder();
+        const output = await folder.createFile(`uxp-bridge-save-as-${Date.now()}.psd`, { overwrite: true });
+        file = output;
+        await document.saveAs.psd(output, { layers: true, embedColorProfile: true });
+        const metadata = await output.getMetadata();
+        assert.ok(typeof metadata.size === "number" && metadata.size > 0, "saveAs.psd should write a non-empty file.");
+        return { bytes: metadata.size };
+      } finally {
+        await closeDocumentQuietly(document);
+        if (file) {
+          try { await file.delete(); } catch {}
+          try { await file.dispose(); } catch {}
+        }
+      }
     }
   },
   {

@@ -41,6 +41,9 @@ export const PHOTOSHOP_REMOTE_TYPE = {
   PreferencesUnitsAndRulers: "PreferencesUnitsAndRulers",
   Selection: "Selection",
   HistoryState: "HistoryState",
+  ColorSampler: "ColorSampler",
+  CountItem: "CountItem",
+  LayerComp: "LayerComp",
   Guide: "Guide",
   PathItem: "PathItem",
   SubPathItem: "SubPathItem",
@@ -109,10 +112,12 @@ export type PhotoshopResultKind =
   | { readonly kind: "scalar" }
   | { readonly kind: "value"; readonly valueKind: string }
   | { readonly kind: "ref"; readonly refType: string }
+  | { readonly kind: "refUnion"; readonly refTypes: readonly string[] }
   | { readonly kind: "collection"; readonly memberKind: string };
 
 const SCALAR: PhotoshopResultKind = { kind: "scalar" };
 const ref = (refType: string): PhotoshopResultKind => ({ kind: "ref", refType });
+const refUnion = (...refTypes: readonly string[]): PhotoshopResultKind => ({ kind: "refUnion", refTypes });
 const value = (valueKind: string): PhotoshopResultKind => ({ kind: "value", valueKind });
 const collection = (memberKind: string): PhotoshopResultKind => ({ kind: "collection", memberKind });
 
@@ -156,6 +161,10 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       channels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
       componentChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
       activeChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
+      compositeChannels: collection(PHOTOSHOP_REMOTE_TYPE.Channel),
+      colorSamplers: collection(PHOTOSHOP_REMOTE_TYPE.ColorSampler),
+      countItems: collection(PHOTOSHOP_REMOTE_TYPE.CountItem),
+      layerComps: collection(PHOTOSHOP_REMOTE_TYPE.LayerComp),
       selection: ref(PHOTOSHOP_REMOTE_TYPE.Selection),
       historyStates: collection(PHOTOSHOP_REMOTE_TYPE.HistoryState),
       activeHistoryState: ref(PHOTOSHOP_REMOTE_TYPE.HistoryState),
@@ -165,7 +174,9 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
     },
     methods: {
       duplicate: ref(PHOTOSHOP_REMOTE_TYPE.Document),
-      mergeVisibleLayers: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
+      calculations: refUnion(PHOTOSHOP_REMOTE_TYPE.Document, PHOTOSHOP_REMOTE_TYPE.Channel),
+      splitChannels: collection(PHOTOSHOP_REMOTE_TYPE.Document),
+      sampleColor: value("SampledColor"),
       createLayer: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
       createPixelLayer: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
       createTextLayer: ref(PHOTOSHOP_REMOTE_TYPE.Layer),
@@ -213,6 +224,25 @@ export const PHOTOSHOP_RESULT_KINDS: Readonly<Record<string, PhotoshopClassResul
       parent: ref(PHOTOSHOP_REMOTE_TYPE.Document)
     },
     methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.ColorSampler]: {
+    properties: {
+      parent: ref(PHOTOSHOP_REMOTE_TYPE.Document),
+      position: value("Point"),
+      color: value("SampledColor")
+    },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.CountItem]: {
+    properties: {
+      parent: collection(PHOTOSHOP_REMOTE_TYPE.CountItem),
+      position: value("Point")
+    },
+    methods: {}
+  },
+  [PHOTOSHOP_REMOTE_TYPE.LayerComp]: {
+    properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.Document) },
+    methods: { duplicate: ref(PHOTOSHOP_REMOTE_TYPE.LayerComp) }
   },
   [PHOTOSHOP_REMOTE_TYPE.Guide]: {
     properties: { parent: ref(PHOTOSHOP_REMOTE_TYPE.Document) },
@@ -389,6 +419,19 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "document.duplicateLayers",
   "document.linkLayers",
   "document.paste",
+  "document.calculations",
+  "document.changeMode",
+  "document.convertProfile",
+  "document.generativeUpscale",
+  "document.sampleColor",
+  "document.splitChannels",
+  "document.trap",
+  "document.saveAs.bmp",
+  "document.saveAs.gif",
+  "document.saveAs.jpg",
+  "document.saveAs.png",
+  "document.saveAs.psb",
+  "document.saveAs.psd",
 
   // Layer: shared property accessors + lifecycle
   "layer.propertyGet",
@@ -429,6 +472,51 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "channels.snapshot",
   "channels.getByName",
   "channels.add",
+  "channels.removeAll",
+
+  // ColorSampler + collection
+  "colorSampler.propertyGet",
+  "colorSampler.batchGet",
+  "colorSampler.batchSet",
+  "colorSampler.dispose",
+  "colorSampler.move",
+  "colorSampler.remove",
+  "colorSamplers.add",
+  "colorSamplers.removeAll",
+
+  // CountItem + collection
+  "countItem.propertyGet",
+  "countItem.batchGet",
+  "countItem.batchSet",
+  "countItem.dispose",
+  "countItem.move",
+  "countItem.remove",
+  "countItems.add",
+  "countItems.removeAllFromActiveGroup",
+  "countItems.getAll",
+  "countItems.createGroup",
+  "countItems.renameActiveGroup",
+  "countItems.removeGroupByIndex",
+  "countItems.toggleActiveGroupVisibility",
+  "countItems.activateGroupByIndex",
+  "countItems.setActiveMarkerSize",
+  "countItems.setActiveLabelSize",
+  "countItems.setActiveColor",
+
+  // LayerComp + collection
+  "layerComp.propertyGet",
+  "layerComp.propertySet",
+  "layerComp.batchGet",
+  "layerComp.batchSet",
+  "layerComp.dispose",
+  "layerComp.apply",
+  "layerComp.duplicate",
+  "layerComp.recapture",
+  "layerComp.remove",
+  "layerComp.resetLayerComp",
+  "layerComps.add",
+  "layerComps.getAllByName",
+  "layerComps.removeAll",
 
   // Selection: shared property accessors + methods
   "selection.propertyGet",

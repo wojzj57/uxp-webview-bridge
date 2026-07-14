@@ -6,6 +6,9 @@ import { test } from "node:test";
 const documentModule = "../../dist/webview/photoshop-api/modules/photoshop/document.js";
 const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js";
 const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
+const colorSamplerModule = "../../dist/webview/photoshop-api/modules/photoshop/color-sampler.js";
+const countItemModule = "../../dist/webview/photoshop-api/modules/photoshop/count-item.js";
+const layerCompModule = "../../dist/webview/photoshop-api/modules/photoshop/layer-comp.js";
 const selectionModule = "../../dist/webview/photoshop-api/modules/photoshop/selection.js";
 const historyStateModule = "../../dist/webview/photoshop-api/modules/photoshop/history-state.js";
 const guideModule = "../../dist/webview/photoshop-api/modules/photoshop/guide.js";
@@ -51,6 +54,9 @@ async function createStubContext(rpc) {
   registry.register(PHOTOSHOP_REMOTE_TYPE.Document, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.Layer, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.Channel, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.ColorSampler, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.CountItem, placeholder);
+  registry.register(PHOTOSHOP_REMOTE_TYPE.LayerComp, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.Selection, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.HistoryState, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.PathItem, placeholder);
@@ -58,11 +64,15 @@ async function createStubContext(rpc) {
   registry.register(PHOTOSHOP_REMOTE_TYPE.SubPathItem, placeholder);
   registry.register(PHOTOSHOP_REMOTE_TYPE.PathPoint, placeholder);
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Layer, {
-    getByName: "layers.getByName",
-    add: "layers.add"
+    methods: {
+      getByName: { rpc: "layers.getByName", result: { refType: PHOTOSHOP_REMOTE_TYPE.Layer } },
+      add: { rpc: "layers.add", result: { refType: PHOTOSHOP_REMOTE_TYPE.Layer } }
+    }
   });
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Channel, {
-    getByName: "channels.getByName"
+    methods: {
+      getByName: { rpc: "channels.getByName", result: { refType: PHOTOSHOP_REMOTE_TYPE.Channel } }
+    }
   });
   return { rpc, registry };
 }
@@ -156,6 +166,18 @@ const CASES = [
     }
   },
   {
+    name: "WebviewPsColorSampler", type: "ColorSampler", batchGetName: "colorSampler.batchGet", batchSetName: "colorSampler.batchSet",
+    async build() { const { createColorSamplerClass } = await import(colorSamplerModule); const rpc = createRecordingRpc(); const C = createColorSamplerClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("ColorSampler")) }; }
+  },
+  {
+    name: "WebviewPsCountItem", type: "CountItem", batchGetName: "countItem.batchGet", batchSetName: "countItem.batchSet",
+    async build() { const { createCountItemClass } = await import(countItemModule); const rpc = createRecordingRpc(); const C = createCountItemClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("CountItem")) }; }
+  },
+  {
+    name: "WebviewPsLayerComp", type: "LayerComp", batchGetName: "layerComp.batchGet", batchSetName: "layerComp.batchSet", writableProp: "name",
+    async build() { const { createLayerCompClass } = await import(layerCompModule); const rpc = createRecordingRpc(); const C = createLayerCompClass(await createStubContext(rpc)); return { rpc, instance: new C(reference("LayerComp")) }; }
+  },
+  {
     name: "WebviewPsSelection",
     type: "Selection",
     batchGetName: "selection.batchGet",
@@ -221,7 +243,7 @@ for (const testCase of CASES) {
     const { type, batchGetName, batchSetName, writableProp } = testCase;
     const module = "photoshop-api/modules/photoshop";
     // Channel has no `id` scalar; read a property it actually exposes for the batchGet probe.
-    const readableProp = type === "Channel" || type === "PathItem" ? "name" : type === "Guide" ? "coordinate" : type === "SubPathItem" || type === "PathPoint" ? "typename" : "id";
+    const readableProp = type === "Channel" || type === "PathItem" || type === "LayerComp" ? "name" : type === "Guide" ? "coordinate" : type === "SubPathItem" || type === "PathPoint" || type === "ColorSampler" || type === "CountItem" ? "typename" : "id";
 
     await instance.batchGet([readableProp]);
     const batchGetCall = rpc.calls.find((call) => call.method === batchGetName);
@@ -245,7 +267,7 @@ for (const testCase of CASES) {
     // A read-only property on each proxy; the base guard should reject it even though the compile-time
     // signature already forbids it (belt and suspenders — see photoshop.test.ts @ts-expect-error).
     // Channel has no `id`, so use its read-only `histogram` instead.
-    const readOnlyProp = testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : testCase.type === "SubPathItem" || testCase.type === "PathPoint" ? "typename" : "id";
+    const readOnlyProp = testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : testCase.type === "SubPathItem" || testCase.type === "PathPoint" || testCase.type === "ColorSampler" || testCase.type === "CountItem" ? "typename" : "id";
     assert.throws(
       () => instance.batchSet({ [readOnlyProp]: 1 }),
       new RegExp(`Cannot batchSet non-writable property: ${readOnlyProp}`)

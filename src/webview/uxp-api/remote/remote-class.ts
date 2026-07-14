@@ -25,6 +25,7 @@ export interface RemoteRpc {
  */
 export interface RemoteResultTyping {
   readonly refType?: string;
+  readonly refTypes?: readonly string[];
   readonly valueKind?: string;
   readonly collectionOf?: string;
 }
@@ -37,6 +38,8 @@ export interface RemoteResultTyping {
 export interface RemoteDecodeContext {
   /** Decode a single remote reference envelope (or null) into a `===`-stable instance. */
   decodeRef(refType: string, raw: unknown): unknown;
+  /** Decode a reference whose concrete type is one of the declared alternatives. */
+  decodeRefUnion(refTypes: readonly string[], raw: unknown): unknown;
   /** Decode a value-object envelope into a plain value object. */
   decodeValue(valueKind: string, raw: unknown): unknown;
   /** Decode a snapshot envelope into a collection of the given member type. */
@@ -111,6 +114,9 @@ export interface RemoteMethodNames {
   readonly dispose: string;
 }
 
+/** Internal symbol used by RemoteClass subclasses for bound sub-namespaces such as Document.saveAs. */
+export const REMOTE_INVOKE = Symbol("RemoteClass.invokeRemote");
+
 /** Describes the construction RPC for a brand-new remote object. */
 export interface RemoteConstructionRequest {
   readonly method: string;
@@ -147,6 +153,22 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
   async dispose(): Promise<void> {
     const reference = await this.#referencePromise;
     await this.#config.rpc.call<void>(this.#config.moduleId, this.#config.methodNames.dispose, [reference]);
+  }
+
+  /**
+   * Invoke an RPC owned by a subclass-local bound namespace while preserving this instance's
+   * reference, queued-write ordering, recursive argument encoding, and result decoding.
+   */
+  protected async [REMOTE_INVOKE]<T>(
+    method: string,
+    args: readonly unknown[] = [],
+    result?: RemoteResultTyping & { readonly decode?: RemoteValueDecoder }
+  ): Promise<T> {
+    const reference = await this.#referencePromise;
+    await this.#queue;
+    const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
+    const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
+    return this.#decodeResult(result, raw) as T;
   }
 
   /** Read multiple properties of this object in a single RPC. */
@@ -250,13 +272,21 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     if (!descriptor) {
       return raw;
     }
-    if (descriptor.refType !== undefined || descriptor.valueKind !== undefined || descriptor.collectionOf !== undefined) {
+    if (
+      descriptor.refType !== undefined ||
+      descriptor.refTypes !== undefined ||
+      descriptor.valueKind !== undefined ||
+      descriptor.collectionOf !== undefined
+    ) {
       const context = this.#config.decodeContext;
       if (!context) {
         throw new Error("A declarative result typing was used without a decode context.");
       }
       if (descriptor.refType !== undefined) {
         return context.decodeRef(descriptor.refType, raw);
+      }
+      if (descriptor.refTypes !== undefined) {
+        return context.decodeRefUnion(descriptor.refTypes, raw);
       }
       if (descriptor.valueKind !== undefined) {
         return context.decodeValue(descriptor.valueKind, raw);

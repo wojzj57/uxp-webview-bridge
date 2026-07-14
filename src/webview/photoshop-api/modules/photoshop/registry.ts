@@ -21,6 +21,7 @@ import {
   decodeValue as decodeSharedValue,
   isPhotoshopValueTransport,
   SOLID_COLOR_VALUE_KIND,
+  SAMPLED_COLOR_VALUE_KIND,
   type SolidColorTransport
 } from "@shared/photoshop-api/value-objects.js";
 import {
@@ -34,6 +35,7 @@ import {
   isRemoteReference,
   type IdentityCache,
   type RemoteDecodeContext,
+  type RemoteResultTyping,
   type RemoteReference,
   type RemoteArgEncoder,
   type RemoteRpc
@@ -49,18 +51,21 @@ interface TypeRegistration {
 }
 
 /**
- * Optional RPC-backed capabilities a snapshot collection may expose. Each is declared per collection
- * (never assumed): `getByName` resolves a single member by name; `add` creates/adds a member. Both
- * carry the owner reference to the host.
+ * Optional capabilities a snapshot collection may expose. Every RPC-backed method is declared by
+ * name, RPC route, and optional result typing; no method is assumed from the member kind.
  */
 export interface SnapshotCollectionCapabilities {
-  readonly getByName?: string;
-  readonly add?: string;
-  readonly removeAll?: string;
   /** Expose the snapshot owner as a synchronous local `parent` property. */
   readonly parent?: boolean;
   /** Expose the documented local collection typename without another RPC. */
   readonly typename?: string;
+  /** Additional owner-scoped methods installed on the local snapshot wrapper. */
+  readonly methods?: Readonly<Record<string, SnapshotCollectionMethodCapability>>;
+}
+
+export interface SnapshotCollectionMethodCapability {
+  readonly rpc: string;
+  readonly result?: RemoteResultTyping;
 }
 
 /**
@@ -124,6 +129,15 @@ export function createPhotoshopTypeRegistry(
       }
       return resolveReference(raw);
     },
+    decodeRefUnion(refTypes, raw) {
+      if (raw == null) {
+        return undefined;
+      }
+      if (!isRemoteReference(raw) || !refTypes.includes(raw.type)) {
+        throw new Error(`Expected a ${refTypes.join(" or ")} reference envelope.`);
+      }
+      return resolveReference(raw);
+    },
     decodeValue(valueKind, raw) {
       if (raw == null) {
         return null;
@@ -132,9 +146,13 @@ export function createPhotoshopTypeRegistry(
         throw new Error(`Expected a ${valueKind} value envelope.`);
       }
       const decoded = decodeSharedValue(raw);
-      return valueKind === SOLID_COLOR_VALUE_KIND
-        ? createSolidColorFromTransport(decoded as SolidColorTransport)
-        : decoded;
+      if (valueKind === SOLID_COLOR_VALUE_KIND) {
+        return createSolidColorFromTransport(decoded as SolidColorTransport);
+      }
+      if (valueKind === SAMPLED_COLOR_VALUE_KIND && (decoded as { typename?: unknown }).typename !== "NoColor") {
+        return createSolidColorFromTransport(decoded as SolidColorTransport);
+      }
+      return decoded;
     },
     decodeCollection(memberKind, raw) {
       if (!isPhotoshopSnapshotTransport(raw) || raw.memberKind !== memberKind) {
@@ -156,37 +174,19 @@ export function createPhotoshopTypeRegistry(
     const capabilities = collectionCapabilities.get(memberKind) ?? {};
     const resolved = memberIds.map((id) => resolveReference(memberReference(memberKind, id)));
 
-    class SnapshotCollection extends Array<object> {
-      async getByName(name: string): Promise<object | null> {
-        const method = capabilities.getByName;
-        if (!method) {
-          throw new Error(`This ${memberKind} collection does not support getByName.`);
-        }
-        const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method, [owner, name]);
-        return raw == null ? null : (decodeContext.decodeRef(memberKind, raw) as object);
-      }
+    class SnapshotCollection extends Array<object> {}
 
-      async add(...args: unknown[]): Promise<object> {
-        const method = capabilities.add;
-        if (!method) {
-          throw new Error(`This ${memberKind} collection does not support add.`);
+    const methods = capabilities.methods ?? {};
+    for (const [name, method] of Object.entries(methods)) {
+      Object.defineProperty(SnapshotCollection.prototype, name, {
+        enumerable: false,
+        configurable: false,
+        value: async (...args: unknown[]): Promise<unknown> => {
+          const encoded = await encodeRemoteArgs(args, argEncoders);
+          const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method.rpc, [owner, ...encoded]);
+          return decodeCollectionMethodResult(method.result, raw);
         }
-        const encoded = await encodeRemoteArgs(args, argEncoders);
-        const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method, [owner, ...encoded]);
-        const decoded = decodeContext.decodeRef(memberKind, raw);
-        if (decoded == null) {
-          throw new Error(`${method} did not return a ${memberKind} reference.`);
-        }
-        return decoded as object;
-      }
-
-      async removeAll(): Promise<void> {
-        const method = capabilities.removeAll;
-        if (!method) {
-          throw new Error(`This ${memberKind} collection does not support removeAll.`);
-        }
-        await rpc.call<void>(PHOTOSHOP_MODULE_ID, method, [owner]);
-      }
+      });
     }
 
     if (capabilities.parent) {
@@ -206,6 +206,15 @@ export function createPhotoshopTypeRegistry(
 
     // `Array`'s constructor treats a single numeric argument as a length; build via `from`.
     return SnapshotCollection.from(resolved) as SnapshotCollection;
+  }
+
+  function decodeCollectionMethodResult(result: RemoteResultTyping | undefined, raw: unknown): unknown {
+    if (!result) return raw;
+    if (result.refType !== undefined) return decodeContext.decodeRef(result.refType, raw);
+    if (result.refTypes !== undefined) return decodeContext.decodeRefUnion(result.refTypes, raw);
+    if (result.valueKind !== undefined) return decodeContext.decodeValue(result.valueKind, raw);
+    if (result.collectionOf !== undefined) return decodeContext.decodeCollection(result.collectionOf, raw);
+    return raw;
   }
 
   return { register, registerCollectionCapabilities, resolveReference, decodeContext };

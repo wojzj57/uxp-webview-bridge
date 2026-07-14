@@ -1,4 +1,4 @@
-export { RemoteClass } from "./remote-class.js";
+export { REMOTE_INVOKE, RemoteClass } from "./remote-class.js";
 export type {
   RemoteClassConfig,
   RemoteConstructionRequest,

@@ -10,29 +10,45 @@
 
 import type {
   AnchorPositionValue,
+  BitsPerChannelTypeValue,
+  BitmapConversionTypeValue,
+  BitmapHalfToneTypeValue,
+  BMPDepthTypeValue,
   BlendModeValue,
   ChannelTypeValue,
   ColorModelValue,
+  ColorProfileTypeValue,
   ColorBlendModeValue,
   DirectionValue,
   DialogModesValue,
+  DitherValue,
   DocumentFillValue,
   EditLogItemsTypeValue,
   ElementPlacementValue,
   FlipAxisValue,
+  ForcedColorsValue,
   InterpolationMethodValue,
   FontSizeValue,
   GridLineStyleValue,
   GridSizeValue,
   GuideLineStyleValue,
   LayerKindValue,
+  JPEGFormatOptionsValue,
+  MatteColorValue,
   MaximizeCompatibilityValue,
   NewDocumentModeValue,
+  DocumentModeValue,
+  ChangeModeValue,
+  IntentValue,
+  OperatingSystemValue,
   OtherCursorsValue,
   PaintingCursorsValue,
   PathKindValue,
   PointKindValue,
   PointTypeValue,
+  PNGMethodValue,
+  PaletteValue,
+  ResampleMethodValue,
   RulerUnitsValue,
   SaveLogItemsTypeValue,
   SaveOptionsValue,
@@ -40,6 +56,12 @@ import type {
   SelectionTypeValue,
   ShapeOperationValue,
   ToolTypeValue,
+  TrimTypeValue,
+  GenerativeUpscaleModelValue,
+  CalculationsBlendModeValue,
+  CalculationsChannelValue,
+  CalculationsLayerValue,
+  CalculationsResultValue,
   TypeInterfaceFeaturesValue,
   TypeUnitsValue,
   UnitsValue
@@ -190,10 +212,14 @@ export interface DocumentCreateOptions {
  * read yields fresh proxies).
  */
 export interface Channels extends ReadonlyArray<PsChannel> {
+  readonly parent: PsDocument;
+  readonly typename: "Channels";
   /** Resolve the channel with the given name via a single host RPC (`null` if none). */
   getByName(name: string): Promise<PsChannel | null>;
   /** Create a writable alpha channel in the owning document. */
   add(): Promise<PsChannel>;
+  /** Remove every channel the host allows the collection to remove. */
+  removeAll(): Promise<void>;
 }
 
 /** Four-edge bounds accepted by Selection shape methods. */
@@ -383,6 +409,208 @@ export interface PsPathPoint {
 }
 export type PsPathPointReadableKey = "typename" | "parent" | "anchor" | "kind" | "leftDirection" | "rightDirection";
 
+export interface PsPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface PsNoColor {
+  readonly typename: "NoColor";
+}
+
+export type SampledColor = PsSolidColor | PsNoColor;
+
+export interface PsColorSampler {
+  readonly typename: Promise<"ColorSampler">;
+  readonly docId: Promise<number>;
+  readonly parent: Promise<PsDocument>;
+  readonly position: Promise<PsPoint>;
+  readonly color: Promise<SampledColor>;
+  move(position: PsPoint): Promise<void>;
+  remove(): Promise<void>;
+  batchGet<K extends PsColorSamplerReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Record<string, never>): void;
+  dispose(): Promise<void>;
+}
+export type PsColorSamplerReadableKey = "typename" | "docId" | "parent" | "position" | "color";
+
+export interface ColorSamplers extends ReadonlyArray<PsColorSampler> {
+  readonly parent: PsDocument;
+  add(position: PsPoint): Promise<PsColorSampler>;
+  removeAll(): Promise<void>;
+}
+
+export interface PsCountItem {
+  readonly itemIndex: Promise<number>;
+  readonly groupIndex: Promise<number>;
+  readonly typename: Promise<"CountItem">;
+  readonly parent: Promise<CountItems>;
+  readonly position: Promise<PsPoint>;
+  move(position: PsPoint): Promise<void>;
+  remove(): Promise<void>;
+  batchGet<K extends PsCountItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Record<string, never>): void;
+  dispose(): Promise<void>;
+}
+export type PsCountItemReadableKey = "itemIndex" | "groupIndex" | "typename" | "parent" | "position";
+
+export interface CountItems extends ReadonlyArray<PsCountItem> {
+  readonly typename: "CountItems";
+  readonly parent: PsDocument;
+  add(position: PsPoint): Promise<PsCountItem>;
+  removeAllFromActiveGroup(): Promise<void>;
+  getAll(): Promise<CountItems>;
+  createGroup(groupName: string): Promise<void>;
+  renameActiveGroup(groupName: string): Promise<void>;
+  removeGroupByIndex(index: number): Promise<void>;
+  toggleActiveGroupVisibility(isVisible: boolean): Promise<void>;
+  activateGroupByIndex(index: number): Promise<void>;
+  setActiveMarkerSize(size: number): Promise<void>;
+  setActiveLabelSize(size: number): Promise<void>;
+  setActiveColor(color: SolidColorInput): Promise<void>;
+}
+
+export interface LayerCompCreateOptions {
+  readonly name?: string;
+  readonly comment?: string;
+  readonly visibility?: boolean;
+  readonly position?: boolean;
+  readonly appearance?: boolean;
+  readonly childComp?: boolean;
+}
+
+export interface LayerCompRecaptureOptions {
+  readonly visibility?: boolean;
+  readonly position?: boolean;
+  readonly appearance?: boolean;
+  readonly childComp?: boolean;
+}
+
+export interface PsLayerComp {
+  readonly typename: Promise<"LayerComp">;
+  readonly id: Promise<number>;
+  readonly docId: Promise<number>;
+  readonly parent: Promise<PsDocument>;
+  get name(): Promise<string>; set name(value: string);
+  get comment(): Promise<string | null>; set comment(value: string | null);
+  readonly selected: Promise<boolean>;
+  get appearance(): Promise<boolean>; set appearance(value: boolean);
+  get position(): Promise<boolean>; set position(value: boolean);
+  get visibility(): Promise<boolean>; set visibility(value: boolean);
+  get childComp(): Promise<boolean>; set childComp(value: boolean);
+  apply(): Promise<void>;
+  duplicate(): Promise<PsLayerComp>;
+  recapture(options?: LayerCompRecaptureOptions, layers?: readonly PsLayer[]): Promise<void>;
+  remove(): Promise<void>;
+  resetLayerComp(): Promise<void>;
+  batchGet<K extends PsLayerCompReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchSet(properties: Partial<PsLayerCompWritableProps>): void;
+  dispose(): Promise<void>;
+}
+export type PsLayerCompReadableKey =
+  | "typename" | "id" | "docId" | "parent" | "name" | "comment" | "selected"
+  | "appearance" | "position" | "visibility" | "childComp";
+export interface PsLayerCompWritableProps {
+  name: string;
+  comment: string | null;
+  appearance: boolean;
+  position: boolean;
+  visibility: boolean;
+  childComp: boolean;
+}
+
+export interface LayerComps extends ReadonlyArray<PsLayerComp> {
+  readonly typename: "LayerComps";
+  readonly parent: PsDocument;
+  add(options?: LayerCompCreateOptions): Promise<PsLayerComp>;
+  getAllByName(name: string): Promise<LayerComps>;
+  removeAll(): Promise<void>;
+}
+
+export interface BMPSaveOptions {
+  readonly alphaChannels?: boolean;
+  readonly depth?: BMPDepthTypeValue;
+  readonly flipRowOrder?: boolean;
+  readonly osType?: OperatingSystemValue;
+  readonly rleCompression?: boolean;
+}
+export interface JPEGSaveOptions {
+  readonly quality?: number;
+  readonly formatOptions?: JPEGFormatOptionsValue;
+  readonly scans?: number;
+  readonly color?: SolidColorInput;
+  readonly matteColor?: MatteColorValue;
+  readonly customMatte?: SolidColorInput;
+  readonly embedColorProfile?: boolean;
+}
+export interface GIFSaveOptions {
+  readonly colors?: number;
+  readonly dither?: DitherValue;
+  readonly ditherAmount?: number;
+  readonly forced?: ForcedColorsValue;
+  readonly interlaced?: boolean;
+  readonly matte?: MatteColorValue;
+  readonly palette?: PaletteValue;
+  readonly preserveExactColors?: boolean;
+  readonly transparency?: boolean;
+}
+export interface PNGSaveOptions {
+  readonly method?: PNGMethodValue;
+  readonly compression?: number;
+  readonly interlaced?: boolean;
+}
+export interface PhotoshopSaveOptions {
+  readonly alphaChannels?: boolean;
+  readonly annotations?: boolean;
+  readonly embedColorProfile?: boolean;
+  readonly layers?: boolean;
+  readonly spotColor?: boolean;
+  readonly maximizeCompatibility?: boolean;
+}
+
+export interface DocumentSaveAs {
+  bmp(entry: UxpStorageFile, saveOptions?: BMPSaveOptions, asCopy?: boolean): Promise<void>;
+  gif(entry: UxpStorageFile, saveOptions?: GIFSaveOptions, asCopy?: boolean): Promise<void>;
+  jpg(entry: UxpStorageFile, saveOptions?: JPEGSaveOptions, asCopy?: boolean): Promise<void>;
+  png(entry: UxpStorageFile, saveOptions?: PNGSaveOptions, asCopy?: boolean): Promise<void>;
+  psb(entry: UxpStorageFile, saveOptions?: PhotoshopSaveOptions, asCopy?: boolean): Promise<void>;
+  psd(entry: UxpStorageFile, saveOptions?: PhotoshopSaveOptions, asCopy?: boolean): Promise<void>;
+}
+
+export interface BitmapConversionOptions {
+  readonly angle?: number;
+  readonly frequency?: number;
+  readonly method?: BitmapConversionTypeValue;
+  readonly patternName?: string;
+  readonly resolution?: number;
+  readonly shape?: BitmapHalfToneTypeValue;
+}
+export interface IndexedConversionOptions {
+  readonly colors?: number;
+  readonly dither?: DitherValue;
+  readonly ditherAmount?: number;
+  readonly forced?: ForcedColorsValue;
+  readonly matte?: MatteColorValue;
+  readonly palette?: PaletteValue;
+  readonly preserveExactColors?: boolean;
+  readonly transparency?: boolean;
+}
+export interface GenerativeUpscaleOptions { readonly scale: number; }
+export interface CalculationsSource {
+  readonly document: PsDocument;
+  readonly layer: PsLayer | CalculationsLayerValue;
+  readonly channel: PsChannel | CalculationsChannelValue;
+  readonly invert?: boolean;
+}
+export interface CalculationsOptions {
+  readonly source1: CalculationsSource;
+  readonly source2: CalculationsSource;
+  readonly blending?: CalculationsBlendModeValue;
+  readonly opacity?: number;
+  readonly mask?: CalculationsSource;
+  readonly result: CalculationsResultValue;
+}
+
 /** Options for {@link PsDocument.close}. */
 export interface DocumentCloseOptions {
   readonly saveDialogOptions?: SaveOptionsValue;
@@ -402,6 +630,7 @@ export interface ResizeOptions {
  */
 export interface PsDocument {
   // Read-only scalars
+  readonly typename: Promise<"Document">;
   readonly id: Promise<number>;
   readonly saved: Promise<boolean>;
   readonly name: Promise<string>;
@@ -412,47 +641,73 @@ export interface PsDocument {
   readonly resolution: Promise<number>;
   readonly cloudDocument: Promise<boolean>;
   readonly cloudWorkAreaDirectory: Promise<string>;
-  // Read/write scalar
-  pixelAspectRatio: Promise<number>;
+  readonly histogram: Promise<readonly number[]>;
+  readonly mode: Promise<DocumentModeValue>;
+  readonly zoom: Promise<number>;
+  // Read/write scalars
+  get pixelAspectRatio(): Promise<number>; set pixelAspectRatio(value: number);
+  get quickMaskMode(): Promise<boolean>; set quickMaskMode(value: boolean);
+  get bitsPerChannel(): Promise<BitsPerChannelTypeValue>; set bitsPerChannel(value: BitsPerChannelTypeValue);
+  get colorProfileName(): Promise<string>; set colorProfileName(value: string);
+  get colorProfileType(): Promise<ColorProfileTypeValue>; set colorProfileType(value: ColorProfileTypeValue);
   // Collection & reference properties
   readonly layers: Promise<Layers>;
-  readonly activeLayers: Promise<Layers>;
+  get activeLayers(): Promise<Layers>; set activeLayers(value: readonly PsLayer[]);
   readonly artboards: Promise<Layers>;
   readonly backgroundLayer: Promise<PsLayer | null>;
   readonly channels: Promise<Channels>;
   readonly componentChannels: Promise<Channels>;
-  readonly activeChannels: Promise<Channels>;
+  /** @deprecated Adobe renamed this property to componentChannels. */
+  readonly compositeChannels: Promise<Channels>;
+  get activeChannels(): Promise<Channels>; set activeChannels(value: readonly PsChannel[]);
   readonly guides: Promise<Guides>;
   readonly pathItems: Promise<PathItems>;
   readonly selection: Promise<PsSelection>;
   readonly historyStates: Promise<HistoryStates>;
-  activeHistoryState: Promise<PsHistoryState>;
-  activeHistoryBrushSource: Promise<PsHistoryState>;
+  get activeHistoryState(): Promise<PsHistoryState>; set activeHistoryState(value: PsHistoryState);
+  get activeHistoryBrushSource(): Promise<PsHistoryState>; set activeHistoryBrushSource(value: PsHistoryState);
+  readonly colorSamplers: Promise<ColorSamplers>;
+  readonly countItems: Promise<CountItems>;
+  readonly layerComps: Promise<LayerComps>;
+  readonly saveAs: DocumentSaveAs;
 
   // Mutating method (native duplicate changes Photoshop state and requires modal execution)
   duplicate(name?: string, mergeLayersOnly?: boolean): Promise<PsDocument>;
 
   // Mutating methods (host wraps in executeAsModal)
+  close(saveDialogOptions?: SaveOptionsValue): Promise<void>;
+  /** @deprecated Pass SaveOptions directly. */
   close(options?: DocumentCloseOptions): Promise<void>;
   closeWithoutSaving(): Promise<void>;
   flatten(): Promise<void>;
-  mergeVisibleLayers(): Promise<PsLayer>;
+  mergeVisibleLayers(): Promise<void>;
   revealAll(): Promise<void>;
   rasterizeAllLayers(): Promise<void>;
   crop(bounds: ImagingBounds, angle?: number, width?: number, height?: number): Promise<void>;
+  resizeCanvas(width: number, height: number, anchor?: AnchorPositionValue): Promise<void>;
+  /** @deprecated Pass Adobe's positional arguments. */
   resizeCanvas(options?: ResizeOptions): Promise<void>;
+  resizeImage(width?: number, height?: number, resolution?: number, resampleMethod?: ResampleMethodValue, amount?: number): Promise<void>;
+  /** @deprecated Pass Adobe's positional arguments. */
   resizeImage(options?: ResizeOptions): Promise<void>;
-  trim(trimType?: string, top?: boolean, left?: boolean, bottom?: boolean, right?: boolean): Promise<void>;
+  trim(trimType: TrimTypeValue, top?: boolean, left?: boolean, bottom?: boolean, right?: boolean): Promise<void>;
   rotate(angle: number): Promise<void>;
   save(): Promise<void>;
-  createLayer(options?: LayerCreateOptions): Promise<PsLayer>;
-  createPixelLayer(options?: LayerCreateOptions): Promise<PsLayer>;
-  createTextLayer(options?: LayerCreateOptions): Promise<PsLayer>;
-  createLayerGroup(options?: LayerCreateOptions): Promise<PsLayer>;
-  groupLayers(layers: readonly PsLayer[]): Promise<PsLayer>;
+  createLayer(options?: LayerCreateOptions): Promise<PsLayer | null>;
+  createPixelLayer(options?: LayerCreateOptions): Promise<PsLayer | null>;
+  createTextLayer(options?: LayerCreateOptions): Promise<PsLayer | null>;
+  createLayerGroup(options?: LayerCreateOptions): Promise<PsLayer | null>;
+  groupLayers(layers: readonly PsLayer[]): Promise<PsLayer | null>;
   duplicateLayers(layers: readonly PsLayer[], targetDocument?: PsDocument): Promise<Layers>;
   linkLayers(layers: readonly PsLayer[]): Promise<Layers>;
-  paste(intoSelection?: boolean): Promise<PsLayer>;
+  paste(intoSelection?: boolean): Promise<PsLayer | null>;
+  splitChannels(): Promise<readonly PsDocument[]>;
+  changeMode(mode: ChangeModeValue, options?: BitmapConversionOptions | IndexedConversionOptions): Promise<void>;
+  convertProfile(destinationProfile: string, intent: IntentValue, blackPointCompensation?: boolean, dither?: boolean): Promise<void>;
+  trap(width: number): Promise<void>;
+  sampleColor(position: PsPoint): Promise<SampledColor>;
+  calculations(options: CalculationsOptions): Promise<PsDocument | PsChannel | void>;
+  generativeUpscale(model: GenerativeUpscaleModelValue, options: GenerativeUpscaleOptions): Promise<void>;
 
   // Batch
   batchGet<K extends PsDocumentReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
@@ -463,12 +718,19 @@ export interface PsDocument {
 /** Writable Document properties (input shape for {@link PsDocument.batchSet}). */
 export interface PsDocumentWritableProps {
   pixelAspectRatio: number;
+  quickMaskMode: boolean;
+  bitsPerChannel: BitsPerChannelTypeValue;
+  colorProfileName: string;
+  colorProfileType: ColorProfileTypeValue;
+  activeLayers: readonly PsLayer[];
+  activeChannels: readonly PsChannel[];
   activeHistoryState: PsHistoryState;
   activeHistoryBrushSource: PsHistoryState;
 }
 
 /** Every readable Document property key (input to {@link PsDocument.batchGet}). */
 export type PsDocumentReadableKey =
+  | "typename"
   | "id"
   | "saved"
   | "name"
@@ -479,7 +741,31 @@ export type PsDocumentReadableKey =
   | "resolution"
   | "cloudDocument"
   | "cloudWorkAreaDirectory"
-  | "pixelAspectRatio";
+  | "histogram"
+  | "mode"
+  | "zoom"
+  | "pixelAspectRatio"
+  | "quickMaskMode"
+  | "bitsPerChannel"
+  | "colorProfileName"
+  | "colorProfileType"
+  | "layers"
+  | "activeLayers"
+  | "artboards"
+  | "backgroundLayer"
+  | "channels"
+  | "componentChannels"
+  | "compositeChannels"
+  | "activeChannels"
+  | "guides"
+  | "pathItems"
+  | "selection"
+  | "historyStates"
+  | "activeHistoryState"
+  | "activeHistoryBrushSource"
+  | "colorSamplers"
+  | "countItems"
+  | "layerComps";
 
 /**
  * Remote proxy for a Photoshop `Layer`. Read-only scalars plus many writable scalars; `bounds`

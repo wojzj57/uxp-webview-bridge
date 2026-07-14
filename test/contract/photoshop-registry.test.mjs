@@ -12,6 +12,9 @@ const registryModule = "../../dist/webview/photoshop-api/modules/photoshop/regis
 const documentModule = "../../dist/webview/photoshop-api/modules/photoshop/document.js";
 const layerModule = "../../dist/webview/photoshop-api/modules/photoshop/layer.js";
 const channelModule = "../../dist/webview/photoshop-api/modules/photoshop/channel.js";
+const colorSamplerModule = "../../dist/webview/photoshop-api/modules/photoshop/color-sampler.js";
+const countItemModule = "../../dist/webview/photoshop-api/modules/photoshop/count-item.js";
+const layerCompModule = "../../dist/webview/photoshop-api/modules/photoshop/layer-comp.js";
 const selectionModule = "../../dist/webview/photoshop-api/modules/photoshop/selection.js";
 const historyStateModule = "../../dist/webview/photoshop-api/modules/photoshop/history-state.js";
 const guideModule = "../../dist/webview/photoshop-api/modules/photoshop/guide.js";
@@ -36,6 +39,8 @@ function declaredResultKinds(descriptors) {
   for (const [name, descriptor] of Object.entries(descriptors)) {
     if (descriptor.refType !== undefined) {
       kinds[name] = { kind: "ref", refType: descriptor.refType };
+    } else if (descriptor.refTypes !== undefined) {
+      kinds[name] = { kind: "refUnion", refTypes: descriptor.refTypes };
     } else if (descriptor.valueKind !== undefined) {
       kinds[name] = { kind: "value", valueKind: descriptor.valueKind };
     } else if (descriptor.collectionOf !== undefined) {
@@ -57,6 +62,8 @@ test("every result-kind name resolves to a registered type or value kind (no dan
       for (const [member, resultKind] of Object.entries(group)) {
         if (resultKind.kind === "ref") {
           assert.ok(knownTypes.has(resultKind.refType), `${type}.${member} refType ${resultKind.refType} is unregistered.`);
+        } else if (resultKind.kind === "refUnion") {
+          for (const refType of resultKind.refTypes) assert.ok(knownTypes.has(refType), `${type}.${member} refType ${refType} is unregistered.`);
         } else if (resultKind.kind === "collection") {
           assert.ok(knownTypes.has(resultKind.memberKind), `${type}.${member} memberKind ${resultKind.memberKind} is unregistered.`);
         } else if (resultKind.kind === "value") {
@@ -91,6 +98,9 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
   const { createDocumentProperties, createDocumentMethods } = await import(documentModule);
   const { createLayerProperties, createLayerMethods } = await import(layerModule);
   const { createChannelProperties, createChannelMethods } = await import(channelModule);
+  const { createColorSamplerProperties } = await import(colorSamplerModule);
+  const { createCountItemProperties } = await import(countItemModule);
+  const { createLayerCompProperties } = await import(layerCompModule);
   const { createSelectionProperties, createSelectionMethods } = await import(selectionModule);
   const { createHistoryStateProperties } = await import(historyStateModule);
   const { createGuideProperties } = await import(guideModule);
@@ -119,6 +129,13 @@ test("the WebView descriptor typings stay in sync with the shared PHOTOSHOP_RESU
       type: PHOTOSHOP_REMOTE_TYPE.Channel,
       properties: declaredResultKinds(createChannelProperties()),
       methods: declaredResultKinds(createChannelMethods())
+    },
+    { type: PHOTOSHOP_REMOTE_TYPE.ColorSampler, properties: declaredResultKinds(createColorSamplerProperties()), methods: {} },
+    { type: PHOTOSHOP_REMOTE_TYPE.CountItem, properties: declaredResultKinds(createCountItemProperties()), methods: {} },
+    {
+      type: PHOTOSHOP_REMOTE_TYPE.LayerComp,
+      properties: declaredResultKinds(createLayerCompProperties()),
+      methods: { duplicate: { kind: "ref", refType: PHOTOSHOP_REMOTE_TYPE.LayerComp } }
     },
     {
       type: PHOTOSHOP_REMOTE_TYPE.Selection,
