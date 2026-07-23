@@ -54,6 +54,7 @@ import type {
   FlipAxisValue,
   LayerKindValue,
   PhotoshopConstantsNamespace,
+  PSLayerKindValue,
   SaveOptionsValue
 } from "@shared/photoshop-api/photoshop-constants.js";
 import type {
@@ -61,7 +62,10 @@ import type {
   ActionReference as AdobeActionReference,
   BatchPlayCommandOptions as AdobeBatchPlayCommandOptions
 } from "@shared/types/photoshop/internal/dom/CoreModules.js";
-import type { Layer as AdobeLayer } from "@shared/types/photoshop/internal/dom/Layer.js";
+import type {
+  Layer as AdobeLayer,
+  PSLayerKind as AdobePSLayerKind
+} from "@shared/types/photoshop/internal/dom/Layer.js";
 import type { TextItem as AdobeTextItem } from "@shared/types/photoshop/internal/dom/TextItem.js";
 import type { CharacterStyle as AdobeCharacterStyle } from "@shared/types/photoshop/internal/dom/text/CharacterStyle.js";
 import type { ParagraphStyle as AdobeParagraphStyle } from "@shared/types/photoshop/internal/dom/text/ParagraphStyle.js";
@@ -151,14 +155,18 @@ type _ChannelTypeCompatible = AssertMutual<ChannelTypeValue, `${AdobeChannelType
 // SaveOptions is a numeric enum; its value union is numeric, so compare against the numeric enum
 // value union directly rather than a template-literal (which only applies to string enums).
 type _SaveOptionsExact = AssertMutual<SaveOptionsValue, AdobeSaveOptions>;
+type _PSLayerKindExact = AssertMutual<PSLayerKindValue, AdobePSLayerKind>;
 
 /** Every Adobe enum name is generated and carried by the public Photoshop namespace type. */
 type AssertNever<T extends never> = true;
+type ExpectedGeneratedConstantName =
+  | Exclude<keyof typeof AdobeConstants, "constants">
+  | "PSLayerKind";
 type _AllAdobeConstantNamesGenerated = AssertNever<
-  Exclude<keyof typeof AdobeConstants, "constants" | keyof PhotoshopConstantsNamespace>
+  Exclude<ExpectedGeneratedConstantName, keyof PhotoshopConstantsNamespace>
 >;
 type _NoGeneratedConstantNamesOutsideAdobe = AssertNever<
-  Exclude<keyof PhotoshopConstantsNamespace, Exclude<keyof typeof AdobeConstants, "constants">>
+  Exclude<keyof PhotoshopConstantsNamespace, ExpectedGeneratedConstantName>
 >;
 type _AllGeneratedConstantsPublic = AssertNever<
   Exclude<keyof PhotoshopConstantsNamespace, keyof PhotoshopNamespace>
@@ -426,8 +434,8 @@ export default defineWebviewCdpCases([
       );
       assert.equal(
         constantEntries.length,
-        103,
-        "photoshop must synchronously expose 102 Constants.d.ts enums plus ColorConversionModel."
+        104,
+        "photoshop must synchronously expose 103 generated enums plus ColorConversionModel."
       );
       for (const [name, table] of constantEntries) {
         assert.ok(typeof table === "object" && table !== null, `photoshop.${name} must be an object.`);
@@ -437,8 +445,14 @@ export default defineWebviewCdpCases([
           `photoshop.${name} must not be Promise-like.`
         );
       }
-      assert.equal(Object.keys(photoshop.constants).length, 102, "photoshop.constants must contain every declared enum.");
+      assert.equal(Object.keys(photoshop.constants).length, 103, "photoshop.constants must contain every generated enum.");
       assert.equal(photoshop.constants.LayerKind, photoshop.LayerKind, "aggregate and direct tables must share identity.");
+      assert.equal(
+        photoshop.constants.PSLayerKind,
+        photoshop.PSLayerKind,
+        "PSLayerKind aggregate and direct tables must share identity."
+      );
+      assert.equal(photoshop.PSLayerKind.groupEnd, 13, "PSLayerKind.groupEnd should be 13.");
       assert.equal(photoshop.InterpolationMethod.AUTOMATIC, "bicubicAutomatic", "InterpolationMethod should be present.");
       assert.equal(photoshop.LayerKind.NORMAL, "pixel", "LayerKind.NORMAL should transcribe to 'pixel'.");
       assert.equal(photoshop.BlendMode.SUBTRACT, "blendSubtraction", "BlendMode.SUBTRACT should transcribe correctly.");
