@@ -1,0 +1,46 @@
+{
+  "name": "uxp-webview-bridge",
+  "version": "0.0.0",
+  "description": "Bridge library for Adobe UXP plugin hosts and WebView clients.",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@11.5.0",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "CONTEXT.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./webview": {
+      "types": "./dist/webview/index.d.ts",
+      "import": "./dist/webview/index.js"
+    },
+    "./uxp": {
+      "types": "./dist/uxp/index.d.ts",
+      "import": "./dist/uxp/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.build.json && node scripts/copy-shared-types.mjs && node scripts/rewrite-dist-path-aliases.mjs",
+    "generate:photoshop-constants": "node scripts/generate-photoshop-constants.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf dist",
+    "test": "pnpm test:static && pnpm typecheck && pnpm test:contract",
+    "test:static": "node test/static/check-boundaries.mjs",
+    "test:contract": "pnpm build && node --test \"test/contract/**/*.test.mjs\"",
+    "test:uxp": "pnpm build && node test/runner/run-cdp-auto.mjs",
+    "uxp:open-devtools": "uxp-cli open-devtools --plugin-path ./test/uxp-plugin"
+  },
+  "devDependencies": {
+    "@bubblydoo/uxp-cli": "^0.0.12",
+    "@types/node": "^20.14.12",
+    "esbuild": "^0.28.1",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.5.4"
+  }
+}
