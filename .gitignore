@@ -6,3 +6,6 @@ test/uxp-plugin/vendor/
 .turbo/
 .DS_Store
 *.log
+
+notes/
+uxp-document/
