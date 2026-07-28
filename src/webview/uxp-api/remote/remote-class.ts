@@ -307,7 +307,11 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     descriptor: RemoteResultTyping | undefined,
     memberName: string
   ): unknown {
-    if (descriptor?.refType === undefined && descriptor?.remoteResult !== true) {
+    if (
+      descriptor?.refType === undefined &&
+      descriptor?.refTypes === undefined &&
+      descriptor?.remoteResult !== true
+    ) {
       return promise;
     }
     return createRemoteResult(

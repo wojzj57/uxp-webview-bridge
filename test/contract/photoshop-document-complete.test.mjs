@@ -43,6 +43,7 @@ test("PsDocument exposes exactly the 66 transportable documented members and sav
       if (method === "layerComps.getAllByName") return snapshot("LayerComp", docRef, ["comp-1"]);
       if (method === "document.sampleColor") return value("SampledColor", { typename: "NoColor" });
       if (method === "document.calculations") return ref("Channel", "channel-1");
+      if (method === "channel.propertyGet" && args[1] === "name") return "Alpha";
       if (method === "document.splitChannels") return snapshot("Document", docRef, ["doc-2"]);
       return undefined;
     }
@@ -71,7 +72,11 @@ test("PsDocument exposes exactly the 66 transportable documented members and sav
   assert.equal(comps.typename, "LayerComps");
   assert.equal((await comps.getAllByName("A"))[0], comps[0]);
   assert.deepEqual(await document.sampleColor({ x: 0, y: 0 }), { typename: "NoColor" });
-  assert.ok(await document.calculations({}), "calculations should decode a reference union.");
+  assert.equal(
+    await document.calculations({}).name,
+    "Alpha",
+    "calculations should expose decoded reference unions as chainable remote results."
+  );
   assert.equal((await document.splitChannels()).length, 1);
 });
 

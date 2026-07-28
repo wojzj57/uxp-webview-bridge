@@ -748,7 +748,7 @@ export interface PsDocument {
   convertProfile(destinationProfile: string, intent: IntentValue, blackPointCompensation?: boolean, dither?: boolean): Promise<void>;
   trap(width: number): Promise<void>;
   sampleColor(position: PsPoint): Promise<SampledColor>;
-  calculations(options: CalculationsOptions): Promise<PsDocument | PsChannel | void>;
+  calculations(options: CalculationsOptions): RemoteResult<PsDocument | PsChannel | undefined>;
   generativeUpscale(model: GenerativeUpscaleModelValue, options: GenerativeUpscaleOptions): Promise<void>;
   /**
    * Run a callback in Photoshop's document-scoped modal history suspension. The bridge recreates

@@ -2023,9 +2023,13 @@ function assertRemoteResultTypes(app: PhotoshopApp): void {
   const legacyDocument: Promise<PsDocument> = app.activeDocument;
   const chainedName: Promise<string> = app.activeDocument.name;
   const chainedClose: Promise<void> = app.activeDocument.close();
+  const calculationsResult: import("@webview/uxp-api/remote/index.js").RemoteResult<
+    PsDocument | PsChannel | undefined
+  > = documentResult.calculations({} as Parameters<PsDocument["calculations"]>[0]);
+  const calculationsName: Promise<string> = calculationsResult.name;
   app.activeDocument.pixelAspectRatio = 2;
 
-  void [documentResult, legacyDocument, chainedName, chainedClose];
+  void [documentResult, legacyDocument, chainedName, chainedClose, calculationsResult, calculationsName];
 }
 
 void assertRemoteResultTypes;

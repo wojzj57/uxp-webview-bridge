@@ -15,7 +15,7 @@ const NO_FAILURE = Symbol("RemoteOperationScheduler.noFailure");
 
 interface PendingFailure {
   readonly error: unknown;
-  readonly rejectThrough: number;
+  rejectThrough: number;
 }
 
 /**
@@ -27,10 +27,15 @@ export class RemoteOperationScheduler {
   #writeTail: Promise<void> = Promise.resolve();
   #externalWrites = new Set<Promise<void>>();
   #issued = 0;
+  #lastObservableIssued = 0;
   #failure: PendingFailure | typeof NO_FAILURE = NO_FAILURE;
 
   run<T>(operation: () => T | PromiseLike<T>): Promise<T> {
     const sequence = ++this.#issued;
+    this.#lastObservableIssued = sequence;
+    if (this.#failure !== NO_FAILURE) {
+      this.#failure.rejectThrough = sequence;
+    }
     const barriers = [this.#writeTail, ...this.#externalWrites];
     return Promise.all(barriers).then(() => {
       this.#throwPendingFailure(sequence);
@@ -46,11 +51,11 @@ export class RemoteOperationScheduler {
     const sequence = ++this.#issued;
     const externalWrites = bypassExternalWrites ? [] : [...this.#externalWrites];
     const promise = Promise.all([this.#writeTail, ...externalWrites]).then(async () => {
-      this.#throwPendingFailure(sequence);
+      this.#throwPendingFailure(sequence, false);
       try {
         await operation();
       } catch (error) {
-        this.#recordFailure(error, sequence, true);
+        this.#recordFailure(error, sequence);
         throw error;
       }
     });
@@ -63,10 +68,11 @@ export class RemoteOperationScheduler {
 
   /** Register a descendant write immediately so later operations wait for it. */
   trackExternalWrite(write: PromiseLike<void>): void {
+    const sequence = ++this.#issued;
     let tracked: Promise<void>;
     tracked = Promise.resolve(write)
       .catch((error: unknown) => {
-        this.#recordFailure(error, this.#issued, false);
+        this.#recordFailure(error, sequence);
       })
       .finally(() => {
         this.#externalWrites.delete(tracked);
@@ -74,20 +80,24 @@ export class RemoteOperationScheduler {
     this.#externalWrites.add(tracked);
   }
 
-  #throwPendingFailure(sequence: number): void {
+  #throwPendingFailure(sequence: number, observable = true): void {
     const failure = this.#failure;
-    if (failure === NO_FAILURE || sequence > failure.rejectThrough) return;
-    if (sequence === failure.rejectThrough) {
+    if (failure === NO_FAILURE) return;
+    if (!observable) {
+      // Setters cannot expose their returned Promise, so they must not consume a pending failure.
+      throw failure.error;
+    }
+    if (sequence >= failure.rejectThrough) {
       this.#failure = NO_FAILURE;
     }
     throw failure.error;
   }
 
-  #recordFailure(error: unknown, failedSequence: number, rejectNextOperation: boolean): void {
+  #recordFailure(error: unknown, failedSequence: number): void {
     if (this.#failure !== NO_FAILURE) return;
     this.#failure = {
       error,
-      rejectThrough: Math.max(rejectNextOperation ? failedSequence + 1 : 1, this.#issued)
+      rejectThrough: this.#lastObservableIssued > failedSequence ? this.#lastObservableIssued : 0
     };
   }
 }

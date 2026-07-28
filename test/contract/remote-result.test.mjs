@@ -41,6 +41,53 @@ test("RemoteResult supports queued property writes and recovers after a failed w
   assert.equal(await failed.value, 3, "the scheduler should accept new operations after reporting the write failure");
 });
 
+test("RemoteOperationScheduler keeps queued write failures observable across later setters", async () => {
+  const { RemoteOperationScheduler } = await import(remoteResultModule);
+  const scheduler = new RemoteOperationScheduler();
+  const events = [];
+
+  scheduler.enqueueWrite(async () => {
+    events.push("first-write");
+    throw new Error("first write failed");
+  });
+  scheduler.enqueueWrite(async () => {
+    events.push("second-write");
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await assert.rejects(scheduler.run(() => events.push("dependent-read")), /first write failed/);
+  assert.deepEqual(events, ["first-write"], "a dependent setter must not consume or hide the first failure");
+
+  await scheduler.write(() => {
+    events.push("recovery-write");
+  });
+  assert.deepEqual(events, ["first-write", "recovery-write"]);
+});
+
+test("RemoteOperationScheduler does not report one failure twice because of external writes", async () => {
+  const { RemoteOperationScheduler } = await import(remoteResultModule);
+  const scheduler = new RemoteOperationScheduler();
+
+  scheduler.enqueueWrite(() => Promise.reject(new Error("write failed")));
+  const dependentRead = scheduler.run(() => "unreachable");
+  scheduler.trackExternalWrite(Promise.resolve());
+
+  await assert.rejects(dependentRead, /write failed/);
+  assert.equal(await scheduler.run(() => "recovered"), "recovered");
+});
+
+test("RemoteResult reports a delayed external write failure after earlier operations", async () => {
+  const { createRemoteResult } = await import(remoteResultModule);
+  const failed = createRemoteResult(Promise.resolve(Object.freeze({ value: 3 })), undefined, "delayed");
+
+  await failed;
+  failed.value = 4;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  await assert.rejects(Promise.resolve(failed.value), /Cannot assign delayed\.value/);
+  assert.equal(await failed.value, 3, "the scheduler should recover after the delayed failure is observed");
+});
+
 test("RemoteResult reports nullable dereferences as BridgeRemoteError", async () => {
   const { createRemoteResult } = await import(remoteResultModule);
   const result = createRemoteResult(Promise.resolve(null), undefined, "nullable");
