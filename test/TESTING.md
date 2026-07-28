@@ -94,6 +94,10 @@ Use these top-level script names:
 
 The CDP runner does not reload the UXP panel by default because UXP's CDP `Runtime.evaluate` can hang when evaluation triggers `location.reload()`. Use `--reload` only as a manual debugging option.
 
+Colocated cases may declare `timeoutMs`. Fixture preparation carries that metadata through the
+generated registry, and the runner honors it for both all-case and `--case` runs. Explicit suite
+case/suite timeouts take precedence; cases without metadata use `UXP_TEST_TIMEOUT_MS` or 15 seconds.
+
 ## CDP URL Ownership
 
 Use the single public auto wrapper for CDP URL ownership:

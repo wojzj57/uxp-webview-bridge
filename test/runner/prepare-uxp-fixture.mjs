@@ -60,7 +60,8 @@ async function writeCaseRegistry() {
     const caseName = fileName.slice(0, -".mjs".length);
     return {
       caseName,
-      loader: `() => import(${JSON.stringify(`./cases/${caseName}.mjs`)})`
+      loader: `() => import(${JSON.stringify(`./cases/${caseName}.mjs`)})`,
+      timeoutMs: undefined
     };
   });
 
@@ -86,6 +87,12 @@ async function writeCaseRegistry() {
     "",
     "export const cases = {",
     ...registryEntries.map((entry) => `  ${JSON.stringify(entry.caseName)}: ${entry.loader},`),
+    "};",
+    "",
+    "export const caseTimeouts = {",
+    ...registryEntries
+      .filter((entry) => entry.timeoutMs !== undefined)
+      .map((entry) => `  ${JSON.stringify(entry.caseName)}: ${JSON.stringify(entry.timeoutMs)},`),
     "};",
     ""
   ].join("\n");
@@ -119,12 +126,23 @@ async function getModuleCaseRegistryEntries() {
 
       entries.push({
         caseName: testCase.name,
-        loader: `() => import(${JSON.stringify(importSpecifier)}).then((module) => selectCase(module, ${JSON.stringify(testCase.name)}))`
+        loader: `() => import(${JSON.stringify(importSpecifier)}).then((module) => selectCase(module, ${JSON.stringify(testCase.name)}))`,
+        timeoutMs: normalizeCaseTimeout(testCase.timeoutMs, testCase.name)
       });
     }
   }
 
   return entries;
+}
+
+function normalizeCaseTimeout(value, caseName) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`CDP module case ${caseName} timeoutMs must be a positive finite number.`);
+  }
+  return value;
 }
 
 function runCdpWebviewTypeScriptBuild() {
