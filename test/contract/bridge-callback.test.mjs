@@ -67,8 +67,11 @@ test("WebView ignores callback messages from untrusted origins and sources", asy
     await delay(0);
     assert.equal(calls, 0);
 
-    bus.dispatchToClient(invoke, null, "plugin://test");
+    bus.dispatchToClient(invoke, bus.clientTarget, "com.uxpwebviewbridge.test");
     await waitFor(() => calls === 1);
+
+    bus.dispatchToClient(invoke, null, "plugin://test");
+    await waitFor(() => calls === 2);
   } finally {
     await client.destroy().catch(() => {});
     bus.restore();

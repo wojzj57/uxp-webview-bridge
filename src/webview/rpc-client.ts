@@ -24,6 +24,7 @@ export type RpcCallback = (...args: readonly unknown[]) => unknown | Promise<unk
 
 export interface RpcClientOptions {
   readonly target?: WebViewBridgeTarget;
+  /** Fallback origins accepted when UXP does not provide a message source object. */
   readonly allowedOrigins?: readonly string[];
   readonly timeoutMs?: number;
   readonly onUnhandledError?: ((error: BridgeRemoteError) => void) | undefined;
@@ -215,8 +216,8 @@ export class RpcClient {
   }
 
   private isAllowedEvent(event: MessageEvent<unknown>): boolean {
-    if (event.source && event.source !== this.target) {
-      return false;
+    if (event.source) {
+      return event.source === this.target;
     }
     return isAllowedOrigin(event.origin, this.allowedOrigins);
   }
