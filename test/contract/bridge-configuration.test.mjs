@@ -15,6 +15,15 @@ test("WebView RPC namespaces require configWebviewBridge before use", async () =
   );
 });
 
+test("forwarded fetch checks configWebviewBridge before async request work", async () => {
+  const { fetch } = await import(webviewEntrypoint);
+
+  assert.throws(() => {
+    const result = fetch("https://example.com");
+    void result.catch(() => {});
+  }, configurationError);
+});
+
 test("configWebviewBridge logs successful configuration", async () => {
   const environment = installRuntimeEnvironment();
 

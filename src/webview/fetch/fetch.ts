@@ -59,10 +59,15 @@ export function createFetchNamespace(rpc: FetchRpc): FetchNamespace {
   };
 }
 
-export const fetch: FetchNamespace = createFetchNamespace({
+const defaultFetch = createFetchNamespace({
   callCancelable: (module, method, args) => getBridgeRpcClient().callCancelable(module, method, args),
   cancel: (operationId) => getBridgeRpcClient().cancel(operationId)
 });
+
+export const fetch: FetchNamespace = (input, init) => {
+  getBridgeRpcClient();
+  return defaultFetch(input, init);
+};
 
 async function serializeRequest(
   input: RequestInfo | URL,
