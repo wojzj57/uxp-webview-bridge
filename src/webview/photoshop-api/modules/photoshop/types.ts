@@ -125,7 +125,7 @@ export type {
   UnitTypeEnum,
   UnitValue
 } from "@shared/types/photoshop/internal/util/unit.js";
-import { ColorConversionModel, type PhotoshopCore } from "../core/types.js";
+import { ColorConversionModel, type ExecutionContext, type PhotoshopCore } from "../core/types.js";
 import type { PhotoshopImaging } from "../imaging/types.js";
 import type { UxpStorageFile } from "@webview/uxp-api/modules/uxp/persistent-file-storage/types.js";
 
@@ -748,11 +748,22 @@ export interface PsDocument {
   sampleColor(position: PsPoint): Promise<SampledColor>;
   calculations(options: CalculationsOptions): Promise<PsDocument | PsChannel | void>;
   generativeUpscale(model: GenerativeUpscaleModelValue, options: GenerativeUpscaleOptions): Promise<void>;
+  /**
+   * Run a callback in Photoshop's document-scoped modal history suspension. The bridge recreates
+   * Adobe's ExecutionContext facade over session-scoped RPC; calls through `context.document`,
+   * `reportProgress`, and `hostControl` remain inside the same host modal session.
+   */
+  suspendHistory(callback: (context: SuspendHistoryContext) => void | Promise<void>, historyStateName: string): Promise<void>;
 
   // Batch
   batchGet<K extends PsDocumentReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
   batchSet(properties: Partial<PsDocumentWritableProps>): void;
   dispose(): Promise<void>;
+}
+
+/** Callback context supplied by {@link PsDocument.suspendHistory}. */
+export interface SuspendHistoryContext extends ExecutionContext {
+  readonly document: PsDocument;
 }
 
 /** Writable Document properties (input shape for {@link PsDocument.batchSet}). */
@@ -1321,7 +1332,18 @@ export interface PhotoshopActions {
 
   /** Validate one native Photoshop action reference or a reference chain. */
   validateReference(ref: ActionReference | readonly ActionReference[]): Promise<boolean>;
+
+  /** Subscribe to native Photoshop action notifications. Duplicate registrations are idempotent. */
+  addNotificationListener(events: readonly string[], notifier: ActionNotificationListener): Promise<void>;
+
+  /** Remove a matching native notification subscription. Missing registrations are ignored. */
+  removeNotificationListener(events: readonly string[], notifier: ActionNotificationListener): Promise<void>;
 }
+
+export type ActionNotificationListener = (
+  eventName: string,
+  descriptor: ActionDescriptor
+) => void | Promise<void>;
 
 export interface Documents extends ReadonlyArray<PsDocument> {
   readonly parent: PhotoshopApp;

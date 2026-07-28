@@ -81,6 +81,8 @@ Colocated case names are global and must include the module prefix, such as `fs.
 
 The fixture preparation step compiles colocated WebView module cases, copies bridge cases into the fixture, and generates the case registry. `pnpm test:uxp` runs all generated cases by default.
 
+Photoshop cases that need document state must create a minimal document through `ctx.bridge.photoshop.app.createDocument` and close it without saving in `finally`. If isolated creation is unavailable, skip before reading or mutating `activeDocument`; the test suite never borrows a user's document as fixture state.
+
 ## Fixture Notes
 
 The WebView is loaded from local plugin content:

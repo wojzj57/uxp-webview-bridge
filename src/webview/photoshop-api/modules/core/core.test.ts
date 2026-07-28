@@ -2,6 +2,9 @@ import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
 
 import type {
   CPUInfo as AdobeCPUInfo,
+  CreateTemporaryDocumentOptions as AdobeCreateTemporaryDocumentOptions,
+  CreateTemporaryDocumentResult as AdobeCreateTemporaryDocumentResult,
+  DeleteTemporaryDocumentOptions as AdobeDeleteTemporaryDocumentOptions,
   DisplayConfiguration as AdobeDisplayConfiguration,
   DisplayConfigurationOptions as AdobeDisplayConfigurationOptions,
   GetActiveToolResult as AdobeGetActiveToolResult,
@@ -9,7 +12,10 @@ import type {
   GPUInfo as AdobeGPUInfo,
   LayerTreeInfo as AdobeLayerTreeInfo,
   MenuCommandMenuIDOptions as AdobeMenuCommandMenuIDOptions,
-  MenuCommandOptions as AdobeMenuCommandOptions
+  MenuCommandOptions as AdobeMenuCommandOptions,
+  RedrawDocumentOptions as AdobeRedrawDocumentOptions,
+  SetExecutionModeOptions as AdobeSetExecutionModeOptions,
+  SuppressResizeGripperOptions as AdobeSuppressResizeGripperOptions
 } from "@shared/types/photoshop/internal/dom/CoreModules.js";
 import type {
   CMYKColorDescriptor as AdobeCMYKColorDescriptor,
@@ -24,6 +30,9 @@ import type {
   CMYKColorDescriptor,
   ColorDescriptor,
   CPUInfo,
+  CreateTemporaryDocumentOptions,
+  CreateTemporaryDocumentResult,
+  DeleteTemporaryDocumentOptions,
   DisplayConfiguration,
   DisplayConfigurationOptions,
   GetActiveToolResult,
@@ -36,7 +45,10 @@ import type {
   MenuCommandMenuIDOptions,
   MenuCommandOptions,
   RGB32ColorDescriptor,
-  RGBColorDescriptor
+  RGBColorDescriptor,
+  RedrawDocumentOptions,
+  SetExecutionModeOptions,
+  SuppressResizeGripperOptions
 } from "./types.js";
 
 type Assignable<From, To> = [From] extends [To] ? true : never;
@@ -50,6 +62,12 @@ type _DisplayOptions = Assignable<DisplayConfigurationOptions, AdobeDisplayConfi
 type _DisplayResult = Assignable<DisplayConfiguration, AdobeDisplayConfiguration>;
 type _MenuCommandOptions = Assignable<MenuCommandOptions, AdobeMenuCommandOptions>;
 type _MenuIdOptions = Assignable<MenuCommandMenuIDOptions, AdobeMenuCommandMenuIDOptions>;
+type _CreateTemporaryOptions = Assignable<CreateTemporaryDocumentOptions, AdobeCreateTemporaryDocumentOptions>;
+type _CreateTemporaryResult = Assignable<CreateTemporaryDocumentResult, AdobeCreateTemporaryDocumentResult>;
+type _DeleteTemporaryOptions = Assignable<DeleteTemporaryDocumentOptions, AdobeDeleteTemporaryDocumentOptions>;
+type _RedrawDocumentOptions = Assignable<RedrawDocumentOptions, AdobeRedrawDocumentOptions>;
+type _SetExecutionModeOptions = Assignable<SetExecutionModeOptions, AdobeSetExecutionModeOptions>;
+type _SuppressResizeGripperOptions = Assignable<SuppressResizeGripperOptions, AdobeSuppressResizeGripperOptions>;
 type _PluginInfo = Assignable<GetPluginInfoResult, AdobeGetPluginInfoResult>;
 type _ColorDescriptor = Assignable<ColorDescriptor, AdobeColorDescriptor>;
 type _RgbColor = Assignable<RGBColorDescriptor, AdobeRGBColorDescriptor>;
@@ -69,6 +87,12 @@ export type _StaticConsistencyProof = [
   _DisplayResult,
   _MenuCommandOptions,
   _MenuIdOptions,
+  _CreateTemporaryOptions,
+  _CreateTemporaryResult,
+  _DeleteTemporaryOptions,
+  _RedrawDocumentOptions,
+  _SetExecutionModeOptions,
+  _SuppressResizeGripperOptions,
   _PluginInfo,
   _ColorDescriptor,
   _RgbColor,
@@ -90,9 +114,15 @@ export default defineWebviewCdpCases([
       assert.functions(
         core,
         [
+          "addNotificationListener",
           "getActiveTool",
           "calculateDialogSize",
           "convertColor",
+          "convertGlobalToLocal",
+          "createTemporaryDocument",
+          "deleteTemporaryDocument",
+          "endModalToolState",
+          "executeAsModal",
           "getCPUInfo",
           "getDisplayConfiguration",
           "getGPUInfo",
@@ -106,11 +136,22 @@ export default defineWebviewCdpCases([
           "getUserIdleTime",
           "historySuspended",
           "isModal",
+          "performMenuCommand",
+          "redrawDocument",
+          "removeNotificationListener",
+          "setExecutionMode",
+          "setUserIdleTime",
+          "showAlert",
+          "suppressResizeGripper",
           "translateUIString"
         ],
         "photoshop.core"
       );
-      return { membersChecked: 18 };
+      return {
+        membersChecked: 31,
+        nonCallbackMembersChecked: 28,
+        callbackMembersChecked: 3
+      };
     }
   },
   {
@@ -176,34 +217,28 @@ export default defineWebviewCdpCases([
     name: "photoshop.core.document-queries",
     async run({ bridge, assert, skip }) {
       bridge.ensureConfigured();
-      const document = await getActiveDocument(bridge, skip);
-      if (isSkip(document)) {
-        return document;
-      }
-      const documentID = await document.id;
-      const suspended = await bridge.photoshop.core.historySuspended({ documentID });
-      const menuAvailable = await bridge.photoshop.core.getMenuCommandState({ commandID: 1017 });
-      const menuTitle = await bridge.photoshop.core.getMenuCommandTitle({ commandID: 1017 });
+      return withFixtureDocument(bridge, skip, "document-queries", async (document) => {
+        const documentID = await document.id;
+        const suspended = await bridge.photoshop.core.historySuspended({ documentID });
+        const menuAvailable = await bridge.photoshop.core.getMenuCommandState({ commandID: 1017 });
+        const menuTitle = await bridge.photoshop.core.getMenuCommandTitle({ commandID: 1017 });
 
-      assert.ok(typeof suspended === "boolean", "historySuspended should return a boolean.");
-      assert.ok(typeof menuAvailable === "boolean", "getMenuCommandState should return a boolean.");
-      assert.nonEmptyString(menuTitle, "getMenuCommandTitle");
+        assert.ok(typeof suspended === "boolean", "historySuspended should return a boolean.");
+        assert.ok(typeof menuAvailable === "boolean", "getMenuCommandState should return a boolean.");
+        assert.nonEmptyString(menuTitle, "getMenuCommandTitle");
 
-      return { documentID, suspended, menuAvailable, menuTitle };
+        return { documentID, suspended, menuAvailable, menuTitle };
+      });
     }
   },
   {
     name: "photoshop.core.layer-hierarchy",
     async run({ bridge, assert, skip }) {
       bridge.ensureConfigured();
-      const document = await getActiveDocument(bridge, skip);
-      if (isSkip(document)) {
-        return document;
-      }
-      const documentID = await document.id;
-      const group = await document.createLayerGroup({ name: `uxp-core-tree-${Date.now()}` });
-      const layerID = await group.id;
-      try {
+      return withFixtureDocument(bridge, skip, "layer-hierarchy", async (document) => {
+        const documentID = await document.id;
+        const group = await document.createLayerGroup({ name: `uxp-core-tree-${Date.now()}` });
+        const layerID = await group.id;
         const asyncTree = await bridge.photoshop.core.getLayerTree({ documentID });
         const syncTree = await bridge.photoshop.core.getLayerTreeSync({ documentID });
         const asyncContents = await bridge.photoshop.core.getLayerGroupContents({ documentID, layerID });
@@ -211,25 +246,19 @@ export default defineWebviewCdpCases([
 
         assertLayerHierarchy(assert, layerID, asyncTree, syncTree, asyncContents, syncContents);
         return { documentID, layerID, asyncTreeCount: asyncTree.list.length, syncTreeCount: syncTree.list.length };
-      } finally {
-        await group.delete();
-      }
+      });
     }
   }
 ]);
 
-interface SkipMarker {
-  readonly __skip: true;
-}
-
-interface ActiveDocumentLike {
+interface FixtureDocumentLike {
   readonly id: Promise<number>;
   createLayerGroup(options?: { readonly name?: string }): Promise<ActiveLayerLike>;
+  closeWithoutSaving(): Promise<void>;
 }
 
 interface ActiveLayerLike {
   readonly id: Promise<number>;
-  delete(): Promise<void>;
 }
 
 interface LayerTreeLike {
@@ -266,21 +295,44 @@ function treeContainsLayer(items: readonly LayerTreeLike[], layerID: number): bo
   );
 }
 
-function isSkip(value: unknown): value is SkipMarker {
-  return typeof value === "object" && value !== null && (value as SkipMarker).__skip === true;
-}
-
-async function getActiveDocument(
-  bridge: { photoshop: { app: { activeDocument: Promise<ActiveDocumentLike> } } },
-  skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
-): Promise<ActiveDocumentLike | SkipMarker> {
+async function withFixtureDocument<T>(
+  bridge: {
+    photoshop: {
+      app: {
+        createDocument(options?: {
+          readonly name?: string;
+          readonly width?: number;
+          readonly height?: number;
+          readonly resolution?: number;
+        }): Promise<FixtureDocumentLike | null>;
+      };
+    };
+  },
+  skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown,
+  caseLabel: string,
+  run: (document: FixtureDocumentLike) => Promise<T>
+): Promise<unknown> {
+  let document: FixtureDocumentLike | null;
   try {
-    return await bridge.photoshop.app.activeDocument;
+    document = await bridge.photoshop.app.createDocument({
+      name: `uxp-webview-bridge-${caseLabel}-${Date.now()}`,
+      width: 64,
+      height: 64,
+      resolution: 72
+    });
   } catch (error) {
-    const result = skip("photoshop.core document queries require an active document.", {
+    return skip("photoshop.core could not create an isolated fixture document.", {
       message: error instanceof Error ? error.message : String(error)
     });
-    (result as { __skip?: boolean }).__skip = true;
-    return result as SkipMarker;
+  }
+
+  if (document === null) {
+    return skip("photoshop.app.createDocument returned null; no user document was modified.");
+  }
+
+  try {
+    return await run(document);
+  } finally {
+    await document.closeWithoutSaving();
   }
 }

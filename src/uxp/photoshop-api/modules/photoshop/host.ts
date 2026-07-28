@@ -39,9 +39,10 @@ import {
   type PhotoshopPreferenceCategoryType
 } from "@shared/photoshop-api/photoshop-preferences.js";
 import { isPhotoshopValueTransport, serializeValue } from "@shared/photoshop-api/value-objects.js";
+import { isBridgeCallbackReference, type BridgeCallbackReference } from "@shared/protocol.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 import { isUxpStorageEntryReference } from "@shared/uxp-api/uxp-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import type { UxpCallbackBridge, UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.js";
 import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
 import { resolveUxpStorageEntryReference } from "@uxp/uxp-api/modules/uxp/persistent-file-storage/host.js";
 import type {
@@ -289,15 +290,46 @@ const ACTION_SET_SCALARS = new Set(["typename", "index", "id", "name", "actions"
 const ACTION_SCALARS = new Set(["typename", "id", "index", "name", "parent"]);
 
 const photoshopRegistry = createRemoteHandleRegistry();
+// Dispatch selects its modal helper synchronously, so this scoped context reaches every existing
+// DOM mutation handler without widening their internal signatures. It is restored before dispatch
+// returns, while the selected native/direct execution promise continues independently.
+let activePhotoshopDispatchContext: UxpDispatchContext | undefined;
+const actionNotificationRegistrations = new WeakMap<UxpCallbackBridge, Map<string, ActionNotificationRegistration>>();
+const liveActionNotificationMaps = new Set<Map<string, ActionNotificationRegistration>>();
+const documentModalContexts = new WeakMap<UxpCallbackBridge, Map<string, Record<string, unknown>>>();
+
+interface ActionNotificationRegistration {
+  readonly subscriptionId: string;
+  readonly callbacks: UxpCallbackBridge;
+  readonly events: string[];
+  readonly reference: BridgeCallbackReference;
+  readonly nativeListener: (eventName: string, descriptor: Record<string, unknown>) => void;
+  readonly added: Promise<void>;
+  removing?: Promise<void>;
+}
 
 export const photoshopModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_MODULE_ID,
   capability: "photoshop",
-  dispatch: (method, args) => dispatchPhotoshopCall(method, args),
+  dispatch: (method, args, context) => dispatchPhotoshopCall(method, args, context),
   destroy: destroyPhotoshopHandles
 };
 
-export function dispatchPhotoshopCall(method: string, args: readonly unknown[]): unknown | Promise<unknown> {
+export function dispatchPhotoshopCall(
+  method: string,
+  args: readonly unknown[],
+  context?: UxpDispatchContext
+): unknown | Promise<unknown> {
+  const previousContext = activePhotoshopDispatchContext;
+  activePhotoshopDispatchContext = context;
+  try {
+    return dispatchPhotoshopCallInContext(method, args);
+  } finally {
+    activePhotoshopDispatchContext = previousContext;
+  }
+}
+
+function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]): unknown | Promise<unknown> {
   assertPhotoshopProtocolMethodName(method);
   photoshopRegistry.prune();
 
@@ -375,8 +407,19 @@ export function dispatchPhotoshopCall(method: string, args: readonly unknown[]):
   throw new Error(`Unsupported photoshop method: ${method}`);
 }
 
-export function destroyPhotoshopHandles(): void {
+export function destroyPhotoshopHandles(): void | Promise<void> {
   photoshopRegistry.clear();
+  const pending: Promise<void>[] = [];
+  for (const registrations of liveActionNotificationMaps) {
+    for (const registration of registrations.values()) {
+      pending.push(
+        registration.added
+          .then(() => registration.callbacks.unregisterSubscription(registration.subscriptionId))
+          .catch(() => undefined)
+      );
+    }
+  }
+  return pending.length === 0 ? undefined : Promise.all(pending).then(() => undefined);
 }
 
 // ---------------------------------------------------------------------------- app.*
@@ -625,6 +668,16 @@ function dispatchSimpleObjectCall(
 // ---------------------------------------------------------------------------- document.*
 
 function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "document.suspendHistory") {
+    return dispatchDocumentSuspendHistory(args, method, activePhotoshopDispatchContext);
+  }
+  if (method.startsWith("document.modal.")) {
+    return dispatchDocumentModalControl(
+      args,
+      method as Extract<PhotoshopProtocolMethodName, `document.modal.${string}`>,
+      activePhotoshopDispatchContext
+    );
+  }
   if (method.startsWith("document.saveAs.")) {
     const [reference, entry, options, asCopy] = expectReferenceArgs(args, 2, 4, method);
     if (!isUxpStorageEntryReference(entry)) throw new Error(`${method} entry must be a UXP storage File reference.`);
@@ -1648,6 +1701,12 @@ function rememberPathGeometry(pathItem: PhotoshopPathItemLike, value: unknown): 
  * scope; id/reference helpers and action-recording metadata calls execute directly.
  */
 function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+  if (method === "action.addNotificationListener") {
+    return dispatchActionAddNotificationListener(args, method, activePhotoshopDispatchContext);
+  }
+  if (method === "action.removeNotificationListener") {
+    return dispatchActionRemoveNotificationListener(args, method, activePhotoshopDispatchContext);
+  }
   if (method === "action.getIDFromString") {
     expectArgs(args, 1, 1, method);
     const value = assertString(args[0], `${method} value`);
@@ -2039,7 +2098,230 @@ function getMemberArray(collection: unknown): readonly unknown[] {
 // ---------------------------------------------------------------------------- modal execution
 
 function executeAsModal<T>(commandName: string, fn: () => T | Promise<T>): Promise<T> {
+  const context = activePhotoshopDispatchContext;
+  if (
+    context?.modalSessionId !== undefined &&
+    context.modalSessionId === context.callbacks.activeModalSessionId
+  ) {
+    return Promise.resolve().then(fn);
+  }
   return getPhotoshop().core.executeAsModal(async () => fn(), { commandName });
+}
+
+function dispatchActionAddNotificationListener(
+  args: readonly unknown[],
+  method: "action.addNotificationListener",
+  context?: UxpDispatchContext
+): Promise<void> {
+  expectArgs(args, 2, 2, method);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  const events = normalizeActionNotificationEvents(args[0], method);
+  const reference = assertStrictCallbackReference(args[1], `${method} notifier`);
+  const key = JSON.stringify([events, reference.callbackId]);
+  let registrations = actionNotificationRegistrations.get(callbacks);
+  if (!registrations) {
+    registrations = new Map();
+    actionNotificationRegistrations.set(callbacks, registrations);
+    liveActionNotificationMaps.add(registrations);
+  }
+  const existing = registrations.get(key);
+  if (existing) {
+    if (existing.removing) {
+      return existing.removing.then(() =>
+        dispatchActionAddNotificationListener([events, reference], method, context)
+      );
+    }
+    return existing.added;
+  }
+
+  const action = getPhotoshop().action;
+  const subscriptionId = `photoshop.action.notification:${key}`;
+  const nativeListener = (eventName: string, descriptor: Record<string, unknown>): void => {
+    void Promise.resolve().then(() => callbacks.invoke(reference, [eventName, descriptor ?? {}], {
+      mode: "listener",
+      subscriptionId,
+      ...(context?.operationId === undefined ? {} : { parentOperationId: context.operationId })
+    })).catch(() => undefined);
+  };
+  let registration: ActionNotificationRegistration;
+  const added = Promise.resolve().then(() => action.addNotificationListener(events, nativeListener)).then(async () => {
+    try {
+      callbacks.registerSubscription(subscriptionId, async () => {
+        await action.removeNotificationListener(events, nativeListener);
+        registrations?.delete(key);
+        if (registrations?.size === 0) liveActionNotificationMaps.delete(registrations);
+      });
+    } catch (error) {
+      registrations?.delete(key);
+      if (registrations?.size === 0) liveActionNotificationMaps.delete(registrations);
+      await action.removeNotificationListener(events, nativeListener);
+      throw error;
+    }
+    if (context?.signal?.aborted) {
+      await callbacks.unregisterSubscription(subscriptionId);
+      throw new Error(`${method} was aborted after registration; the native listener was removed.`);
+    }
+  }).catch((error) => {
+    if (registrations?.get(key) === registration) registrations.delete(key);
+    if (registrations?.size === 0) liveActionNotificationMaps.delete(registrations);
+    throw error;
+  });
+  registration = { subscriptionId, callbacks, events, reference, nativeListener, added };
+  registrations.set(key, registration);
+  return added;
+}
+
+function dispatchActionRemoveNotificationListener(
+  args: readonly unknown[],
+  method: "action.removeNotificationListener",
+  context?: UxpDispatchContext
+): Promise<void> {
+  expectArgs(args, 2, 2, method);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  const events = normalizeActionNotificationEvents(args[0], method);
+  const reference = assertStrictCallbackReference(args[1], `${method} notifier`);
+  const key = JSON.stringify([events, reference.callbackId]);
+  const registration = actionNotificationRegistrations.get(callbacks)?.get(key);
+  if (!registration) return Promise.resolve();
+  if (registration.removing) return registration.removing;
+  const removing = registration.added.then(() => callbacks.unregisterSubscription(registration.subscriptionId));
+  registration.removing = removing;
+  return removing.finally(() => {
+    if (actionNotificationRegistrations.get(callbacks)?.get(key) === registration) {
+      delete registration.removing;
+    }
+  });
+}
+
+function dispatchDocumentSuspendHistory(
+  args: readonly unknown[],
+  method: "document.suspendHistory",
+  context?: UxpDispatchContext
+): Promise<void> {
+  const [documentReference, targetValue, cancelValue, historyStateNameValue] = expectReferenceArgs(args, 4, 4, method);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  if (callbacks.activeModalSessionId !== undefined) {
+    throw new Error("Document.suspendHistory cannot be nested inside an active modal callback.");
+  }
+  const targetReference = assertStrictCallbackReference(targetValue, `${method} callback`);
+  const cancelReference = assertStrictCallbackReference(cancelValue, `${method} cancel callback`);
+  const historyStateName = assertString(historyStateNameValue, `${method} historyStateName`);
+  const document = getDocument(documentReference);
+  const session = callbacks.openModalSession(context?.operationId);
+  const suspendHistory = document.suspendHistory;
+  if (typeof suspendHistory !== "function") {
+    void session.close();
+    throw new Error("Photoshop Document does not implement suspendHistory.");
+  }
+
+  const result = Promise.resolve().then(() => callMethod(document, "suspendHistory", [
+    async (nativeContextValue: unknown) => {
+      const nativeContext = assertObjectRecord(nativeContextValue, `${method} executionContext`);
+      let contexts = documentModalContexts.get(callbacks);
+      if (!contexts) {
+        contexts = new Map();
+        documentModalContexts.set(callbacks, contexts);
+      }
+      contexts.set(session.sessionId, nativeContext);
+      const cancelSubscriptionId = `photoshop.document.suspend-history.cancel:${session.sessionId}`;
+      callbacks.registerSubscription(cancelSubscriptionId, () => {
+        nativeContext.onCancel = undefined;
+      });
+      nativeContext.onCancel = (event?: unknown) => {
+        const nativeEvent = event && typeof event === "object"
+          && typeof (event as { readonly reason?: unknown }).reason === "string"
+          ? [{ reason: (event as { readonly reason: string }).reason }]
+          : [];
+        void Promise.resolve().then(() => callbacks.invoke(cancelReference, nativeEvent, {
+          mode: "listener",
+          subscriptionId: cancelSubscriptionId,
+          sessionId: session.sessionId,
+          ...(context?.operationId === undefined ? {} : { parentOperationId: context.operationId })
+        })).catch(() => undefined);
+      };
+      try {
+        await session.invoke(targetReference, [{ isCancelled: Boolean(nativeContext.isCancelled) }]);
+      } finally {
+        await callbacks.unregisterSubscription(cancelSubscriptionId);
+        contexts.delete(session.sessionId);
+      }
+    },
+    historyStateName
+  ]));
+  const modalSubscriptionId = `photoshop.document.suspend-history:${session.sessionId}`;
+  let settled = false;
+  let modalPromise = Promise.resolve<unknown>(undefined);
+  callbacks.registerSubscription(modalSubscriptionId, async () => {
+    if (settled) return;
+    try {
+      await modalPromise;
+    } catch {
+      // release-all waits for native finally; the original request owns the modal error.
+    }
+  });
+  modalPromise = Promise.resolve(result).finally(async () => {
+    settled = true;
+    await callbacks.unregisterSubscription(modalSubscriptionId);
+    await session.close();
+  });
+  return modalPromise.then(() => undefined);
+}
+
+function dispatchDocumentModalControl(
+  args: readonly unknown[],
+  method: Extract<PhotoshopProtocolMethodName, `document.modal.${string}`>,
+  context?: UxpDispatchContext
+): unknown | Promise<unknown> {
+  const [documentReference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
+  getDocument(documentReference);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  const sessionId = context?.modalSessionId;
+  const native = sessionId === undefined ? undefined : documentModalContexts.get(callbacks)?.get(sessionId);
+  if (!native || callbacks.activeModalSessionId !== sessionId) {
+    throw new Error(`${method} is only available from the active Document.suspendHistory callback.`);
+  }
+
+  if (method === "document.modal.reportProgress") {
+    expectArgs(rest, 1, 1, method);
+    const options = assertObjectRecord(rest[0], `${method} options`);
+    assertKnownObjectKeys(options, ["value", "commandName"], `${method} options`);
+    if (options.value !== undefined) assertNumberInRange(options.value, 0, 1, `${method} options.value`);
+    if (options.commandName !== undefined) assertString(options.commandName, `${method} options.commandName`);
+    return resolveMaybePromise(callMethod(native, "reportProgress", [options]), () => undefined);
+  }
+
+  const hostControl = assertObjectRecord(native.hostControl, `${method} hostControl`);
+  if (method === "document.modal.suspendHistory") {
+    expectArgs(rest, 1, 1, method);
+    const options = assertObjectRecord(rest[0], `${method} options`);
+    assertKnownObjectKeys(options, ["documentID", "name"], `${method} options`);
+    assertPositiveInteger(options.documentID, `${method} options.documentID`);
+    assertString(options.name, `${method} options.name`);
+    return resolveMaybePromise(callMethod(hostControl, "suspendHistory", [options]), (value) => {
+      const result = assertObjectRecord(value, `${method} result`);
+      assertKnownObjectKeys(result, ["historySuspensionID"], `${method} result`);
+      return { historySuspensionID: assertNonNegativeNumber(result.historySuspensionID, `${method} result.historySuspensionID`) };
+    });
+  }
+  if (method === "document.modal.resumeHistory") {
+    expectArgs(rest, 1, 2, method);
+    const suspension = assertObjectRecord(rest[0], `${method} suspension`);
+    assertKnownObjectKeys(suspension, ["historySuspensionID", "finalName"], `${method} suspension`);
+    assertNonNegativeNumber(suspension.historySuspensionID, `${method} suspension.historySuspensionID`);
+    if (suspension.finalName !== undefined) assertString(suspension.finalName, `${method} suspension.finalName`);
+    if (rest[1] !== undefined && typeof rest[1] !== "boolean") throw new Error(`${method} commit must be a boolean.`);
+    return resolveMaybePromise(callMethod(hostControl, "resumeHistory", [suspension, rest[1]]), () => undefined);
+  }
+  if (
+    method === "document.modal.registerAutoCloseDocument" ||
+    method === "document.modal.unregisterAutoCloseDocument"
+  ) {
+    expectArgs(rest, 1, 1, method);
+    const documentID = assertPositiveInteger(rest[0], `${method} documentID`);
+    const nativeMethod = method.slice("document.modal.".length);
+    return resolveMaybePromise(callMethod(hostControl, nativeMethod, [documentID]), () => undefined);
+  }
+  return unsupported(method);
 }
 
 // ---------------------------------------------------------------------------- handles & args
@@ -2180,6 +2462,52 @@ function assertFiniteNumber(value: unknown, label: string): number {
     throw new Error(`${label} must be a finite number.`);
   }
   return value;
+}
+
+function assertNonNegativeNumber(value: unknown, label: string): number {
+  const number = assertFiniteNumber(value, label);
+  if (number < 0) throw new Error(`${label} must be non-negative.`);
+  return number;
+}
+
+function assertPositiveInteger(value: unknown, label: string): number {
+  const number = assertFiniteNumber(value, label);
+  if (!Number.isInteger(number) || number <= 0) throw new Error(`${label} must be a positive integer.`);
+  return number;
+}
+
+function assertKnownObjectKeys(
+  value: Record<string, unknown>,
+  knownKeys: readonly string[],
+  label: string
+): void {
+  const known = new Set(knownKeys);
+  const unknown = Object.keys(value).find((key) => !known.has(key));
+  if (unknown !== undefined) throw new Error(`${label} contains unknown property: ${unknown}.`);
+}
+
+function requirePhotoshopCallbackContext(
+  context: UxpDispatchContext | undefined,
+  method: string
+): UxpCallbackBridge {
+  if (!context) throw new Error(`${method} requires an active bridge callback context.`);
+  return context.callbacks;
+}
+
+function assertStrictCallbackReference(value: unknown, label: string): BridgeCallbackReference {
+  if (!isBridgeCallbackReference(value) || value.callbackId.length === 0) {
+    throw new Error(`${label} must be a bridge callback reference.`);
+  }
+  assertKnownObjectKeys(value as unknown as Record<string, unknown>, ["kind", "callbackId"], label);
+  return value;
+}
+
+function normalizeActionNotificationEvents(value: unknown, method: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${method} events must be a non-empty array.`);
+  }
+  const events = value.map((event, index) => assertString(event, `${method} events[${index}]`));
+  return [...new Set(events)].sort();
 }
 
 function assertNumberInRange(value: unknown, minimum: number, maximum: number, label: string): number {

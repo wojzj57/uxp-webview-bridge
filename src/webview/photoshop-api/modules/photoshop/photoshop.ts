@@ -11,7 +11,7 @@ import { PhotoshopConstants } from "@shared/photoshop-api/photoshop-constants.js
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import { PHOTOSHOP_APP_REFERENCE_ID } from "@shared/photoshop-api/photoshop-protocol.js";
 import { REMOTE_REFERENCE_KIND } from "@shared/uxp-api/remote-protocol.js";
-import type { RemoteArgEncoder, RemoteRpc } from "@webview/uxp-api/remote/index.js";
+import type { RemoteArgEncoder } from "@webview/uxp-api/remote/index.js";
 import type { UxpStorageProxyInternals } from "@webview/uxp-api/modules/uxp/persistent-file-storage/types.js";
 import { createCoreNamespace } from "../core/core.js";
 import { ColorConversionModel } from "../core/types.js";
@@ -21,7 +21,12 @@ import { createColorSamplerClass } from "./color-sampler.js";
 import { createCountItemClass } from "./count-item.js";
 import { createActionClass, createActionSetClass } from "./actions.js";
 import { createPhotoshopAppClass } from "./app.js";
-import type { PhotoshopContext } from "./context.js";
+import {
+  requirePhotoshopCallbackOwner,
+  type PhotoshopCallbackOwner,
+  type PhotoshopContext,
+  type PhotoshopRpc
+} from "./context.js";
 import { createDocumentClass } from "./document.js";
 import { createGuideClass } from "./guide.js";
 import { createHistoryStateClass } from "./history-state.js";
@@ -46,20 +51,105 @@ import { createTextFontClass } from "./text-font.js";
 import { createToolClass } from "./tool.js";
 import type {
   ActionDescriptor,
+  ActionNotificationListener,
   BatchPlayCommandOptions,
   PhotoshopActions,
   PhotoshopApp,
   PhotoshopNamespace
 } from "./types.js";
 
-type PhotoshopRpc = RemoteRpc;
+interface ActionListenerRegistration {
+  readonly reference: import("@shared/protocol.js").BridgeCallbackReference;
+  readonly added: Promise<void>;
+  readonly owner: PhotoshopCallbackOwner;
+  removing?: Promise<void>;
+}
 
 let defaultNamespace: PhotoshopNamespace | undefined;
 
 export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace {
   const { context, app } = createPhotoshopContext(rpc);
+  const notificationListeners = new WeakMap<
+    object,
+    WeakMap<ActionNotificationListener, Map<string, ActionListenerRegistration>>
+  >();
+
+  const addNotificationListener = async (
+    events: readonly string[],
+    notifier: ActionNotificationListener
+  ): Promise<void> => {
+    const normalizedEvents = normalizeActionNotificationEvents(events, notifier);
+    const owner = requirePhotoshopCallbackOwner(rpc);
+    let scopedListeners = notificationListeners.get(owner);
+    if (!scopedListeners) {
+      scopedListeners = new WeakMap();
+      notificationListeners.set(owner, scopedListeners);
+    }
+    let registrations = scopedListeners.get(notifier);
+    if (!registrations) {
+      registrations = new Map();
+      scopedListeners.set(notifier, registrations);
+    }
+    const key = JSON.stringify(normalizedEvents);
+    const existing = registrations.get(key);
+    if (existing) {
+      if (existing.removing) {
+        await existing.removing;
+        return addNotificationListener(normalizedEvents, notifier);
+      }
+      return existing.added;
+    }
+    const reference = owner.retainCallback(notifier);
+    const added = context.rpc.call<void>(PHOTOSHOP_MODULE_ID, "action.addNotificationListener", [
+      normalizedEvents,
+      reference
+    ]);
+    const registration = { reference, added, owner };
+    registrations.set(key, registration);
+    try {
+      await added;
+    } catch (error) {
+      if (registrations.get(key) === registration) registrations.delete(key);
+      owner.releaseCallback(reference);
+      throw error;
+    }
+  };
+
+  const removeNotificationListener = async (
+    events: readonly string[],
+    notifier: ActionNotificationListener
+  ): Promise<void> => {
+    const normalizedEvents = normalizeActionNotificationEvents(events, notifier);
+    const owner = requirePhotoshopCallbackOwner(rpc);
+    const registrations = notificationListeners.get(owner)?.get(notifier);
+    const key = JSON.stringify(normalizedEvents);
+    const registration = registrations?.get(key);
+    if (!registration) return;
+    if (registration.removing) {
+      return registration.removing;
+    }
+    const removing = registration.added.then(async () => {
+      await context.rpc.call<void>(PHOTOSHOP_MODULE_ID, "action.removeNotificationListener", [
+        normalizedEvents,
+        registration.reference
+      ]);
+      if (registrations?.get(key) === registration) {
+        registrations.delete(key);
+        registration.owner.releaseCallback(registration.reference);
+      }
+    });
+    registration.removing = removing;
+    try {
+      await removing;
+    } finally {
+      if (registrations?.get(key) === registration) {
+        delete registration.removing;
+      }
+    }
+  };
 
   const action: PhotoshopActions = {
+    addNotificationListener,
     batchPlay(
       commands: readonly ActionDescriptor[],
       options?: BatchPlayCommandOptions
@@ -76,6 +166,7 @@ export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace 
       context.rpc.call<number>(PHOTOSHOP_MODULE_ID, "action.getIDFromString", [value]),
     recordAction: (options, info) =>
       context.rpc.call<void>(PHOTOSHOP_MODULE_ID, "action.recordAction", [options, info]),
+    removeNotificationListener,
     validateReference: (ref) =>
       context.rpc.call<boolean>(PHOTOSHOP_MODULE_ID, "action.validateReference", [ref])
   };
@@ -325,5 +416,30 @@ export const photoshop: PhotoshopNamespace =
   defaultNamespace ??
   (defaultNamespace = createPhotoshopNamespace({
     call: <T>(module: string, method: string, args?: readonly unknown[]) =>
-      getBridgeRpcClient().call<T>(module, method, args)
+      getBridgeRpcClient().call<T>(module, method, args),
+    get activeModalSessionId() {
+      return getBridgeRpcClient().activeModalSessionId;
+    },
+    get callbackScope() {
+      return getBridgeRpcClient();
+    },
+    retainCallback: (callback) =>
+      getBridgeRpcClient().retainCallback(callback as (...args: readonly unknown[]) => unknown),
+    releaseCallback: (reference) => getBridgeRpcClient().releaseCallback(reference)
   }));
+
+function normalizeActionNotificationEvents(
+  events: readonly string[],
+  notifier: ActionNotificationListener
+): readonly string[] {
+  if (typeof notifier !== "function") {
+    throw new TypeError("Action notification notifier must be a function.");
+  }
+  if (!Array.isArray(events) || events.length === 0) {
+    throw new TypeError("Action notification events must be a non-empty array.");
+  }
+  if (events.some((event) => typeof event !== "string" || event.length === 0)) {
+    throw new TypeError("Action notification events must contain non-empty strings.");
+  }
+  return [...new Set(events)].sort();
+}

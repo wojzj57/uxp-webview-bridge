@@ -31,7 +31,7 @@ import {
 } from "@shared/photoshop-api/imaging-protocol.js";
 import { serializeValue } from "@shared/photoshop-api/value-objects.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import type { UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.js";
 import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
 import type {
   ImagingReadResultLike,
@@ -46,29 +46,33 @@ const imagingRegistry = createRemoteHandleRegistry();
 export const imagingModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_IMAGING_MODULE_ID,
   capability: "photoshop",
-  dispatch: (method, args) => dispatchImagingCall(method, args),
+  dispatch: (method, args, context) => dispatchImagingCall(method, args, context),
   destroy: destroyImagingHandles
 };
 
-export function dispatchImagingCall(method: string, args: readonly unknown[]): unknown | Promise<unknown> {
+export function dispatchImagingCall(
+  method: string,
+  args: readonly unknown[],
+  context?: UxpDispatchContext
+): unknown | Promise<unknown> {
   assertPhotoshopImagingMethodName(method);
   imagingRegistry.prune();
 
   switch (method) {
     case "imaging.getPixels":
-      return dispatchGetPixels(args);
+      return dispatchGetPixels(args, context);
     case "imaging.getLayerMask":
-      return dispatchRead("imaging.getLayerMask", "getLayerMask", args);
+      return dispatchRead("imaging.getLayerMask", "getLayerMask", args, context);
     case "imaging.getSelection":
-      return dispatchRead("imaging.getSelection", "getSelection", args);
+      return dispatchRead("imaging.getSelection", "getSelection", args, context);
     case "imaging.putPixels":
-      return dispatchPut("imaging.putPixels", "putPixels", args);
+      return dispatchPut("imaging.putPixels", "putPixels", args, context);
     case "imaging.putLayerMask":
-      return dispatchPut("imaging.putLayerMask", "putLayerMask", args);
+      return dispatchPut("imaging.putLayerMask", "putLayerMask", args, context);
     case "imaging.putSelection":
-      return dispatchPut("imaging.putSelection", "putSelection", args);
+      return dispatchPut("imaging.putSelection", "putSelection", args, context);
     case "imaging.createImageDataFromBuffer":
-      return dispatchCreateImageDataFromBuffer(args);
+      return dispatchCreateImageDataFromBuffer(args, context);
     case "imaging.encodeImageData":
       return dispatchEncodeImageData(args);
     case "imaging.imageData.getData":
@@ -90,9 +94,9 @@ export function destroyImagingHandles(): void {
  * `getPixels` returns `{ imageData, sourceBounds, level }`. The imageData is registered as a handle;
  * `sourceBounds`/`level` are copied through verbatim so the WebView result mirrors Adobe's shape.
  */
-function dispatchGetPixels(args: readonly unknown[]): Promise<unknown> {
+function dispatchGetPixels(args: readonly unknown[], context?: UxpDispatchContext): Promise<unknown> {
   const options = expectOptions(args, "imaging.getPixels");
-  return executeAsModal("imaging.getPixels", () => getImaging().getPixels(options)).then((result) => {
+  return executeAsModal("imaging.getPixels", () => getImaging().getPixels(options), context).then((result) => {
     const read = asReadResult(result, "imaging.getPixels");
     return {
       ...serializeImageData(read.imageData),
@@ -106,10 +110,11 @@ function dispatchGetPixels(args: readonly unknown[]): Promise<unknown> {
 function dispatchRead(
   method: PhotoshopImagingMethodName,
   apiMethod: "getLayerMask" | "getSelection",
-  args: readonly unknown[]
+  args: readonly unknown[],
+  context?: UxpDispatchContext
 ): Promise<unknown> {
   const options = expectOptions(args, method);
-  return executeAsModal(method, () => getImaging()[apiMethod](options)).then((result) => {
+  return executeAsModal(method, () => getImaging()[apiMethod](options), context).then((result) => {
     const read = asReadResult(result, method);
     return { ...serializeImageData(read.imageData), sourceBounds: read.sourceBounds };
   });
@@ -125,11 +130,12 @@ function dispatchRead(
 function dispatchPut(
   method: PhotoshopImagingMethodName,
   apiMethod: "putPixels" | "putLayerMask" | "putSelection",
-  args: readonly unknown[]
+  args: readonly unknown[],
+  context?: UxpDispatchContext
 ): Promise<unknown> {
   const options = expectOptions(args, method);
   const resolved = resolveImageDataOption(options, method);
-  return executeAsModal(method, () => getImaging()[apiMethod](resolved)).then(() => undefined);
+  return executeAsModal(method, () => getImaging()[apiMethod](resolved), context).then(() => undefined);
 }
 
 // ---------------------------------------------------------------------------- create / encode
@@ -138,7 +144,10 @@ function dispatchPut(
  * `createImageDataFromBuffer` decodes the incoming {@link BinaryTransportData} to a `Uint8Array`,
  * builds the real imageData inside a modal scope, and returns a fresh handle + metadata snapshot.
  */
-function dispatchCreateImageDataFromBuffer(args: readonly unknown[]): Promise<unknown> {
+function dispatchCreateImageDataFromBuffer(
+  args: readonly unknown[],
+  context?: UxpDispatchContext
+): Promise<unknown> {
   expectArgs(args, 2, 2, "imaging.createImageDataFromBuffer");
   const [transport, options] = args;
   if (!isBinaryTransportData(transport)) {
@@ -146,8 +155,10 @@ function dispatchCreateImageDataFromBuffer(args: readonly unknown[]): Promise<un
   }
   const bytes = transportToBytes(transport);
   const optionsRecord = assertOptions(options, "imaging.createImageDataFromBuffer");
-  return executeAsModal("imaging.createImageDataFromBuffer", () =>
-    getImaging().createImageDataFromBuffer(bytes, optionsRecord)
+  return executeAsModal(
+    "imaging.createImageDataFromBuffer",
+    () => getImaging().createImageDataFromBuffer(bytes, optionsRecord),
+    context
   ).then((imageData) => serializeImageData(imageData as PhotoshopImageDataLike));
 }
 
@@ -259,7 +270,17 @@ function unsupported(method: string): never {
 
 // ---------------------------------------------------------------------------- modal execution & module
 
-function executeAsModal<T>(commandName: string, fn: () => T | Promise<T>): Promise<T> {
+function executeAsModal<T>(
+  commandName: string,
+  fn: () => T | Promise<T>,
+  context?: UxpDispatchContext
+): Promise<T> {
+  if (
+    context?.modalSessionId !== undefined &&
+    context.modalSessionId === context.callbacks.activeModalSessionId
+  ) {
+    return Promise.resolve().then(fn);
+  }
   return getPhotoshop().core.executeAsModal(async () => fn(), { commandName });
 }
 

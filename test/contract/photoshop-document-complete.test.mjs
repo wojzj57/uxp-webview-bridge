@@ -19,10 +19,10 @@ const DOCUMENT_METHODS = [
   "calculations", "changeMode", "close", "closeWithoutSaving", "convertProfile", "createLayer", "createLayerGroup",
   "createPixelLayer", "createTextLayer", "crop", "duplicate", "duplicateLayers", "flatten", "generativeUpscale",
   "groupLayers", "linkLayers", "mergeVisibleLayers", "paste", "rasterizeAllLayers", "resizeCanvas", "resizeImage",
-  "revealAll", "rotate", "sampleColor", "save", "splitChannels", "trap", "trim"
+  "revealAll", "rotate", "sampleColor", "save", "splitChannels", "suspendHistory", "trap", "trim"
 ];
 
-test("PsDocument exposes exactly the 65 transportable documented members and saveAs honors queued writes", async () => {
+test("PsDocument exposes exactly the 66 transportable documented members and saveAs honors queued writes", async () => {
   const { createPhotoshopNamespace } = await import(namespaceModule);
   const docRef = ref("Document", "doc-1");
   const calls = [];
@@ -49,9 +49,8 @@ test("PsDocument exposes exactly the 65 transportable documented members and sav
   };
   const { app } = createPhotoshopNamespace(rpc);
   const document = await app.activeDocument;
-  assert.equal(DOCUMENT_PROPERTIES.length + DOCUMENT_METHODS.length, 65);
+  assert.equal(DOCUMENT_PROPERTIES.length + DOCUMENT_METHODS.length, 66);
   for (const name of [...DOCUMENT_PROPERTIES, ...DOCUMENT_METHODS]) assert.ok(name in document, `document.${name} must exist.`);
-  assert.equal("suspendHistory" in document, false, "callback-bound suspendHistory must not be falsely exposed.");
 
   document.quickMaskMode = true;
   const fileRef = { kind: "uxp.storage.entry", type: "file", id: "file-1" };

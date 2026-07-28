@@ -9,6 +9,11 @@ export interface CoreSize {
   readonly height: number;
 }
 
+export interface CorePoint {
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface CalculateDialogSizeOptions {
   readonly preferredSize: CoreSize;
   readonly identifier?: string;
@@ -193,6 +198,29 @@ export interface DocumentCoreOptions {
   readonly documentID: number;
 }
 
+export type CreateTemporaryDocumentOptions = DocumentCoreOptions;
+
+export type CreateTemporaryDocumentResult = DocumentCoreOptions;
+
+export type DeleteTemporaryDocumentOptions = DocumentCoreOptions;
+
+export type RedrawDocumentOptions = DocumentCoreOptions;
+
+export interface SetExecutionModeOptions {
+  readonly enableErrorStacktraces?: boolean;
+  readonly logRejections?: boolean;
+}
+
+export interface ShowAlertOptions {
+  readonly message: string;
+}
+
+export interface SuppressResizeGripperOptions {
+  readonly type: "panel";
+  readonly target: string;
+  readonly value: boolean;
+}
+
 export interface GetLayerGroupContentsOptions extends DocumentCoreOptions {
   readonly layerID: number;
 }
@@ -209,14 +237,82 @@ export interface LayerTreeList {
   readonly list: readonly LayerTreeInfo[];
 }
 
-/** Read-only/query subset of `require('photoshop').core`, exposed asynchronously across RPC. */
+export type CoreNotificationDescriptor = Readonly<Record<string, unknown>>;
+
+export type CoreNotificationListener = (
+  eventName: string,
+  descriptor: CoreNotificationDescriptor
+) => void | Promise<void>;
+
+export interface ExecuteAsModalOptions {
+  readonly commandName: string;
+  readonly descriptor?: CoreNotificationDescriptor;
+  readonly interactive?: boolean;
+  readonly timeOut?: number;
+}
+
+export interface CoreCancellationEvent {
+  readonly reason: string;
+}
+
+export interface ReportProgressOptions {
+  readonly value?: number;
+  readonly commandName?: string;
+}
+
+export interface HistoryStateInfo {
+  readonly documentID: number;
+  readonly name: string;
+}
+
+export interface HistorySuspension {
+  readonly historySuspensionID: number;
+}
+
+export interface ResumeHistoryOptions extends HistorySuspension {
+  readonly finalName?: string;
+}
+
+export interface ExecutionHostControl {
+  suspendHistory(options: HistoryStateInfo): Promise<HistorySuspension>;
+  resumeHistory(suspension: ResumeHistoryOptions, commit?: boolean): Promise<void>;
+  registerAutoCloseDocument(documentID: number): Promise<void>;
+  unregisterAutoCloseDocument(documentID: number): Promise<void>;
+}
+
+export interface ExecutionContext {
+  readonly isCancelled: boolean;
+  onCancel: ((event?: CoreCancellationEvent) => void | Promise<void>) | undefined;
+  reportProgress(options: ReportProgressOptions): void;
+  readonly hostControl: ExecutionHostControl;
+}
+
+export type ExecuteAsModalTarget<Result> = (
+  executionContext: ExecutionContext,
+  descriptor?: CoreNotificationDescriptor
+) => Result | Promise<Result>;
+
+/** `require('photoshop').core`, exposed asynchronously across RPC. */
 export interface PhotoshopCore {
   readonly apiVersion: Promise<number>;
+  addNotificationListener(
+    group: string,
+    events: readonly string[],
+    listener: CoreNotificationListener
+  ): Promise<void>;
   calculateDialogSize(options: CalculateDialogSizeOptions): Promise<CoreSize>;
   convertColor<Model extends ColorConversionModel>(
     sourceColor: ColorDescriptor,
     targetModel: Model
   ): Promise<ConvertedColor<Model>>;
+  convertGlobalToLocal(target: string, location: CorePoint): Promise<CorePoint>;
+  createTemporaryDocument(options: CreateTemporaryDocumentOptions): Promise<CreateTemporaryDocumentResult>;
+  deleteTemporaryDocument(options: DeleteTemporaryDocumentOptions): Promise<void>;
+  endModalToolState(commit: boolean): Promise<void>;
+  executeAsModal<Result>(
+    target: ExecuteAsModalTarget<Result>,
+    options: ExecuteAsModalOptions
+  ): Promise<Result>;
   getActiveTool(): Promise<GetActiveToolResult>;
   getCPUInfo(): Promise<CPUInfo>;
   getDisplayConfiguration(options?: DisplayConfigurationOptions): Promise<readonly DisplayConfiguration[]>;
@@ -231,5 +327,16 @@ export interface PhotoshopCore {
   getUserIdleTime(): Promise<number>;
   historySuspended(options: HistorySuspendedOptions): Promise<boolean>;
   isModal(): Promise<boolean>;
+  performMenuCommand(options: MenuCommandOptions): Promise<boolean>;
+  redrawDocument(options: RedrawDocumentOptions): Promise<number>;
+  removeNotificationListener(
+    group: string,
+    events: readonly string[],
+    listener: CoreNotificationListener
+  ): Promise<void>;
+  setExecutionMode(options: SetExecutionModeOptions): Promise<void>;
+  setUserIdleTime(idleTime: number): Promise<void>;
+  showAlert(options: ShowAlertOptions): Promise<void>;
+  suppressResizeGripper(options: SuppressResizeGripperOptions): Promise<void>;
   translateUIString(zstring: string): Promise<string>;
 }

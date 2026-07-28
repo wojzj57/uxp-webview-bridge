@@ -216,7 +216,7 @@ type PsDocumentReadableMembers = Exclude<
   "createLayer" | "createPixelLayer" | "createTextLayer" | "createLayerGroup" | "groupLayers" |
   "duplicateLayers" | "linkLayers" | "paste" | "batchGet" | "batchSet" | "dispose" |
   "calculations" | "changeMode" | "convertProfile" | "generativeUpscale" | "sampleColor" |
-  "splitChannels" | "trap" | "saveAs"
+  "splitChannels" | "trap" | "suspendHistory" | "saveAs"
 >;
 type _DocReadableKeysLocked = AssertMutual<PsDocumentReadableMembers, PsDocumentReadableKey>;
 
@@ -1471,13 +1471,12 @@ export default defineWebviewCdpCases([
         "calculations", "changeMode", "close", "closeWithoutSaving", "convertProfile", "createLayer", "createLayerGroup",
         "createPixelLayer", "createTextLayer", "crop", "duplicate", "duplicateLayers", "flatten", "generativeUpscale",
         "groupLayers", "linkLayers", "mergeVisibleLayers", "paste", "rasterizeAllLayers", "resizeCanvas", "resizeImage",
-        "revealAll", "rotate", "sampleColor", "save", "splitChannels", "trap", "trim"
+        "revealAll", "rotate", "sampleColor", "save", "splitChannels", "trap", "trim", "suspendHistory"
       ];
-      assert.equal(documentedMembers.length, 65, "the transportable Document manifest should contain 65 members.");
+      assert.equal(documentedMembers.length, 66, "the transportable Document manifest should contain 66 members.");
       for (const member of documentedMembers) {
         assert.ok(member in source, `photoshop.Document.${member} must exist.`);
       }
-      assert.equal("suspendHistory" in source, false, "suspendHistory must remain absent until callback transport exists.");
 
       const scalars = await source.batchGet([
         "typename", "histogram", "mode", "zoom", "bitsPerChannel", "colorProfileName", "colorProfileType"

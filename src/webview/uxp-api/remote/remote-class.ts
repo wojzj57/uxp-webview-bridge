@@ -222,6 +222,12 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     }
 
     for (const name of Object.keys(this.#config.methods)) {
+      // A subclass may provide a callback-aware implementation for a descriptor-backed method.
+      // Keep the descriptor as the public/result-kind source of truth, but do not shadow the
+      // prototype implementation with RemoteClass's generic argument encoder.
+      if (name in this) {
+        continue;
+      }
       Object.defineProperty(this, name, {
         enumerable: false,
         writable: false,
