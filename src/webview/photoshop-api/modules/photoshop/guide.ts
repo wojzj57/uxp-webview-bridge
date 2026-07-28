@@ -14,7 +14,7 @@ export function createGuideClass(context: PhotoshopContext): { new(reference: Re
     propertyGet: Object.fromEntries(Object.keys(properties).map((name) => [name, "guide.propertyGet"])), propertySet: { direction: "guide.propertySet", coordinate: "guide.propertySet" }, method: { delete: "guide.delete" }, batchGet: "guide.batchGet", batchSet: "guide.batchSet", dispose: "guide.dispose"
   } satisfies RemoteMethodNames };
   class WebviewPsGuide extends RemoteClass implements PsGuide {
-    declare readonly typename: Promise<"Guide">; declare readonly id: Promise<number>; declare readonly docId: Promise<number>; declare readonly parent: Promise<PsDocument>; declare direction: Promise<DirectionValue>; declare coordinate: Promise<number>; declare delete: () => Promise<void>;
+    declare readonly typename: Promise<"Guide">; declare readonly id: Promise<number>; declare readonly docId: Promise<number>; declare readonly parent: PsGuide["parent"]; declare direction: Promise<DirectionValue>; declare coordinate: Promise<number>; declare delete: () => Promise<void>;
     constructor(reference: RemoteReference) { super(config, reference); }
   } return WebviewPsGuide;
 }

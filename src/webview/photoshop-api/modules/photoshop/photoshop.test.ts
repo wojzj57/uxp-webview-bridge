@@ -122,6 +122,7 @@ import type {
   PsSelection,
   PsSelectionReadableKey,
   PsSelectionWritableProps,
+  PhotoshopApp,
   PhotoshopNamespace,
   TextItem,
   TextWarpStyle,
@@ -555,9 +556,16 @@ export default defineWebviewCdpCases([
       const name = `uxp-bridge-app-${Date.now()}`;
       let document: PsDocument | null | undefined;
       try {
-        document = await bridge.photoshop.app.createDocument({ name, width: 32, height: 24, resolution: 72 });
+        const documentResult = bridge.photoshop.app.createDocument({ name, width: 32, height: 24, resolution: 72 });
+        document = await documentResult;
         if (!document) return skip("app.createDocument returned null.");
         assert.equal(await document.name, name, "created document should retain its requested name.");
+        assert.equal(await documentResult.name, name, "a method RemoteResult should support chained property reads.");
+        assert.equal(
+          await bridge.photoshop.app.activeDocument.name,
+          name,
+          "a property RemoteResult should support a single-await chain."
+        );
         const documents = await bridge.photoshop.app.documents;
         assert.equal(documents.typename, "Documents", "app.documents should decode to Documents.");
         assert.equal(documents.parent, bridge.photoshop.app, "Documents.parent should preserve app identity.");
@@ -2008,3 +2016,16 @@ function normalizeError(error: unknown): Record<string, unknown> {
   }
   return { message: String(error) };
 }
+
+// Compile-time API contract: both the original split-await form and the chainable form must typecheck.
+function assertRemoteResultTypes(app: PhotoshopApp): void {
+  const documentResult: import("@webview/uxp-api/remote/index.js").RemoteResult<PsDocument> = app.activeDocument;
+  const legacyDocument: Promise<PsDocument> = app.activeDocument;
+  const chainedName: Promise<string> = app.activeDocument.name;
+  const chainedClose: Promise<void> = app.activeDocument.close();
+  app.activeDocument.pixelAspectRatio = 2;
+
+  void [documentResult, legacyDocument, chainedName, chainedClose];
+}
+
+void assertRemoteResultTypes;

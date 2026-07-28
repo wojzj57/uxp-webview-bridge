@@ -31,8 +31,10 @@ import {
 import { REMOTE_REFERENCE_KIND } from "@shared/uxp-api/remote-protocol.js";
 import {
   createIdentityCache,
+  createRemoteResult,
   encodeRemoteArgs,
   isRemoteReference,
+  RemoteOperationScheduler,
   type IdentityCache,
   type RemoteDecodeContext,
   type RemoteResultTyping,
@@ -180,14 +182,24 @@ export function createPhotoshopTypeRegistry(
     class SnapshotCollection extends Array<object> {}
 
     const methods = capabilities.methods ?? {};
+    const scheduler = new RemoteOperationScheduler();
     for (const [name, method] of Object.entries(methods)) {
       Object.defineProperty(SnapshotCollection.prototype, name, {
         enumerable: false,
         configurable: false,
-        value: async (...args: unknown[]): Promise<unknown> => {
-          const encoded = await encodeRemoteArgs(args, argEncoders);
-          const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method.rpc, [owner, ...encoded]);
-          return decodeCollectionMethodResult(method.result, raw);
+        value: (...args: unknown[]): unknown => {
+          const promise = scheduler.run(async () => {
+            const encoded = await encodeRemoteArgs(args, argEncoders);
+            const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method.rpc, [owner, ...encoded]);
+            return decodeCollectionMethodResult(method.result, raw);
+          });
+          return method.result?.refType === undefined
+            ? promise
+            : createRemoteResult(
+                promise as Promise<object | null | undefined>,
+                scheduler,
+                `SnapshotCollection.${name}`
+              );
         }
       });
     }

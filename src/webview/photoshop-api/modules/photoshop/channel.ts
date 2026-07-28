@@ -103,7 +103,7 @@ export function createChannelClass(context: PhotoshopContext): {
     declare kind: Promise<ChannelTypeValue>;
     declare readonly histogram: Promise<readonly number[]>;
     declare color: Promise<PsSolidColor>;
-    declare readonly parent: Promise<PsDocument>;
+    declare readonly parent: PsChannel["parent"];
 
     declare duplicate: (targetDocument?: PsDocument) => Promise<void>;
     declare merge: () => Promise<void>;

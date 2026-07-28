@@ -42,6 +42,7 @@ await checkWebviewCdpTestImports();
 await checkWebviewCdpCaseNames();
 await checkCdpCaseOwnership();
 await checkPhotoshopCoreParity();
+await checkRemoteResultApi();
 
 if (failures.length > 0) {
   console.error("Static boundary checks failed:");
@@ -99,6 +100,7 @@ async function checkWebviewEntrypoint() {
     "os",
     "path",
     "RedrawDocumentOptions",
+    "RemoteResult",
     "SetExecutionModeOptions",
     "ShowAlertOptions",
     "SuppressResizeGripperOptions",
@@ -108,6 +110,69 @@ async function checkWebviewEntrypoint() {
   ]) {
     if (!hasNamedExport(source, exportedName)) {
       failures.push(`src/webview/index.ts must export ${exportedName}`);
+    }
+  }
+}
+
+async function checkRemoteResultApi() {
+  const typeFiles = [
+    path.join(webviewRoot, "photoshop-api", "modules", "photoshop", "types.ts"),
+    path.join(webviewRoot, "photoshop-api", "modules", "imaging", "types.ts"),
+    path.join(webviewRoot, "uxp-api", "modules", "uxp", "persistent-file-storage", "types.ts"),
+    path.join(webviewRoot, "uxp-api", "modules", "uxp", "xmp", "types.ts")
+  ];
+  const singleRemoteTypes = [
+    "PsDocument",
+    "PsLayer",
+    "PsChannel",
+    "PsHistoryState",
+    "PsGuide",
+    "PsPathItem",
+    "PsPathPoint",
+    "PsSubPathItem",
+    "PsSelection",
+    "PsColorSampler",
+    "PsCountItem",
+    "PsLayerComp",
+    "TextItem",
+    "CharacterStyle",
+    "ParagraphStyle",
+    "TextWarpStyle",
+    "TextFont",
+    "Action",
+    "ActionSet",
+    "Tool",
+    "Preferences",
+    "PreferencesGeneral",
+    "PreferencesInterface",
+    "PreferencesTools",
+    "PreferencesHistory",
+    "PreferencesFileHandling",
+    "PreferencesPerformance",
+    "PreferencesCursors",
+    "PreferencesTransparencyAndGamut",
+    "PreferencesUnitsAndRulers",
+    "PreferencesGuidesGridsAndSlices",
+    "PreferencesType",
+    "PreferencesNotifications",
+    "XMPMeta",
+    "XMPIterator",
+    "UxpStorageEntry",
+    "UxpStorageFile",
+    "UxpStorageFolder",
+    "PsImageData"
+  ];
+  const plainPromise = new RegExp(
+    `Promise\\s*<\\s*(?:${singleRemoteTypes.join("|")})(?:\\s*\\|\\s*(?:null|undefined))*\\s*>`,
+    "g"
+  );
+
+  for (const file of typeFiles) {
+    const source = await readFile(file, "utf8");
+    for (const match of source.matchAll(plainPromise)) {
+      failures.push(
+        `${relative(file)} declares ${match[0]} for a single remote object; use RemoteResult so both await forms remain supported`
+      );
     }
   }
 }

@@ -10,6 +10,11 @@ import {
   type UxpStorageSymbolNamespace,
   type UxpStorageSymbolReference
 } from "@shared/uxp-api/uxp-protocol.js";
+import {
+  createRemoteResult,
+  RemoteOperationScheduler,
+  type RemoteResult
+} from "@webview/uxp-api/remote/index.js";
 import type {
   UxpFileSystemProvider,
   UxpLocalFileSystemProvider,
@@ -188,6 +193,7 @@ export function createUxpPersistentFileStorageNamespace(
 
   class WebviewEntry implements UxpStorageEntry, UxpStorageProxyInternals {
     protected readonly reference: UxpStorageEntryReference;
+    protected readonly scheduler = new RemoteOperationScheduler();
 
     constructor(secret?: typeof STORAGE_PROXY_SECRET, reference?: UxpStorageEntryReference) {
       assertProxyConstructor(secret);
@@ -229,17 +235,20 @@ export function createUxpPersistentFileStorageNamespace(
       return rpc.call<string>(UXP_MODULE_ID, "storage.entry.toString", [this.reference]);
     }
 
-    async copyTo(folder: UxpStorageFolder, options?: UxpStorageEntryCopyOptions): Promise<UxpStorageEntry> {
-      const reference = await rpc.call<UxpStorageEntryReference>(
-        UXP_MODULE_ID,
-        "storage.entry.copyTo",
-        [
-          this.reference,
-          await encodeEntryReference(folder, "uxp.storage.Entry.copyTo folder"),
-          ...(await optionalEncodedArgs(options))
-        ]
-      );
-      return entryFromReference(reference);
+    copyTo(folder: UxpStorageFolder, options?: UxpStorageEntryCopyOptions): RemoteResult<UxpStorageEntry> {
+      const promise = this.scheduler.run(async () => {
+        const reference = await rpc.call<UxpStorageEntryReference>(
+          UXP_MODULE_ID,
+          "storage.entry.copyTo",
+          [
+            this.reference,
+            await encodeEntryReference(folder, "uxp.storage.Entry.copyTo folder"),
+            ...(await optionalEncodedArgs(options))
+          ]
+        );
+        return entryFromReference(reference);
+      });
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.Entry.copyTo");
     }
 
     async moveTo(folder: UxpStorageFolder, options?: UxpStorageEntryMoveOptions): Promise<void> {
@@ -326,42 +335,54 @@ export function createUxpPersistentFileStorageNamespace(
       );
     }
 
-    async createEntry(name: string, options?: UxpStorageFolderCreateEntryOptions): Promise<UxpStorageEntry> {
-      return entryFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.createEntry", [
-          await this.toUxpStorageReference(),
-          name,
-          ...(await optionalEncodedArgs(options))
-        ])
+    createEntry(name: string, options?: UxpStorageFolderCreateEntryOptions): RemoteResult<UxpStorageEntry> {
+      const promise = this.scheduler.run(async () =>
+        entryFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.createEntry", [
+            await this.toUxpStorageReference(),
+            name,
+            ...(await optionalEncodedArgs(options))
+          ])
+        )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.Folder.createEntry");
     }
 
-    async createFile(name: string, options?: UxpStorageFolderCreateFileOptions): Promise<UxpStorageFile> {
-      return fileFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.createFile", [
-          await this.toUxpStorageReference(),
-          name,
-          ...(await optionalEncodedArgs(options))
-        ])
+    createFile(name: string, options?: UxpStorageFolderCreateFileOptions): RemoteResult<UxpStorageFile> {
+      const promise = this.scheduler.run(async () =>
+        fileFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.createFile", [
+            await this.toUxpStorageReference(),
+            name,
+            ...(await optionalEncodedArgs(options))
+          ])
+        )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.Folder.createFile");
     }
 
-    async createFolder(name: string): Promise<UxpStorageFolder> {
-      return folderFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.createFolder", [
-          await this.toUxpStorageReference(),
-          name
-        ])
+    createFolder(name: string): RemoteResult<UxpStorageFolder> {
+      const promise = this.scheduler.run(async () =>
+        folderFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.createFolder", [
+            await this.toUxpStorageReference(),
+            name
+          ])
+        )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.Folder.createFolder");
     }
 
-    async getEntry(filePath: string): Promise<UxpStorageEntry> {
-      return entryFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.getEntry", [
-          await this.toUxpStorageReference(),
-          filePath
-        ])
+    getEntry(filePath: string): RemoteResult<UxpStorageEntry> {
+      const promise = this.scheduler.run(async () =>
+        entryFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.folder.getEntry", [
+            await this.toUxpStorageReference(),
+            filePath
+          ])
+        )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.Folder.getEntry");
     }
 
     async renameEntry(
@@ -379,6 +400,8 @@ export function createUxpPersistentFileStorageNamespace(
   }
 
   class WebviewFileSystemProvider implements UxpFileSystemProvider {
+    protected readonly scheduler = new RemoteOperationScheduler();
+
     constructor(secret?: typeof STORAGE_PROXY_SECRET) {
       assertProxyConstructor(secret);
     }
@@ -411,62 +434,83 @@ export function createUxpPersistentFileStorageNamespace(
       return Array.isArray(value) ? value.map((reference) => fileFromReference(reference)) : fileFromReference(value);
     }
 
-    async getFileForSaving(
+    getFileForSaving(
       suggestedName?: string,
       options?: UxpStorageSaveFilePickerOptions
-    ): Promise<UxpStorageFile | null> {
-      const value = await rpc.call<UxpStorageEntryReference | null>(
-        UXP_MODULE_ID,
-        "storage.localFileSystem.getFileForSaving",
-        await optionalEncodedArgs(suggestedName, options)
-      );
-      return value === null ? null : fileFromReference(value);
-    }
-
-    async getFolder(options?: UxpStorageFolderPickerOptions): Promise<UxpStorageFolder | null> {
-      const value = await rpc.call<UxpStorageEntryReference | null>(
-        UXP_MODULE_ID,
-        "storage.localFileSystem.getFolder",
-        await optionalEncodedArgs(options)
-      );
-      return value === null ? null : folderFromReference(value);
-    }
-
-    async getTemporaryFolder(): Promise<UxpStorageFolder> {
-      return folderFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getTemporaryFolder")
-      );
-    }
-
-    async getDataFolder(): Promise<UxpStorageFolder> {
-      return folderFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getDataFolder")
-      );
-    }
-
-    async getPluginFolder(): Promise<UxpStorageFolder> {
-      return folderFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getPluginFolder")
-      );
-    }
-
-    async createEntryWithUrl(
-      url: string,
-      options?: UxpStorageCreateEntryWithUrlOptions
-    ): Promise<UxpStorageEntry> {
-      return entryFromReference(
-        await rpc.call<UxpStorageEntryReference>(
+    ): RemoteResult<UxpStorageFile | null> {
+      const promise = this.scheduler.run(async () => {
+        const value = await rpc.call<UxpStorageEntryReference | null>(
           UXP_MODULE_ID,
-          "storage.localFileSystem.createEntryWithUrl",
-          [url, ...(await optionalEncodedArgs(options))]
+          "storage.localFileSystem.getFileForSaving",
+          await optionalEncodedArgs(suggestedName, options)
+        );
+        return value === null ? null : fileFromReference(value);
+      });
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getFileForSaving");
+    }
+
+    getFolder(options?: UxpStorageFolderPickerOptions): RemoteResult<UxpStorageFolder | null> {
+      const promise = this.scheduler.run(async () => {
+        const value = await rpc.call<UxpStorageEntryReference | null>(
+          UXP_MODULE_ID,
+          "storage.localFileSystem.getFolder",
+          await optionalEncodedArgs(options)
+        );
+        return value === null ? null : folderFromReference(value);
+      });
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getFolder");
+    }
+
+    getTemporaryFolder(): RemoteResult<UxpStorageFolder> {
+      const promise = this.scheduler.run(async () =>
+        folderFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getTemporaryFolder")
         )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getTemporaryFolder");
     }
 
-    async getEntryWithUrl(url: string): Promise<UxpStorageEntry> {
-      return entryFromReference(
-        await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getEntryWithUrl", [url])
+    getDataFolder(): RemoteResult<UxpStorageFolder> {
+      const promise = this.scheduler.run(async () =>
+        folderFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getDataFolder")
+        )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getDataFolder");
+    }
+
+    getPluginFolder(): RemoteResult<UxpStorageFolder> {
+      const promise = this.scheduler.run(async () =>
+        folderFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getPluginFolder")
+        )
+      );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getPluginFolder");
+    }
+
+    createEntryWithUrl(
+      url: string,
+      options?: UxpStorageCreateEntryWithUrlOptions
+    ): RemoteResult<UxpStorageEntry> {
+      const promise = this.scheduler.run(async () =>
+        entryFromReference(
+          await rpc.call<UxpStorageEntryReference>(
+            UXP_MODULE_ID,
+            "storage.localFileSystem.createEntryWithUrl",
+            [url, ...(await optionalEncodedArgs(options))]
+          )
+        )
+      );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.createEntryWithUrl");
+    }
+
+    getEntryWithUrl(url: string): RemoteResult<UxpStorageEntry> {
+      const promise = this.scheduler.run(async () =>
+        entryFromReference(
+          await rpc.call<UxpStorageEntryReference>(UXP_MODULE_ID, "storage.localFileSystem.getEntryWithUrl", [url])
+        )
+      );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getEntryWithUrl");
     }
 
     async getFsUrl(entry: UxpStorageEntry): Promise<string> {
@@ -487,14 +531,17 @@ export function createUxpPersistentFileStorageNamespace(
       ]);
     }
 
-    async getEntryForSessionToken(token: string): Promise<UxpStorageEntry> {
-      return entryFromReference(
-        await rpc.call<UxpStorageEntryReference>(
-          UXP_MODULE_ID,
-          "storage.localFileSystem.getEntryForSessionToken",
-          [token]
+    getEntryForSessionToken(token: string): RemoteResult<UxpStorageEntry> {
+      const promise = this.scheduler.run(async () =>
+        entryFromReference(
+          await rpc.call<UxpStorageEntryReference>(
+            UXP_MODULE_ID,
+            "storage.localFileSystem.getEntryForSessionToken",
+            [token]
+          )
         )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getEntryForSessionToken");
     }
 
     async createPersistentToken(entry: UxpStorageEntry): Promise<string> {
@@ -503,16 +550,21 @@ export function createUxpPersistentFileStorageNamespace(
       ]);
     }
 
-    async getEntryForPersistentToken(token: string): Promise<UxpStorageEntry> {
-      return entryFromReference(
-        await rpc.call<UxpStorageEntryReference>(
-          UXP_MODULE_ID,
-          "storage.localFileSystem.getEntryForPersistentToken",
-          [token]
+    getEntryForPersistentToken(token: string): RemoteResult<UxpStorageEntry> {
+      const promise = this.scheduler.run(async () =>
+        entryFromReference(
+          await rpc.call<UxpStorageEntryReference>(
+            UXP_MODULE_ID,
+            "storage.localFileSystem.getEntryForPersistentToken",
+            [token]
+          )
         )
       );
+      return createRemoteResult(promise, this.scheduler, "uxp.storage.localFileSystem.getEntryForPersistentToken");
     }
   }
+
+
 
   Object.defineProperty(WebviewFile, "isFile", {
     value: (entry: unknown): entry is UxpStorageFile => isUxpStorageFile(entry)

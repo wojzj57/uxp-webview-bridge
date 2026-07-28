@@ -182,13 +182,13 @@ export function createTextItemClass(context: PhotoshopContext): { new (reference
   const methods = createTextItemMethods();
   const classConfig = config(context, "textItem", properties, methods, TEXT_ITEM_WRITABLE);
   class WebviewTextItem extends RemoteClass {
-    declare readonly parent: Promise<PsLayer>; declare readonly typename: Promise<"TextItem">;
+    declare readonly parent: TextItem["parent"]; declare readonly typename: Promise<"TextItem">;
     declare contents: Promise<string>; declare textClickPoint: Promise<PsPoint>; declare orientation: Promise<string>;
     declare readonly isPointText: Promise<boolean>; declare readonly isParagraphText: Promise<boolean>;
-    declare readonly characterStyle: Promise<CharacterStyle>; declare readonly paragraphStyle: Promise<ParagraphStyle>;
-    declare readonly warpStyle: Promise<TextWarpStyle>;
-    declare convertToParagraphText: () => Promise<TextItem>;
-    declare convertToPointText: () => Promise<TextItem>;
+    declare readonly characterStyle: TextItem["characterStyle"]; declare readonly paragraphStyle: TextItem["paragraphStyle"];
+    declare readonly warpStyle: TextItem["warpStyle"];
+    declare convertToParagraphText: TextItem["convertToParagraphText"];
+    declare convertToPointText: TextItem["convertToPointText"];
     declare convertToShape: () => Promise<void>; declare createWorkPath: () => Promise<void>;
     constructor(source: RemoteReference | RemoteConstructionRequest) { super(classConfig, source); }
   }

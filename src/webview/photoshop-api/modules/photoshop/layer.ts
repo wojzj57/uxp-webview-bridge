@@ -156,8 +156,8 @@ export function createLayerClass(context: PhotoshopContext): {
     declare selected: Promise<boolean>;
     declare readonly bounds: Promise<ImagingBounds>;
     declare readonly boundsNoEffects: Promise<ImagingBounds>;
-    declare readonly document: Promise<PsDocument>;
-    declare readonly parent: Promise<PsLayer | null>;
+    declare readonly document: PsLayer["document"];
+    declare readonly parent: PsLayer["parent"];
     declare readonly linkedLayers: Promise<Layers>;
     declare readonly textItem: PsLayer["textItem"];
     declare readonly layers: PsLayer["layers"];
@@ -174,7 +174,7 @@ export function createLayerClass(context: PhotoshopContext): {
     declare flip: (axis: FlipAxisValue) => Promise<void>;
     declare scale: PsLayer["scale"];
     declare rotate: PsLayer["rotate"];
-    declare merge: () => Promise<PsLayer>;
+    declare merge: PsLayer["merge"];
     declare rasterize: PsLayer["rasterize"];
     declare applyAddNoise: PsLayer["applyAddNoise"];
     declare applyAverage: PsLayer["applyAverage"];

@@ -19,3 +19,10 @@ export {
   isRemoteReferenceHolder
 } from "./reference.js";
 export type { RemoteArgEncoder, RemoteReference, RemoteReferenceHolder, RemoteValueDecoder } from "./reference.js";
+export {
+  createRemoteResult,
+  REMOTE_RESULT_SCHEDULER,
+  REMOTE_RESULT_SET,
+  RemoteOperationScheduler
+} from "./remote-result.js";
+export type { RemoteResult, RemoteResultTarget } from "./remote-result.js";

@@ -117,3 +117,27 @@ test("XMPDateTime batch operations use the wired batch RPC names", async () => {
   assert.equal(batchSetCall.args[0].type, "XMPDateTime");
   assert.deepEqual(batchSetCall.args[1], { year: 2026 });
 });
+
+test("XMP remote results support old and chained await forms", async () => {
+  const { createUxpXmpNamespace } = await import(xmpModule);
+  const metaRef = reference("XMPMeta");
+  const calls = [];
+  const namespace = createUxpXmpNamespace({
+    async call(_module, method) {
+      calls.push(method);
+      if (method === "xmp.file.getXMP") return metaRef;
+      if (method === "xmp.meta.serialize") return "<xmp />";
+      return undefined;
+    }
+  });
+  const file = new namespace.XMPFile(undefined, undefined, undefined, reference("XMPFile"));
+
+  assert.equal(await (await file.getXMP()).serialize(), "<xmp />");
+  assert.equal(await file.getXMP().serialize(), "<xmp />");
+  assert.deepEqual(calls, [
+    "xmp.file.getXMP",
+    "xmp.meta.serialize",
+    "xmp.file.getXMP",
+    "xmp.meta.serialize"
+  ]);
+});

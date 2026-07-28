@@ -1,4 +1,5 @@
 import type { RemoteReference } from "@shared/uxp-api/remote-protocol.js";
+import type { RemoteResult } from "@webview/uxp-api/remote/index.js";
 import type {
   XMPConst as NativeXMPConst,
   XMPDateTime as NativeXMPDateTime,
@@ -113,7 +114,7 @@ export interface XMPMeta
   getStructField(schemaNS: string, structName: string, fieldNS: string, fieldName: string): Promise<XMPProperty | null>;
   getQualifier(schemaNS: string, propName: string, qualNS: string, qualName: string): Promise<XMPProperty | null>;
   insertArrayItem(schemaNS: string, arrayName: string, itemIndex: number, itemValue: XMPValue, itemOptions?: number): Promise<void>;
-  iterator(options?: number, schemaNS?: string, propName?: string): Promise<XMPIterator>;
+  iterator(options?: number, schemaNS?: string, propName?: string): RemoteResult<XMPIterator>;
   serialize(options?: number, padding?: number, indent?: string, newline?: string, baseIndent?: number): Promise<string>;
   serializeToArray(options?: number, padding?: number, indent?: string, newline?: string, baseIndent?: number): Promise<number[]>;
   setArrayItem(schemaNS: string, arrayName: string, itemIndex: number, itemValue: XMPValue, itemOptions?: number): Promise<void>;
@@ -152,7 +153,7 @@ export interface XMPFile
   extends Omit<NativeXMPFile, "canPutXMP" | "closeFile" | "getXMP" | "getPacketInfo" | "getFileInfo" | "putXMP"> {
   canPutXMP(xmpData: XMPMeta | string): Promise<boolean>;
   closeFile(closeFlags: number): Promise<void>;
-  getXMP(): Promise<XMPMeta>;
+  getXMP(): RemoteResult<XMPMeta>;
   getPacketInfo(): Promise<XMPPacketInfo>;
   getFileInfo(): Promise<XMPFileInfo>;
   putXMP(xmpData: XMPMeta | string): Promise<void>;

@@ -27,8 +27,8 @@ export function createPathItemClass(context: PhotoshopContext): { new(reference:
   } satisfies RemoteMethodNames };
   class WebviewPsPathItem extends RemoteClass implements PsPathItem {
     declare readonly typename: Promise<"PathItem">; declare readonly id: Promise<number>; declare readonly docId: Promise<number>;
-    declare readonly parent: Promise<PsDocument>; declare kind: Promise<PathKindValue>; declare name: Promise<string>; declare readonly subPathItems: Promise<SubPathItems>;
-    declare deselect: () => Promise<void>; declare duplicate: (name?: string) => Promise<PsPathItem>;
+    declare readonly parent: PsPathItem["parent"]; declare kind: Promise<PathKindValue>; declare name: Promise<string>; declare readonly subPathItems: Promise<SubPathItems>;
+    declare deselect: () => Promise<void>; declare duplicate: PsPathItem["duplicate"];
     declare fillPath: (fillColor?: SolidColorInput, mode?: ColorBlendModeValue, opacity?: number, preserveTransparency?: boolean, feather?: number, wholePath?: boolean, antiAlias?: boolean) => Promise<void>;
     declare makeClippingPath: (flatness?: number) => Promise<void>; declare makeSelection: (feather?: number, antiAlias?: boolean, operation?: SelectionTypeValue) => Promise<void>;
     declare remove: () => Promise<void>; declare select: () => Promise<void>;

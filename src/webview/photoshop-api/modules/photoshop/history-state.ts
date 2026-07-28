@@ -53,7 +53,7 @@ export function createHistoryStateClass(
     declare readonly id: Promise<number>;
     declare readonly docId: Promise<number>;
     declare readonly name: Promise<string>;
-    declare readonly parent: Promise<PsDocument>;
+    declare readonly parent: PsHistoryState["parent"];
     declare readonly snapshot: Promise<boolean>;
 
     constructor(reference: RemoteReference) {

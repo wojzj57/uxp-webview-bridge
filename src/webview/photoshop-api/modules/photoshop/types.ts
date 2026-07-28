@@ -8,6 +8,8 @@
  * constant *value* types come from RFC-0004's `photoshop-constants.ts`.
  */
 
+import type { RemoteResult } from "@webview/uxp-api/remote/index.js";
+
 import type {
   AnchorPositionValue,
   AntiAliasValue,
@@ -151,9 +153,9 @@ export interface ImagingBounds {
 export interface Layers extends ReadonlyArray<PsLayer> {
   readonly typename: "Layers";
   /** Resolve the layer with the given name via a single host RPC (`null` if none). */
-  getByName(name: string): Promise<PsLayer | null>;
+  getByName(name: string): RemoteResult<PsLayer | null>;
   /** Create/add a layer on the owning document or group (mutating host call). */
-  add(options?: LayerCreateOptions): Promise<PsLayer>;
+  add(options?: LayerCreateOptions): RemoteResult<PsLayer>;
 }
 
 /** Options accepted when creating a layer (subset closed to this batch). */
@@ -255,9 +257,9 @@ export interface Channels extends ReadonlyArray<PsChannel> {
   readonly parent: PsDocument;
   readonly typename: "Channels";
   /** Resolve the channel with the given name via a single host RPC (`null` if none). */
-  getByName(name: string): Promise<PsChannel | null>;
+  getByName(name: string): RemoteResult<PsChannel | null>;
   /** Create a writable alpha channel in the owning document. */
-  add(): Promise<PsChannel>;
+  add(): RemoteResult<PsChannel>;
   /** Remove every channel the host allows the collection to remove. */
   removeAll(): Promise<void>;
 }
@@ -280,7 +282,7 @@ export interface SelectionPoint {
 export interface PsSelection {
   readonly typename: Promise<"Selection">;
   readonly docId: Promise<number>;
-  readonly parent: Promise<PsDocument>;
+  readonly parent: RemoteResult<PsDocument>;
   readonly bounds: Promise<ImagingBounds | null>;
   readonly solid: Promise<boolean>;
 
@@ -291,7 +293,7 @@ export interface PsSelection {
   grow(tolerance: number, antiAlias?: boolean): Promise<void>;
   inverse(): Promise<void>;
   load(from: PsChannel | PsLayer, mode?: SelectionTypeValue, invert?: boolean): Promise<void>;
-  makeWorkPath(tolerance?: number): Promise<PsPathItem>;
+  makeWorkPath(tolerance?: number): RemoteResult<PsPathItem>;
   selectAll(): Promise<void>;
   selectRectangle(
     bounds: SelectionBounds,
@@ -344,7 +346,7 @@ export interface PsHistoryState {
   readonly id: Promise<number>;
   readonly docId: Promise<number>;
   readonly name: Promise<string>;
-  readonly parent: Promise<PsDocument>;
+  readonly parent: RemoteResult<PsDocument>;
   readonly snapshot: Promise<boolean>;
   batchGet<K extends PsHistoryStateReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
   batchSet(properties: Partial<PsHistoryStateWritableProps>): void;
@@ -357,12 +359,12 @@ export type PsHistoryStateWritableProps = Record<string, never>;
 /** WebView-local snapshot of a Document's history states. */
 export interface HistoryStates extends ReadonlyArray<PsHistoryState> {
   readonly parent: PsDocument;
-  getByName(name: string): Promise<PsHistoryState | null>;
+  getByName(name: string): RemoteResult<PsHistoryState | null>;
 }
 
 export interface Guides extends ReadonlyArray<PsGuide> {
   readonly parent: PsDocument;
-  add(direction: DirectionValue, coordinate: number): Promise<PsGuide>;
+  add(direction: DirectionValue, coordinate: number): RemoteResult<PsGuide>;
   removeAll(): Promise<void>;
 }
 
@@ -370,7 +372,7 @@ export interface PsGuide {
   readonly typename: Promise<"Guide">;
   readonly id: Promise<number>;
   readonly docId: Promise<number>;
-  readonly parent: Promise<PsDocument>;
+  readonly parent: RemoteResult<PsDocument>;
   direction: Promise<DirectionValue>;
   coordinate: Promise<number>;
   delete(): Promise<void>;
@@ -394,9 +396,9 @@ export interface SubPathInfoInput {
 }
 export interface PathItems extends ReadonlyArray<PsPathItem> {
   readonly parent: PsDocument;
-  add(name: string, entirePath: readonly SubPathInfoInput[]): Promise<PsPathItem>;
+  add(name: string, entirePath: readonly SubPathInfoInput[]): RemoteResult<PsPathItem>;
   removeAll(): Promise<void>;
-  getByName(name: string): Promise<PsPathItem | null>;
+  getByName(name: string): RemoteResult<PsPathItem | null>;
 }
 export interface SubPathItems extends ReadonlyArray<PsSubPathItem> { readonly parent: PsPathItem; }
 export interface PathPoints extends ReadonlyArray<PsPathPoint> { readonly parent: PsSubPathItem; }
@@ -405,12 +407,12 @@ export interface PsPathItem {
   readonly typename: Promise<"PathItem">;
   readonly id: Promise<number>;
   readonly docId: Promise<number>;
-  readonly parent: Promise<PsDocument>;
+  readonly parent: RemoteResult<PsDocument>;
   kind: Promise<PathKindValue>;
   name: Promise<string>;
   readonly subPathItems: Promise<SubPathItems>;
   deselect(): Promise<void>;
-  duplicate(name?: string): Promise<PsPathItem>;
+  duplicate(name?: string): RemoteResult<PsPathItem>;
   fillPath(fillColor?: SolidColorInput, mode?: ColorBlendModeValue, opacity?: number, preserveTransparency?: boolean, feather?: number, wholePath?: boolean, antiAlias?: boolean): Promise<void>;
   makeClippingPath(flatness?: number): Promise<void>;
   makeSelection(feather?: number, antiAlias?: boolean, operation?: SelectionTypeValue): Promise<void>;
@@ -426,7 +428,7 @@ export interface PsPathItemWritableProps { kind: PathKindValue; name: string; }
 
 export interface PsSubPathItem {
   readonly typename: Promise<"SubPathItem">;
-  readonly parent: Promise<PsPathItem>;
+  readonly parent: RemoteResult<PsPathItem>;
   readonly operation: Promise<ShapeOperationValue>;
   readonly closed: Promise<boolean>;
   readonly pathPoints: Promise<PathPoints>;
@@ -438,7 +440,7 @@ export type PsSubPathItemReadableKey = "typename" | "parent" | "operation" | "cl
 
 export interface PsPathPoint {
   readonly typename: Promise<"PathPoint">;
-  readonly parent: Promise<PsSubPathItem>;
+  readonly parent: RemoteResult<PsSubPathItem>;
   readonly anchor: Promise<number[]>;
   readonly kind: Promise<PointKindValue>;
   readonly leftDirection: Promise<number[]>;
@@ -463,7 +465,7 @@ export type SampledColor = PsSolidColor | PsNoColor;
 export interface PsColorSampler {
   readonly typename: Promise<"ColorSampler">;
   readonly docId: Promise<number>;
-  readonly parent: Promise<PsDocument>;
+  readonly parent: RemoteResult<PsDocument>;
   readonly position: Promise<PsPoint>;
   readonly color: Promise<SampledColor>;
   move(position: PsPoint): Promise<void>;
@@ -476,7 +478,7 @@ export type PsColorSamplerReadableKey = "typename" | "docId" | "parent" | "posit
 
 export interface ColorSamplers extends ReadonlyArray<PsColorSampler> {
   readonly parent: PsDocument;
-  add(position: PsPoint): Promise<PsColorSampler>;
+  add(position: PsPoint): RemoteResult<PsColorSampler>;
   removeAll(): Promise<void>;
 }
 
@@ -497,7 +499,7 @@ export type PsCountItemReadableKey = "itemIndex" | "groupIndex" | "typename" | "
 export interface CountItems extends ReadonlyArray<PsCountItem> {
   readonly typename: "CountItems";
   readonly parent: PsDocument;
-  add(position: PsPoint): Promise<PsCountItem>;
+  add(position: PsPoint): RemoteResult<PsCountItem>;
   removeAllFromActiveGroup(): Promise<void>;
   getAll(): Promise<CountItems>;
   createGroup(groupName: string): Promise<void>;
@@ -530,7 +532,7 @@ export interface PsLayerComp {
   readonly typename: Promise<"LayerComp">;
   readonly id: Promise<number>;
   readonly docId: Promise<number>;
-  readonly parent: Promise<PsDocument>;
+  readonly parent: RemoteResult<PsDocument>;
   get name(): Promise<string>; set name(value: string);
   get comment(): Promise<string | null>; set comment(value: string | null);
   readonly selected: Promise<boolean>;
@@ -539,7 +541,7 @@ export interface PsLayerComp {
   get visibility(): Promise<boolean>; set visibility(value: boolean);
   get childComp(): Promise<boolean>; set childComp(value: boolean);
   apply(): Promise<void>;
-  duplicate(): Promise<PsLayerComp>;
+  duplicate(): RemoteResult<PsLayerComp>;
   recapture(options?: LayerCompRecaptureOptions, layers?: readonly PsLayer[]): Promise<void>;
   remove(): Promise<void>;
   resetLayerComp(): Promise<void>;
@@ -562,7 +564,7 @@ export interface PsLayerCompWritableProps {
 export interface LayerComps extends ReadonlyArray<PsLayerComp> {
   readonly typename: "LayerComps";
   readonly parent: PsDocument;
-  add(options?: LayerCompCreateOptions): Promise<PsLayerComp>;
+  add(options?: LayerCompCreateOptions): RemoteResult<PsLayerComp>;
   getAllByName(name: string): Promise<LayerComps>;
   removeAll(): Promise<void>;
 }
@@ -694,7 +696,7 @@ export interface PsDocument {
   readonly layers: Promise<Layers>;
   get activeLayers(): Promise<Layers>; set activeLayers(value: readonly PsLayer[]);
   readonly artboards: Promise<Layers>;
-  readonly backgroundLayer: Promise<PsLayer | null>;
+  readonly backgroundLayer: RemoteResult<PsLayer | null>;
   readonly channels: Promise<Channels>;
   readonly componentChannels: Promise<Channels>;
   /** @deprecated Adobe renamed this property to componentChannels. */
@@ -702,17 +704,17 @@ export interface PsDocument {
   get activeChannels(): Promise<Channels>; set activeChannels(value: readonly PsChannel[]);
   readonly guides: Promise<Guides>;
   readonly pathItems: Promise<PathItems>;
-  readonly selection: Promise<PsSelection>;
+  readonly selection: RemoteResult<PsSelection>;
   readonly historyStates: Promise<HistoryStates>;
-  get activeHistoryState(): Promise<PsHistoryState>; set activeHistoryState(value: PsHistoryState);
-  get activeHistoryBrushSource(): Promise<PsHistoryState>; set activeHistoryBrushSource(value: PsHistoryState);
+  get activeHistoryState(): RemoteResult<PsHistoryState>; set activeHistoryState(value: PsHistoryState);
+  get activeHistoryBrushSource(): RemoteResult<PsHistoryState>; set activeHistoryBrushSource(value: PsHistoryState);
   readonly colorSamplers: Promise<ColorSamplers>;
   readonly countItems: Promise<CountItems>;
   readonly layerComps: Promise<LayerComps>;
   readonly saveAs: DocumentSaveAs;
 
   // Mutating method (native duplicate changes Photoshop state and requires modal execution)
-  duplicate(name?: string, mergeLayersOnly?: boolean): Promise<PsDocument>;
+  duplicate(name?: string, mergeLayersOnly?: boolean): RemoteResult<PsDocument>;
 
   // Mutating methods (host wraps in executeAsModal)
   close(saveDialogOptions?: SaveOptionsValue): Promise<void>;
@@ -733,14 +735,14 @@ export interface PsDocument {
   trim(trimType: TrimTypeValue, top?: boolean, left?: boolean, bottom?: boolean, right?: boolean): Promise<void>;
   rotate(angle: number): Promise<void>;
   save(): Promise<void>;
-  createLayer(options?: LayerCreateOptions): Promise<PsLayer | null>;
-  createPixelLayer(options?: LayerCreateOptions): Promise<PsLayer | null>;
-  createTextLayer(options?: LayerCreateOptions): Promise<PsLayer | null>;
-  createLayerGroup(options?: LayerCreateOptions): Promise<PsLayer | null>;
-  groupLayers(layers: readonly PsLayer[]): Promise<PsLayer | null>;
+  createLayer(options?: LayerCreateOptions): RemoteResult<PsLayer | null>;
+  createPixelLayer(options?: LayerCreateOptions): RemoteResult<PsLayer | null>;
+  createTextLayer(options?: LayerCreateOptions): RemoteResult<PsLayer | null>;
+  createLayerGroup(options?: LayerCreateOptions): RemoteResult<PsLayer | null>;
+  groupLayers(layers: readonly PsLayer[]): RemoteResult<PsLayer | null>;
   duplicateLayers(layers: readonly PsLayer[], targetDocument?: PsDocument): Promise<Layers>;
   linkLayers(layers: readonly PsLayer[]): Promise<Layers>;
-  paste(intoSelection?: boolean): Promise<PsLayer | null>;
+  paste(intoSelection?: boolean): RemoteResult<PsLayer | null>;
   splitChannels(): Promise<readonly PsDocument[]>;
   changeMode(mode: ChangeModeValue, options?: BitmapConversionOptions | IndexedConversionOptions): Promise<void>;
   convertProfile(destinationProfile: string, intent: IntentValue, blackPointCompensation?: boolean, dither?: boolean): Promise<void>;
@@ -940,18 +942,18 @@ export interface TextWarpStyleWritableProps {
 export type TextWarpStyleReadableKey = keyof TextWarpStyleWritableProps;
 
 export interface TextItem {
-  readonly parent: Promise<PsLayer>;
+  readonly parent: RemoteResult<PsLayer>;
   readonly typename: Promise<"TextItem">;
   get contents(): Promise<string>; set contents(value: string);
   get textClickPoint(): Promise<PsPoint>; set textClickPoint(value: PsPoint);
   get orientation(): Promise<OrientationValue>; set orientation(value: OrientationValue);
   readonly isPointText: Promise<boolean>;
   readonly isParagraphText: Promise<boolean>;
-  readonly characterStyle: Promise<CharacterStyle>;
-  readonly paragraphStyle: Promise<ParagraphStyle>;
-  readonly warpStyle: Promise<TextWarpStyle>;
-  convertToParagraphText(): Promise<TextItem>;
-  convertToPointText(): Promise<TextItem>;
+  readonly characterStyle: RemoteResult<CharacterStyle>;
+  readonly paragraphStyle: RemoteResult<ParagraphStyle>;
+  readonly warpStyle: RemoteResult<TextWarpStyle>;
+  convertToParagraphText(): RemoteResult<TextItem>;
+  convertToPointText(): RemoteResult<TextItem>;
   convertToShape(): Promise<void>;
   createWorkPath(): Promise<void>;
   batchGet<K extends TextItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
@@ -1012,10 +1014,10 @@ export interface PsLayer {
   readonly bounds: Promise<ImagingBounds>;
   readonly boundsNoEffects: Promise<ImagingBounds>;
   // Reference properties
-  readonly document: Promise<PsDocument>;
-  readonly parent: Promise<PsLayer | null>;
+  readonly document: RemoteResult<PsDocument>;
+  readonly parent: RemoteResult<PsLayer | null>;
   readonly linkedLayers: Promise<Layers>;
-  readonly textItem: Promise<TextItem>;
+  readonly textItem: RemoteResult<TextItem>;
   readonly layers: Promise<Layers | null>;
 
   // Mutating methods (host wraps in executeAsModal)
@@ -1024,7 +1026,7 @@ export interface PsLayer {
     relativeObject?: PsDocument | PsLayer,
     insertionLocation?: ElementPlacementValue,
     name?: string
-  ): Promise<PsLayer | null>;
+  ): RemoteResult<PsLayer | null>;
   link(layer: PsLayer): Promise<Layers>;
   unlink(): Promise<void>;
   move(relativeObject: PsLayer, placement: ElementPlacementValue): Promise<void>;
@@ -1054,7 +1056,7 @@ export interface PsLayer {
   clear(): Promise<void>;
   copy(merge?: boolean): Promise<void>;
   cut(): Promise<void>;
-  merge(): Promise<PsLayer>;
+  merge(): RemoteResult<PsLayer>;
   rasterize(target: RasterizeTypeValue): Promise<void>;
   applyAddNoise(amount: number, distribution: NoiseDistributionValue, monochromatic: boolean): Promise<void>;
   applyAverage(): Promise<void>;
@@ -1215,7 +1217,7 @@ export interface PsChannel {
   // Value-object property (read/write)
   color: Promise<PsSolidColor>;
   // Reference property
-  readonly parent: Promise<PsDocument>;
+  readonly parent: RemoteResult<PsDocument>;
 
   // Mutating methods (host wraps in executeAsModal)
   duplicate(targetDocument?: PsDocument): Promise<void>;
@@ -1348,8 +1350,8 @@ export type ActionNotificationListener = (
 export interface Documents extends ReadonlyArray<PsDocument> {
   readonly parent: PhotoshopApp;
   readonly typename: "Documents";
-  getByName(name: string): Promise<PsDocument | null>;
-  add(options?: DocumentCreateOptions): Promise<PsDocument | null>;
+  getByName(name: string): RemoteResult<PsDocument | null>;
+  add(options?: DocumentCreateOptions): RemoteResult<PsDocument | null>;
 }
 
 export interface TextFont {
@@ -1366,7 +1368,7 @@ export type TextFontReadableKey = "family" | "name" | "parent" | "postScriptName
 export interface TextFonts extends ReadonlyArray<TextFont> {
   readonly parent: PhotoshopApp;
   readonly typename: "TextFonts";
-  getByName(name: string): Promise<TextFont | null>;
+  getByName(name: string): RemoteResult<TextFont | null>;
 }
 
 export interface Tool {
@@ -1385,7 +1387,7 @@ export interface ActionSet {
   set name(value: string);
   readonly actions: Promise<readonly Action[]>;
   delete(): Promise<void>;
-  duplicate(): Promise<ActionSet>;
+  duplicate(): RemoteResult<ActionSet>;
   play(): Promise<void>;
 }
 
@@ -1395,9 +1397,9 @@ export interface Action {
   readonly index: Promise<number>;
   get name(): Promise<string>;
   set name(value: string);
-  readonly parent: Promise<ActionSet>;
+  readonly parent: RemoteResult<ActionSet>;
   delete(): Promise<void>;
-  duplicate(): Promise<Action>;
+  duplicate(): RemoteResult<Action>;
   play(): Promise<void>;
 }
 
@@ -1414,18 +1416,18 @@ export interface PreferencesBase {
 
 export interface Preferences {
   readonly typename: Promise<"Preferences">;
-  readonly general: Promise<PreferencesGeneral>;
-  readonly interface: Promise<PreferencesInterface>;
-  readonly tools: Promise<PreferencesTools>;
-  readonly history: Promise<PreferencesHistory>;
-  readonly fileHandling: Promise<PreferencesFileHandling>;
-  readonly performance: Promise<PreferencesPerformance>;
-  readonly cursors: Promise<PreferencesCursors>;
-  readonly transparencyAndGamut: Promise<PreferencesTransparencyAndGamut>;
-  readonly unitsAndRulers: Promise<PreferencesUnitsAndRulers>;
-  readonly guidesGridsAndSlices: Promise<PreferencesGuidesGridsAndSlices>;
-  readonly type: Promise<PreferencesType>;
-  readonly notifications: Promise<PreferencesNotifications>;
+  readonly general: RemoteResult<PreferencesGeneral>;
+  readonly interface: RemoteResult<PreferencesInterface>;
+  readonly tools: RemoteResult<PreferencesTools>;
+  readonly history: RemoteResult<PreferencesHistory>;
+  readonly fileHandling: RemoteResult<PreferencesFileHandling>;
+  readonly performance: RemoteResult<PreferencesPerformance>;
+  readonly cursors: RemoteResult<PreferencesCursors>;
+  readonly transparencyAndGamut: RemoteResult<PreferencesTransparencyAndGamut>;
+  readonly unitsAndRulers: RemoteResult<PreferencesUnitsAndRulers>;
+  readonly guidesGridsAndSlices: RemoteResult<PreferencesGuidesGridsAndSlices>;
+  readonly type: RemoteResult<PreferencesType>;
+  readonly notifications: RemoteResult<PreferencesNotifications>;
 }
 
 export interface PreferencesCursors extends PreferencesBase {
@@ -1511,12 +1513,12 @@ export interface PreferencesUnitsAndRulers extends PreferencesBase {
 /** The complete documented `photoshop.app` remote surface. */
 export interface PhotoshopApp {
   readonly typename: Promise<"Photoshop">;
-  readonly preferences: Promise<Preferences>;
+  readonly preferences: RemoteResult<Preferences>;
   get displayDialogs(): Promise<DialogModesValue>;
   set displayDialogs(value: DialogModesValue);
-  get activeDocument(): Promise<PsDocument>;
+  get activeDocument(): RemoteResult<PsDocument>;
   set activeDocument(value: PsDocument);
-  readonly currentTool: Promise<Tool>;
+  readonly currentTool: RemoteResult<Tool>;
   readonly actionTree: Promise<readonly ActionSet[]>;
   readonly documents: Promise<Documents>;
   get foregroundColor(): Promise<PsSolidColor>;
@@ -1532,8 +1534,8 @@ export interface PhotoshopApp {
   showAlert(message: string): Promise<void>;
   batchPlay(commands: readonly ActionDescriptor[], options?: BatchPlayCommandOptions): Promise<ActionDescriptor[]>;
   bringToFront(): Promise<void>;
-  open(entry?: UxpStorageFile | OpenOptions): Promise<PsDocument>;
-  createDocument(options?: DocumentCreateOptions): Promise<PsDocument | null>;
+  open(entry?: UxpStorageFile | OpenOptions): RemoteResult<PsDocument>;
+  createDocument(options?: DocumentCreateOptions): RemoteResult<PsDocument | null>;
   updateUI(): Promise<void>;
   batchGet(propertyNames: readonly string[]): Promise<Record<string, unknown>>;
   batchSet(properties: Readonly<Record<string, unknown>>): void;
@@ -1557,19 +1559,19 @@ export interface PhotoshopNamespace extends PhotoshopConstantsNamespace {
   readonly PathPointInfo: typeof import("./path-builders.js").PathPointInfo;
   readonly SubPathInfo: typeof import("./path-builders.js").SubPathInfo;
   readonly imaging: PhotoshopImaging;
-  readonly preferences: Promise<Preferences>;
-  readonly preferencesCursors: Promise<PreferencesCursors>;
-  readonly preferencesFileHandling: Promise<PreferencesFileHandling>;
-  readonly preferencesGeneral: Promise<PreferencesGeneral>;
-  readonly preferencesGuidesGridsAndSlices: Promise<PreferencesGuidesGridsAndSlices>;
-  readonly preferencesHistory: Promise<PreferencesHistory>;
-  readonly preferencesInterface: Promise<PreferencesInterface>;
-  readonly preferencesNotifications: Promise<PreferencesNotifications>;
-  readonly preferencesPerformance: Promise<PreferencesPerformance>;
-  readonly preferencesTools: Promise<PreferencesTools>;
-  readonly preferencesTransparencyAndGamut: Promise<PreferencesTransparencyAndGamut>;
-  readonly preferencesType: Promise<PreferencesType>;
-  readonly preferencesUnitsAndRulers: Promise<PreferencesUnitsAndRulers>;
+  readonly preferences: RemoteResult<Preferences>;
+  readonly preferencesCursors: RemoteResult<PreferencesCursors>;
+  readonly preferencesFileHandling: RemoteResult<PreferencesFileHandling>;
+  readonly preferencesGeneral: RemoteResult<PreferencesGeneral>;
+  readonly preferencesGuidesGridsAndSlices: RemoteResult<PreferencesGuidesGridsAndSlices>;
+  readonly preferencesHistory: RemoteResult<PreferencesHistory>;
+  readonly preferencesInterface: RemoteResult<PreferencesInterface>;
+  readonly preferencesNotifications: RemoteResult<PreferencesNotifications>;
+  readonly preferencesPerformance: RemoteResult<PreferencesPerformance>;
+  readonly preferencesTools: RemoteResult<PreferencesTools>;
+  readonly preferencesTransparencyAndGamut: RemoteResult<PreferencesTransparencyAndGamut>;
+  readonly preferencesType: RemoteResult<PreferencesType>;
+  readonly preferencesUnitsAndRulers: RemoteResult<PreferencesUnitsAndRulers>;
   /** Native-compatible aggregate for callers that use `photoshop.constants.Xxx`. */
   readonly constants: PhotoshopConstantsNamespace;
 }

@@ -24,6 +24,11 @@ import {
 import { decodeValue, isPhotoshopValueTransport } from "@shared/photoshop-api/value-objects.js";
 import { getBridgeRpcClient } from "@webview/runtime.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
+import {
+  createRemoteResult,
+  RemoteOperationScheduler,
+  type RemoteResult
+} from "@webview/uxp-api/remote/index.js";
 import type {
   CreateImageDataFromBufferOptions,
   EncodeImageDataOptions,
@@ -129,6 +134,8 @@ function toTypedArray(bytes: Uint8Array, componentSize: 8 | 16 | 32): Uint8Array
 }
 
 export function createImagingNamespace(rpc: ImagingRpc): PhotoshopImaging {
+  const scheduler = new RemoteOperationScheduler();
+
   function decodeImageData(raw: unknown): PsImageData {
     if (!raw || typeof raw !== "object") {
       throw new Error("Expected an imageData transport result.");
@@ -201,17 +208,20 @@ export function createImagingNamespace(rpc: ImagingRpc): PhotoshopImaging {
       ]);
     },
 
-    async createImageDataFromBuffer(
+    createImageDataFromBuffer(
       buffer: Uint8Array | Uint16Array | Float32Array,
       options: CreateImageDataFromBufferOptions
-    ): Promise<PsImageData> {
-      const bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-      const raw = await rpc.call<ImageDataTransport>(
-        PHOTOSHOP_IMAGING_MODULE_ID,
-        "imaging.createImageDataFromBuffer",
-        [bytesToTransport(bytes), options]
-      );
-      return decodeImageData(raw);
+    ): RemoteResult<PsImageData> {
+      const promise = scheduler.run(async () => {
+        const bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        const raw = await rpc.call<ImageDataTransport>(
+          PHOTOSHOP_IMAGING_MODULE_ID,
+          "imaging.createImageDataFromBuffer",
+          [bytesToTransport(bytes), options]
+        );
+        return decodeImageData(raw);
+      });
+      return createRemoteResult(promise, scheduler, "photoshop.imaging.createImageDataFromBuffer");
     },
 
     encodeImageData(options: EncodeImageDataOptions): Promise<number[] | string> {

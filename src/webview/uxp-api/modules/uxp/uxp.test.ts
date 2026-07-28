@@ -1,4 +1,6 @@
 import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
+import type { UxpPersistentFileStorage } from "@webview/uxp-api/modules/uxp/persistent-file-storage/index.js";
+import type { XMPFile, XMPMeta } from "@webview/uxp-api/modules/uxp/xmp/index.js";
 
 export default defineWebviewCdpCases([
   {
@@ -75,8 +77,9 @@ export default defineWebviewCdpCases([
           createFile(name: string, options?: unknown): Promise<typeof file>;
         };
         try {
-          folder = await storage.localFileSystem.getTemporaryFolder();
-          file = await folder.createFile(fileName, { overwrite: true });
+          const folderResult = storage.localFileSystem.getTemporaryFolder();
+          folder = await folderResult;
+          file = await folderResult.createFile(fileName, { overwrite: true });
         } catch (error) {
           return skip("uxp.storage.localFileSystem is unavailable in this UXP host.", {
             error: normalizeError(error)
@@ -453,3 +456,17 @@ function normalizeError(error: unknown): Record<string, unknown> {
 
   return { message: String(error) };
 }
+
+function assertUxpRemoteResultTypes(storage: UxpPersistentFileStorage, xmpFile: XMPFile): void {
+  const legacyFolder = storage.localFileSystem.getDataFolder();
+  const chainedWrite: Promise<number> = storage.localFileSystem
+    .getDataFolder()
+    .createFile("remote-result-type-test.txt")
+    .write("ok");
+  const legacyMeta: Promise<XMPMeta> = xmpFile.getXMP();
+  const chainedPacket: Promise<string> = xmpFile.getXMP().serialize();
+
+  void [legacyFolder, chainedWrite, legacyMeta, chainedPacket];
+}
+
+void assertUxpRemoteResultTypes;

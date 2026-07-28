@@ -173,7 +173,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     getStructField: { decode: propertyDecoder },
     getQualifier: { decode: propertyDecoder },
     insertArrayItem: {},
-    iterator: { decode: iteratorDecoder },
+    iterator: { decode: iteratorDecoder, remoteResult: true },
     serialize: {},
     serializeToArray: {},
     setArrayItem: {},
@@ -238,7 +238,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
       itemValue: XMPValue,
       itemOptions?: number
     ) => Promise<void>;
-    declare iterator: (options?: number, schemaNS?: string, propName?: string) => Promise<XMPIterator>;
+    declare iterator: XMPMeta["iterator"];
     declare serialize: (
       options?: number,
       padding?: number,
@@ -338,7 +338,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
   const fileMethods = {
     canPutXMP: {},
     closeFile: {},
-    getXMP: { decode: metaReferenceDecoder },
+    getXMP: { decode: metaReferenceDecoder, remoteResult: true },
     getPacketInfo: {},
     getFileInfo: {},
     putXMP: {}
@@ -356,7 +356,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
   class WebviewXMPFile extends RemoteClass implements XMPFile {
     declare canPutXMP: (xmpData: XMPMeta | string) => Promise<boolean>;
     declare closeFile: (closeFlags: number) => Promise<void>;
-    declare getXMP: () => Promise<XMPMeta>;
+    declare getXMP: XMPFile["getXMP"];
     declare getPacketInfo: () => Promise<XMPPacketInfo>;
     declare getFileInfo: () => Promise<XMPFileInfo>;
     declare putXMP: (xmpData: XMPMeta | string) => Promise<void>;

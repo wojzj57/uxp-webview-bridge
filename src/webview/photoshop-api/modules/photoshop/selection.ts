@@ -103,7 +103,7 @@ export function createSelectionClass(context: PhotoshopContext): { new (referenc
   class WebviewPsSelection extends RemoteClass implements PsSelection {
     declare readonly typename: Promise<"Selection">;
     declare readonly docId: Promise<number>;
-    declare readonly parent: Promise<PsDocument>;
+    declare readonly parent: PsSelection["parent"];
     declare readonly bounds: Promise<ImagingBounds | null>;
     declare readonly solid: Promise<boolean>;
 
@@ -114,7 +114,7 @@ export function createSelectionClass(context: PhotoshopContext): { new (referenc
     declare grow: (tolerance: number, antiAlias?: boolean) => Promise<void>;
     declare inverse: () => Promise<void>;
     declare load: (from: PsChannel | PsLayer, mode?: SelectionTypeValue, invert?: boolean) => Promise<void>;
-    declare makeWorkPath: (tolerance?: number) => Promise<PsPathItem>;
+    declare makeWorkPath: PsSelection["makeWorkPath"];
     declare selectAll: () => Promise<void>;
     declare selectRectangle: (
       bounds: SelectionBounds,

@@ -233,6 +233,7 @@ export { sessionStorage } from "./uxp-api/global-members/session-storage/index.j
 export type { SessionStorageNamespace } from "./uxp-api/global-members/session-storage/index.js";
 export { configWebviewBridge } from "./runtime.js";
 export type { BridgeClientRuntime, ConfigWebviewBridgeOptions } from "./runtime.js";
+export type { RemoteResult } from "./uxp-api/remote/index.js";
 export { uxp } from "./uxp-api/modules/uxp/index.js";
 export type {
   UxpFileSystemProvider,
