@@ -1,5 +1,6 @@
 import { BridgeRemoteError } from "../shared/errors.js";
 import { createOperationId } from "../shared/operation-id.js";
+import { isAllowedOrigin, mergeAllowedOrigins } from "../shared/origins.js";
 import {
   assertBridgeTransportValue,
   type BridgeCallbackErrorEnvelope,
@@ -24,7 +25,7 @@ export type RpcCallback = (...args: readonly unknown[]) => unknown | Promise<unk
 
 export interface RpcClientOptions {
   readonly target?: WebViewBridgeTarget;
-  /** Fallback origins accepted when UXP does not provide a message source object. */
+  /** Additional fallback origins accepted when UXP does not provide a message source object. */
   readonly allowedOrigins?: readonly string[];
   readonly timeoutMs?: number;
   readonly onUnhandledError?: ((error: BridgeRemoteError) => void) | undefined;
@@ -47,7 +48,6 @@ interface ActiveModalSession {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_ALLOWED_ORIGINS = ["plugin:", "plugin-data:", "plugin-temp:"];
 
 export class RpcClient {
   private readonly target: WebViewBridgeTarget;
@@ -70,7 +70,7 @@ export class RpcClient {
 
   constructor(options: RpcClientOptions = {}) {
     this.target = options.target ?? getDefaultWebViewTarget();
-    this.allowedOrigins = options.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
+    this.allowedOrigins = mergeAllowedOrigins(options.allowedOrigins);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.onUnhandledError = options.onUnhandledError;
     window.addEventListener("message", this.onMessageBound);
@@ -346,15 +346,6 @@ function getDefaultWebViewTarget(): WebViewBridgeTarget {
     throw new Error("window.uxpHost is not available. Pass an explicit target to configWebviewBridge().");
   }
   return maybeHost;
-}
-
-function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boolean {
-  return allowedOrigins.some((allowedOrigin) => {
-    if (allowedOrigin.endsWith(":")) {
-      return origin.startsWith(allowedOrigin);
-    }
-    return origin === allowedOrigin;
-  });
 }
 
 function isBridgeResponse(message: unknown): message is BridgeResponseEnvelope {

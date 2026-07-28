@@ -1,4 +1,5 @@
 import { mergeCapabilities } from "../shared/capabilities.js";
+import { mergeAllowedOrigins } from "../shared/origins.js";
 import type { BridgeCapabilities } from "../shared/types.js";
 import { createUxpModuleRegistry } from "./module-registry.js";
 import { RpcHost, type UxpWebViewElement } from "./rpc-host.js";
@@ -20,6 +21,7 @@ import { uxpModuleAdapter } from "./uxp-api/modules/uxp/index.js";
 
 export interface ConfigUxpBridgeOptions {
   readonly webview: UxpWebViewElement;
+  /** Additional trusted origins appended to the bridge defaults. */
   readonly allowedOrigins?: readonly string[];
   readonly capabilities?: Partial<BridgeCapabilities>;
   /** Host-to-WebView callback timeout. Set to `0` to disable. Defaults to 60 seconds. */
@@ -31,8 +33,6 @@ export interface ConfigUxpBridgeOptions {
 export interface UxpBridgeRuntime {
   destroy(): Promise<void>;
 }
-
-const DEFAULT_ALLOWED_ORIGINS = ["plugin:", "plugin-data:", "plugin-temp:"];
 
 export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRuntime {
   const capabilities = mergeCapabilities(options.capabilities);
@@ -58,7 +58,7 @@ export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRunti
   const registry = createUxpModuleRegistry(capabilities, adapters);
   const host = new RpcHost({
     webview: options.webview,
-    allowedOrigins: options.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS,
+    allowedOrigins: mergeAllowedOrigins(options.allowedOrigins),
     ...(options.callbackTimeoutMs === undefined ? {} : { callbackTimeoutMs: options.callbackTimeoutMs }),
     dispatchCall: (payload, dispatchOptions) =>
       registry.dispatch(payload, {

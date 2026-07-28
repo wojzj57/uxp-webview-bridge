@@ -1,5 +1,6 @@
 import { BridgeRemoteError } from "../shared/errors.js";
 import { createOperationId } from "../shared/operation-id.js";
+import { isAllowedOrigin } from "../shared/origins.js";
 import {
   assertBridgeTransportValue,
   isBridgeCallbackReference,
@@ -502,15 +503,6 @@ function createInFlightOperation(): InFlightOperation {
     complete = resolve;
   });
   return { controller, completion, complete };
-}
-
-export function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boolean {
-  return allowedOrigins.some((allowedOrigin) => {
-    if (allowedOrigin.endsWith(":")) {
-      return origin.startsWith(allowedOrigin);
-    }
-    return origin === allowedOrigin;
-  });
 }
 
 function normalizeError(error: unknown): BridgeSerializedError {
