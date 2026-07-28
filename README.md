@@ -57,7 +57,7 @@ Bundle the two subpath entrypoints into their respective runtimes. Do not load t
 
 ### 1. Configure the UXP host
 
-Configure the bridge once for the `<webview>` element. The example enables `fs`, which is intentionally disabled by default:
+Configure the bridge once for the `<webview>` element. Every configurable capability is enabled by default; this example explicitly disables clipboard access:
 
 ```ts
 import { configUxpBridge } from "uxp-webview-bridge/uxp";
@@ -73,7 +73,7 @@ if (!webview) {
 const bridge = configUxpBridge({
   webview,
   capabilities: {
-    fs: true
+    clipboard: false
   }
 });
 
@@ -138,13 +138,13 @@ Legend:
 | Area | WebView API | Default bridge access | Verification | Notes |
 | --- | --- | --- | --- | --- |
 | Bridge lifecycle | `configWebviewBridge` | Always | Contract + CDP case | One configured client per WebView runtime; default request timeout is 10 seconds. |
-| Clipboard | `clipboard` | Always | Contract + CDP case | Text and UXP clipboard data. Requires the matching manifest permission. |
+| Clipboard | `clipboard` | Enabled (`clipboard: true`) | Contract + CDP case | Text and UXP clipboard data. Requires the matching manifest permission. |
 | Cryptography | `crypto` | Always | Contract + CDP case | `getRandomValues` and `randomUUID` execute in UXP. |
-| Forwarded network | `fetch`, `installFetch` | Always | Contract | Request runs in UXP; network manifest permissions still apply. |
-| Node-style filesystem | `fs` | **Disabled** (`fs: false`) | Contract + CDP case | Must be enabled explicitly; file descriptors are host-owned and idle-close after 60 seconds. |
+| Forwarded network | `fetch`, `installFetch` | Enabled (`fetch: true`) | Contract | Request runs in UXP; network manifest permissions still apply. |
+| Node-style filesystem | `fs` | Enabled (`fs: true`) | Contract + CDP case | File descriptors are host-owned and idle-close after 60 seconds. |
 | OS information | `os` | Enabled (`os: true`) | Contract + CDP case | Read-only platform and memory/CPU information. |
 | Path utilities | `path` | Always | Contract + CDP case | Default, `posix`, and `win32` flavors; accepts strings and Entry-like objects where documented. |
-| Web Storage | `localStorage`, `sessionStorage` | Always | Contract + CDP case | UXP-side storage, exposed asynchronously. |
+| Web Storage | `localStorage`, `sessionStorage` | Enabled (`localStorage: true`, `sessionStorage: true`) | Contract + CDP case | UXP-side storage, exposed asynchronously; each namespace can be disabled independently. |
 | UXP host metadata | `uxp.host`, `uxp.versions` | Always | Contract + CDP case | Host name/version/locale and UXP/plugin versions. |
 | Shell | `uxp.shell` | Enabled (`shell: true`) | Contract + CDP case | `openPath` and `openExternal`; manifest launch permissions still apply. |
 | User information | `uxp.userInfo` | Enabled (`userInfo: true`) | Contract + CDP case | `userId()`; requires `enableUserInfo` in the manifest. |
@@ -153,15 +153,19 @@ Legend:
 | Persistent file storage | `uxp.storage.localFileSystem` and Entry proxies | Enabled (`persistentFileStorage: true`) | Contract + CDP case | Pickers, tokens, entries, files, folders, domains, formats, and modes. |
 | XMP | `uxp.xmp` | Enabled (`xmp: true`) | Contract + CDP case | `XMPMeta`, `XMPFile`, `XMPDateTime`, iterators, utilities, and constants. |
 | Photoshop DOM and Core | `photoshop.app`, `.action`, `.core` | Enabled (`photoshop: true`) | Contract + CDP case | Requires Photoshop and host support for each native API. |
-| Photoshop Imaging | `photoshop.imaging` | Enabled through `photoshop: true` | Contract + CDP case | The declared `imaging` capability is not currently enforced independently. |
-| Photoshop batchPlay | `photoshop.action.batchPlay`, `.batchPlaySync`, `photoshop.app.batchPlay` | Enabled through `photoshop: true` | Contract + CDP case | The declared `batchPlay` capability is not currently enforced independently. |
+| Photoshop Imaging | `photoshop.imaging` | Enabled (`photoshop: true`, `imaging: true`) | Contract + CDP case | Both the parent Photoshop capability and the Imaging sub-capability are required. |
+| Photoshop batchPlay | `photoshop.action.batchPlay`, `.batchPlaySync`, `photoshop.app.batchPlay` | Enabled (`photoshop: true`, `batchPlay: true`) | Contract + CDP case | `batchPlay` controls the three public RPC methods without blocking internal DOM implementation calls. |
 
 The capability defaults are defined by the current implementation:
 
 ```ts
 {
-  fs: false,
+  fs: true,
   os: true,
+  clipboard: true,
+  localStorage: true,
+  sessionStorage: true,
+  fetch: true,
   shell: true,
   userInfo: true,
   pluginManager: true,
@@ -291,7 +295,7 @@ The UXP host validates both the message source and its origin before dispatch. K
 - The bridge does not promise complete parity with all Adobe UXP or Photoshop APIs. Only the public surface in this README and the exported WebView types is supported.
 - Forwarded `fetch` buffers request and response bodies. It does not support `ReadableStream` request bodies and does not provide streaming responses.
 - Binary data is serialized and copied, so very large files or pixel buffers have more overhead than same-runtime native calls.
-- `imaging` and `batchPlay` are present in `BridgeCapabilities`, but the current adapters do not enforce them as independent gates; use `photoshop: false` to disable those surfaces today.
+- Photoshop Imaging requires both `photoshop` and `imaging`. The three public batchPlay methods require both `photoshop` and `batchPlay`.
 - This package is ESM at its public boundary. UXP hosts commonly require a bundling step appropriate to the target runtime.
 
 ## Testing

@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const baseCapabilities = {
-  fs: false,
+  fs: true,
   os: true,
+  clipboard: true,
+  localStorage: true,
+  sessionStorage: true,
+  fetch: true,
   shell: true,
   userInfo: true,
   pluginManager: true,

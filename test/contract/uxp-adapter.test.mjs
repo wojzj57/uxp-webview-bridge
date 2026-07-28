@@ -782,6 +782,10 @@ test("UXP module registry gates capability-scoped uxp methods without gating ver
     {
       fs: false,
       os: true,
+      clipboard: true,
+      localStorage: true,
+      sessionStorage: true,
+      fetch: true,
       shell: false,
       userInfo: false,
       pluginManager: false,

@@ -328,6 +328,9 @@ export function dispatchPhotoshopCall(
   args: readonly unknown[],
   context?: UxpDispatchContext
 ): unknown | Promise<unknown> {
+  if (context && isBatchPlayMethod(method) && !context.capabilities.batchPlay) {
+    throw new Error("batchPlay capability is disabled.");
+  }
   const previousContext = activePhotoshopDispatchContext;
   activePhotoshopDispatchContext = context;
   try {
@@ -335,6 +338,12 @@ export function dispatchPhotoshopCall(
   } finally {
     activePhotoshopDispatchContext = previousContext;
   }
+}
+
+function isBatchPlayMethod(method: string): boolean {
+  return method === "app.batchPlay" ||
+    method === "action.batchPlay" ||
+    method === "action.batchPlaySync";
 }
 
 function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]): unknown | Promise<unknown> {

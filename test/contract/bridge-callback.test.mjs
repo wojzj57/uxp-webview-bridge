@@ -10,6 +10,10 @@ const runtimeModule = "../../dist/webview/runtime.js";
 const capabilities = {
   fs: true,
   os: true,
+  clipboard: true,
+  localStorage: true,
+  sessionStorage: true,
+  fetch: true,
   shell: true,
   userInfo: true,
   pluginManager: true,

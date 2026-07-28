@@ -56,6 +56,9 @@ export function dispatchImagingCall(
   context?: UxpDispatchContext
 ): unknown | Promise<unknown> {
   assertPhotoshopImagingMethodName(method);
+  if (context && !context.capabilities.imaging) {
+    throw new Error("imaging capability is disabled.");
+  }
   imagingRegistry.prune();
 
   switch (method) {

@@ -93,4 +93,4 @@ The WebView is loaded from local plugin content:
 
 This requires UXP v8.0 or later and `requiredPermissions.webview.allowLocalRendering` set to `"yes"` in `test/uxp-plugin/manifest.json`.
 
-The fixture may enable test-only capabilities needed by CDP cases, such as `fs: true` for real plugin-data filesystem tests. Keep those capability overrides in `test/uxp-plugin/host.js`; do not change production defaults just to satisfy CDP coverage.
+The fixture may state capability values explicitly when CDP cases depend on them, such as `fs: true` for real plugin-data filesystem tests. Keep fixture-specific overrides in `test/uxp-plugin/host.js`; production defaults must follow the public capability contract rather than CDP convenience.

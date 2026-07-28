@@ -4,6 +4,7 @@ import { dispatchStorageCall, getStorageHost } from "../local-storage/host.js";
 
 export const sessionStorageModuleAdapter: UxpModuleAdapter = {
   moduleId: SESSION_STORAGE_MODULE_ID,
+  capability: "sessionStorage",
   dispatch: dispatchSessionStorageCall
 };
 

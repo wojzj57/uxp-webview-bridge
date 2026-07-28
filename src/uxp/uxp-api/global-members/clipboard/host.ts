@@ -9,6 +9,7 @@ import type { ClipboardHost } from "./types.js";
 
 export const clipboardModuleAdapter: UxpModuleAdapter = {
   moduleId: CLIPBOARD_MODULE_ID,
+  capability: "clipboard",
   dispatch: dispatchClipboardCall
 };
 

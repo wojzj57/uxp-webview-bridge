@@ -57,7 +57,7 @@ pnpm build
 
 ### 1. 配置 UXP 宿主
 
-针对 `<webview>` 元素配置一次桥接。以下示例启用了默认刻意关闭的 `fs`：
+针对 `<webview>` 元素配置一次桥接。所有可配置 capability 默认开启；以下示例显式关闭剪贴板访问：
 
 ```ts
 import { configUxpBridge } from "uxp-webview-bridge/uxp";
@@ -73,7 +73,7 @@ if (!webview) {
 const bridge = configUxpBridge({
   webview,
   capabilities: {
-    fs: true
+    clipboard: false
   }
 });
 
@@ -138,13 +138,13 @@ window.addEventListener("unload", () => {
 | 能力区域 | WebView API | 默认桥接权限 | 验证 | 说明 |
 | --- | --- | --- | --- | --- |
 | 桥接生命周期 | `configWebviewBridge` | 始终可用 | 契约 + CDP 用例 | 每个 WebView 运行时只能配置一个客户端；默认请求超时为 10 秒。 |
-| 剪贴板 | `clipboard` | 始终可用 | 契约 + CDP 用例 | 文本和 UXP 剪贴板数据；需要对应的 manifest 权限。 |
+| 剪贴板 | `clipboard` | 开启（`clipboard: true`） | 契约 + CDP 用例 | 文本和 UXP 剪贴板数据；需要对应的 manifest 权限。 |
 | 加密随机数 | `crypto` | 始终可用 | 契约 + CDP 用例 | `getRandomValues` 和 `randomUUID` 在 UXP 中执行。 |
-| 转发网络请求 | `fetch`、`installFetch` | 始终可用 | 契约 | 请求在 UXP 中执行；仍受 manifest 网络权限限制。 |
-| Node 风格文件系统 | `fs` | **关闭**（`fs: false`） | 契约 + CDP 用例 | 必须显式启用；文件描述符由宿主管理，空闲 60 秒后自动关闭。 |
+| 转发网络请求 | `fetch`、`installFetch` | 开启（`fetch: true`） | 契约 | 请求在 UXP 中执行；仍受 manifest 网络权限限制。 |
+| Node 风格文件系统 | `fs` | 开启（`fs: true`） | 契约 + CDP 用例 | 文件描述符由宿主管理，空闲 60 秒后自动关闭。 |
 | 操作系统信息 | `os` | 开启（`os: true`） | 契约 + CDP 用例 | 只读的平台、内存和 CPU 信息。 |
 | 路径工具 | `path` | 始终可用 | 契约 + CDP 用例 | 默认、`posix` 和 `win32` 三种风格；在已说明的位置接受字符串和类 Entry 对象。 |
-| Web Storage | `localStorage`、`sessionStorage` | 始终可用 | 契约 + CDP 用例 | UXP 端存储，以异步方式暴露。 |
+| Web Storage | `localStorage`、`sessionStorage` | 开启（`localStorage: true`、`sessionStorage: true`） | 契约 + CDP 用例 | UXP 端存储，以异步方式暴露；两个命名空间可分别关闭。 |
 | UXP 宿主元数据 | `uxp.host`、`uxp.versions` | 始终可用 | 契约 + CDP 用例 | 宿主名称、版本、locale，以及 UXP/插件版本。 |
 | Shell | `uxp.shell` | 开启（`shell: true`） | 契约 + CDP 用例 | `openPath` 和 `openExternal`；仍受 manifest 启动权限限制。 |
 | 用户信息 | `uxp.userInfo` | 开启（`userInfo: true`） | 契约 + CDP 用例 | `userId()`；manifest 中需要 `enableUserInfo`。 |
@@ -153,15 +153,19 @@ window.addEventListener("unload", () => {
 | 持久文件存储 | `uxp.storage.localFileSystem` 和 Entry 远程对象 | 开启（`persistentFileStorage: true`） | 契约 + CDP 用例 | 选择器、token、条目、文件、文件夹、domain、format 和 mode。 |
 | XMP | `uxp.xmp` | 开启（`xmp: true`） | 契约 + CDP 用例 | `XMPMeta`、`XMPFile`、`XMPDateTime`、迭代器、工具和常量。 |
 | Photoshop DOM 和 Core | `photoshop.app`、`.action`、`.core` | 开启（`photoshop: true`） | 契约 + CDP 用例 | 需要 Photoshop，并要求宿主支持具体的原生 API。 |
-| Photoshop Imaging | `photoshop.imaging` | 通过 `photoshop: true` 开启 | 契约 + CDP 用例 | 已声明的 `imaging` capability 当前尚未独立执行。 |
-| Photoshop batchPlay | `photoshop.action.batchPlay`、`.batchPlaySync`、`photoshop.app.batchPlay` | 通过 `photoshop: true` 开启 | 契约 + CDP 用例 | 已声明的 `batchPlay` capability 当前尚未独立执行。 |
+| Photoshop Imaging | `photoshop.imaging` | 开启（`photoshop: true`、`imaging: true`） | 契约 + CDP 用例 | 必须同时开启 Photoshop 父 capability 和 Imaging 子 capability。 |
+| Photoshop batchPlay | `photoshop.action.batchPlay`、`.batchPlaySync`、`photoshop.app.batchPlay` | 开启（`photoshop: true`、`batchPlay: true`） | 契约 + CDP 用例 | `batchPlay` 只控制三个公开 RPC，不阻断 DOM 内部实现调用。 |
 
 当前实现定义的 capability 默认值如下：
 
 ```ts
 {
-  fs: false,
+  fs: true,
   os: true,
+  clipboard: true,
+  localStorage: true,
+  sessionStorage: true,
+  fetch: true,
   shell: true,
   userInfo: true,
   pluginManager: true,
@@ -289,7 +293,7 @@ UXP 宿主在分发前会同时校验消息来源对象及其 origin。对于远
 - 本桥接不承诺覆盖全部 Adobe UXP 或 Photoshop API。仅支持本 README 与已导出 WebView 类型中明确提供的公开接口。
 - 转发 `fetch` 会缓冲请求和响应 body，不支持 `ReadableStream` 请求 body，也不提供流式响应。
 - 二进制数据需要序列化和复制，因此超大文件或像素缓冲区的开销高于同一运行时内的原生调用。
-- `imaging` 和 `batchPlay` 已存在于 `BridgeCapabilities` 中，但当前 adapter 尚未将它们作为独立开关执行；目前请使用 `photoshop: false` 关闭这些接口。
+- Photoshop Imaging 必须同时开启 `photoshop` 和 `imaging`；三个公开 batchPlay 方法必须同时开启 `photoshop` 和 `batchPlay`。
 - 该包的公开边界是 ESM。UXP 宿主通常需要针对目标运行时执行适当的 bundle 步骤。
 
 ## 测试
