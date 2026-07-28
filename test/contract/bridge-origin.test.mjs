@@ -11,7 +11,10 @@ const defaultOrigins = [
   "http://localhost:6010",
   "https://localhost:9443",
   "http://127.0.0.1:6010",
-  "https://127.0.0.1:9443"
+  "https://127.0.0.1:9443",
+  "http://localhost:6010/",
+  "http://localhost:6010/webview/index.html?reload=1#ready",
+  "https://127.0.0.1:9443/webview/index.html?reload=1#ready"
 ];
 
 test("configUxpBridge accepts built-in plugin and loopback origins by default", async () => {
@@ -29,9 +32,10 @@ test("configUxpBridge accepts built-in plugin and loopback origins by default", 
     }
     for (const origin of [
       "http://localhost:evil",
-      "https://127.0.0.1:443/path",
       "http://localhost:65536",
-      "http://[::1]:6010"
+      "http://[::1]:6010",
+      "http://localhost.evil.test:6010/webview",
+      "http://localhost@evil.test:6010/webview"
     ]) {
       environment.dispatchReleaseAll(origin);
     }
@@ -75,12 +79,14 @@ test("configUxpBridge appends exact allowed origins without replacing defaults",
 
     environment.dispatchReleaseAll("https://app.example.com");
     await waitFor(() => environment.posted.length === 1);
-    environment.dispatchReleaseAll("http://localhost:7321");
+    environment.dispatchReleaseAll("https://app.example.com/webview/index.html?reload=1");
     await waitFor(() => environment.posted.length === 2);
+    environment.dispatchReleaseAll("http://localhost:7321");
+    await waitFor(() => environment.posted.length === 3);
     environment.dispatchReleaseAll("https://app.example.com.evil.test");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    assert.equal(environment.posted.length, 2);
+    assert.equal(environment.posted.length, 3);
     await runtime.destroy();
   } finally {
     environment.restore();

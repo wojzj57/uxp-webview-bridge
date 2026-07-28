@@ -17,15 +17,28 @@ export function mergeAllowedOrigins(
 }
 
 export function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boolean {
+  const normalizedOrigin = normalizeHttpOrigin(origin);
   return allowedOrigins.some((allowedOrigin) => {
     if (allowedOrigin.endsWith(":")) {
-      return origin.startsWith(allowedOrigin);
+      return normalizedOrigin.startsWith(allowedOrigin);
     }
     if (LOOPBACK_ORIGINS.has(allowedOrigin)) {
-      return origin === allowedOrigin || hasValidPort(origin, allowedOrigin);
+      return normalizedOrigin === allowedOrigin || hasValidPort(normalizedOrigin, allowedOrigin);
     }
-    return origin === allowedOrigin;
+    return normalizedOrigin === allowedOrigin;
   });
+}
+
+function normalizeHttpOrigin(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.origin;
+    }
+  } catch {
+    // Invalid URLs remain invalid and fail the existing exact/prefix checks below.
+  }
+  return value;
 }
 
 function hasValidPort(origin: string, originWithoutPort: string): boolean {

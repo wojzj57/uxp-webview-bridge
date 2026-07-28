@@ -1,6 +1,6 @@
 {
   "name": "uxp-webview-bridge",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Bridge library for Adobe UXP plugin hosts and WebView clients.",
   "type": "module",
   "private": true,
