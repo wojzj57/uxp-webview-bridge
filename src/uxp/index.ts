@@ -70,6 +70,7 @@ export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRunti
           : { modalSessionId: dispatchOptions.modalSessionId })
       })
   });
+  console.log("[uxp-webview-bridge] UXP bridge configured.");
 
   return {
     destroy: async () => {

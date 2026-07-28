@@ -15,6 +15,7 @@ export function configWebviewBridge(options: ConfigWebviewBridgeOptions = {}): B
     );
   }
   defaultRpcClient = new RpcClient(options);
+  console.log("[uxp-webview-bridge] WebView bridge configured.");
   const configuredRpcClient = defaultRpcClient;
 
   return {
@@ -31,6 +32,10 @@ export function configWebviewBridge(options: ConfigWebviewBridgeOptions = {}): B
 }
 
 export function getBridgeRpcClient(): RpcClient {
-  defaultRpcClient ??= new RpcClient();
+  if (!defaultRpcClient) {
+    throw new Error(
+      "uxp-webview-bridge is not configured. Call configWebviewBridge() before using bridge APIs."
+    );
+  }
   return defaultRpcClient;
 }

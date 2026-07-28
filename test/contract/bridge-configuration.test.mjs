@@ -1,0 +1,98 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+const webviewEntrypoint = "../../dist/webview/index.js";
+const uxpEntrypoint = "../../dist/uxp/index.js";
+const configurationError =
+  /uxp-webview-bridge is not configured\. Call configWebviewBridge\(\) before using bridge APIs\./;
+
+test("WebView RPC namespaces require configWebviewBridge before use", async () => {
+  const { os } = await import(webviewEntrypoint);
+
+  assert.throws(
+    () => os.platform(),
+    configurationError
+  );
+});
+
+test("configWebviewBridge logs successful configuration", async () => {
+  const environment = installRuntimeEnvironment();
+
+  try {
+    const { configWebviewBridge } = await import(webviewEntrypoint);
+    const runtime = configWebviewBridge({ target: environment.target });
+
+    assert.deepEqual(environment.logs, [["[uxp-webview-bridge] WebView bridge configured."]]);
+    await runtime.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("configUxpBridge logs successful configuration", async () => {
+  const environment = installRuntimeEnvironment();
+
+  try {
+    const { configUxpBridge } = await import(uxpEntrypoint);
+    const runtime = configUxpBridge({ webview: { postMessage() {} } });
+
+    assert.deepEqual(environment.logs, [["[uxp-webview-bridge] UXP bridge configured."]]);
+    await runtime.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("WebView RPC namespaces require reconfiguration after destroy", async () => {
+  const environment = installRuntimeEnvironment();
+
+  try {
+    const { configWebviewBridge, os } = await import(webviewEntrypoint);
+    const runtime = configWebviewBridge({ target: environment.target });
+    await runtime.destroy();
+
+    assert.throws(() => os.platform(), configurationError);
+  } finally {
+    environment.restore();
+  }
+});
+
+function installRuntimeEnvironment() {
+  const originalWindow = globalThis.window;
+  const originalLog = console.log;
+  const listeners = new Set();
+  const logs = [];
+
+  globalThis.window = {
+    addEventListener(type, listener) {
+      if (type === "message") listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      if (type === "message") listeners.delete(listener);
+    }
+  };
+  console.log = (...args) => logs.push(args);
+
+  return {
+    logs,
+    target: {
+      postMessage(message) {
+        if (message.type !== "bridge.release-all") return;
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              data: { type: "bridge.success", operationId: message.operationId },
+              origin: "plugin://test",
+              source: null
+            });
+          }
+        });
+      }
+    },
+    restore() {
+      console.log = originalLog;
+      if (originalWindow === undefined) delete globalThis.window;
+      else globalThis.window = originalWindow;
+    }
+  };
+}
