@@ -1,6 +1,18 @@
 import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
 import type { UxpPersistentFileStorage } from "@webview/uxp-api/modules/uxp/persistent-file-storage/index.js";
-import type { XMPFile, XMPMeta } from "@webview/uxp-api/modules/uxp/xmp/index.js";
+import type { XMPDateTime, XMPFile, XMPMeta } from "@webview/uxp-api/modules/uxp/xmp/index.js";
+
+function assertXmpBatchTypes(dateTime: XMPDateTime): void {
+  const read: Promise<{ year: number; month: number }> = dateTime.batchGet(["year", "month"]);
+  const write: Promise<void> = dateTime.batchSet({ year: 2026 });
+  void read;
+  void write;
+  // @ts-expect-error XMPDateTime has no readable property named `missing`.
+  void dateTime.batchGet(["missing"]);
+  // @ts-expect-error XMPDateTime batch values retain their declared number types.
+  void dateTime.batchSet({ year: "2026" });
+}
+void assertXmpBatchTypes;
 
 export default defineWebviewCdpCases([
   {

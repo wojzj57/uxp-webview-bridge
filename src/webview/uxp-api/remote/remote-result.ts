@@ -48,14 +48,36 @@ export class RemoteOperationScheduler {
   }
 
   write(operation: () => void | PromiseLike<void>, bypassExternalWrites = false): Promise<void> {
+    return this.#queueWrite(operation, bypassExternalWrites, false, true);
+  }
+
+  /** Queue an explicit write whose returned Promise is its only failure boundary. */
+  writeExplicit(operation: () => void | PromiseLike<void>): Promise<void> {
+    return this.#queueWrite(operation, false, true, false);
+  }
+
+  #queueWrite(
+    operation: () => void | PromiseLike<void>,
+    bypassExternalWrites: boolean,
+    observable: boolean,
+    replayFailure: boolean
+  ): Promise<void> {
     const sequence = ++this.#issued;
+    if (observable) {
+      this.#lastObservableIssued = sequence;
+      if (this.#failure !== NO_FAILURE) {
+        this.#failure.rejectThrough = sequence;
+      }
+    }
     const externalWrites = bypassExternalWrites ? [] : [...this.#externalWrites];
     const promise = Promise.all([this.#writeTail, ...externalWrites]).then(async () => {
-      this.#throwPendingFailure(sequence, false);
+      this.#throwPendingFailure(sequence, observable);
       try {
         await operation();
       } catch (error) {
-        this.#recordFailure(error, sequence);
+        if (replayFailure) {
+          this.#recordFailure(error, sequence);
+        }
         throw error;
       }
     });

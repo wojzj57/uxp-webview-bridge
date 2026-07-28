@@ -241,7 +241,16 @@ if (layer) {
 }
 ```
 
-`batchSet(...)` follows the same queued behavior and returns `void`; `batchGet(...)` is asynchronous.
+Every WebView remote class exposes typed `batchGet(...)` and `batchSet(...)` methods. A batch uses one
+bridge request, preserves queued write ordering, and can be awaited through Host completion:
+
+```ts
+const { name, opacity } = await layer.batchGet(["name", "opacity"]);
+await layer.batchSet({ name: "Processed", opacity: 75 });
+```
+
+Invalid or read-only keys reject locally with `TypeError`; Host failures reject as
+`BridgeRemoteError`. Empty batches on classes without properties settle locally without an RPC.
 
 ### Remote identity and collections
 

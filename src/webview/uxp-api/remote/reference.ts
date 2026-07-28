@@ -55,7 +55,12 @@ export async function encodeRemoteValue(value: unknown, encoders: readonly Remot
   for (const encoder of encoders) {
     const encoded = encoder(value);
     if (encoded !== undefined) {
-      return encoded;
+      // Encoder envelopes may retain nested references to caller-owned values. Walk the accepted
+      // envelope without domain encoders so the transport value is an invocation-time snapshot.
+      if (isPromiseLike(encoded)) {
+        return encodeRemoteValue(await encoded, []);
+      }
+      return encodeRemoteValue(encoded, []);
     }
   }
 
@@ -71,6 +76,14 @@ export async function encodeRemoteValue(value: unknown, encoders: readonly Remot
   }
 
   return value;
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }
 
 /**

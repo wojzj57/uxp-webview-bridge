@@ -26,7 +26,7 @@ import {
 } from "@webview/uxp-api/remote/index.js";
 import type { ChannelTypeValue } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopContext } from "./context.js";
-import type { PsChannel, PsDocument, PsSolidColor } from "./types.js";
+import type { PsChannel, PsChannelReadableKey, PsChannelWritableProps, PsDocument, PsSolidColor } from "./types.js";
 
 /** Read-only scalar Channel properties. `histogram` is a raw `number[]` (scalar). */
 const CHANNEL_READONLY_SCALARS = ["histogram"] as const;
@@ -96,7 +96,7 @@ export function createChannelClass(context: PhotoshopContext): {
     decodeContext: registry.decodeContext
   };
 
-  class WebviewPsChannel extends RemoteClass implements PsChannel {
+  class WebviewPsChannel extends RemoteClass<PsChannel, PsChannelReadableKey, Partial<PsChannelWritableProps>> implements PsChannel {
     declare name: Promise<string>;
     declare opacity: Promise<number>;
     declare visible: Promise<boolean>;

@@ -241,7 +241,14 @@ if (layer) {
 }
 ```
 
-`batchSet(...)` 同样排队执行并返回 `void`；`batchGet(...)` 是异步操作。
+每个 WebView 远程类都提供带精确类型的 `batchGet(...)` 和 `batchSet(...)`。一次批处理只发送一个桥接请求，遵循排队写入顺序，并可等待 Host 完成：
+
+```ts
+const { name, opacity } = await layer.batchGet(["name", "opacity"]);
+await layer.batchSet({ name: "Processed", opacity: 75 });
+```
+
+无效键或只读键会在本地以 `TypeError` 拒绝；Host 失败会以 `BridgeRemoteError` 拒绝。没有属性的类执行空批次时会在本地完成，不发送 RPC。
 
 ### 远程对象标识与集合
 

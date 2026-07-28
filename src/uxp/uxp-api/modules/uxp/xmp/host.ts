@@ -254,9 +254,30 @@ function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown
     if (!values || typeof values !== "object") {
       throw new Error(`${method} requires a property map.`);
     }
-    for (const [name, value] of Object.entries(values as Record<string, unknown>)) {
+    const prototype = Object.getPrototypeOf(values);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error(`${method} requires a plain property map.`);
+    }
+    const props = values as Record<string, unknown>;
+    for (const name of Object.keys(props)) {
       assertDateTimeProperty(name, method);
-      dateTime[name] = decodeValue(value);
+    }
+    const decoded = DATE_TIME_PROPERTY_NAMES
+      .filter((name) => Object.prototype.hasOwnProperty.call(props, name))
+      .map((name) => {
+        const value = decodeValue(props[name]);
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          throw new Error(`${method} ${name} must be a finite number.`);
+        }
+        return [name, value] as const;
+      });
+    for (const [name, value] of decoded) {
+      try {
+        dateTime[name] = value;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to assign XMPDateTime property ${name}: ${message}`);
+      }
     }
     return undefined;
   }

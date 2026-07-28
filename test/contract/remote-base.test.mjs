@@ -120,6 +120,17 @@ test("encodeRemoteArgs lets domain encoders map values and walks nested structur
   ]);
 });
 
+test("encodeRemoteArgs snapshots nested data returned by a synchronous encoder", async () => {
+  const { encodeRemoteArgs } = await import(referenceModule);
+  const source = { nested: { value: 1 } };
+  const encoder = (value) => value === source ? { kind: "custom", data: value.nested } : undefined;
+
+  const pending = encodeRemoteArgs([source], [encoder]);
+  source.nested.value = 2;
+
+  assert.deepEqual(await pending, [{ kind: "custom", data: { value: 1 } }]);
+});
+
 test("decodeRemoteValue applies the first decoder that accepts the value", async () => {
   const { decodeRemoteValue } = await import(referenceModule);
 

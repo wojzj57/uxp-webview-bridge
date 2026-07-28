@@ -1,13 +1,15 @@
 export { REMOTE_INVOKE, RemoteClass } from "./remote-class.js";
 export type {
   RemoteClassConfig,
+  RemoteBatchGetResult,
   RemoteConstructionRequest,
   RemoteDecodeContext,
   RemoteMethodDescriptor,
   RemoteMethodNames,
   RemotePropertyDescriptor,
   RemoteResultTyping,
-  RemoteRpc
+  RemoteRpc,
+  EmptyRemoteBatchOperations
 } from "./remote-class.js";
 export { createIdentityCache } from "./identity-cache.js";
 export type { IdentityCache } from "./identity-cache.js";

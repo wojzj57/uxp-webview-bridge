@@ -9,7 +9,7 @@ import {
   type RemoteReference
 } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopContext } from "./context.js";
-import type { PsDocument, PsHistoryState } from "./types.js";
+import type { PsDocument, PsHistoryState, PsHistoryStateReadableKey } from "./types.js";
 
 const HISTORY_STATE_SCALARS = ["typename", "id", "docId", "name", "snapshot"] as const;
 
@@ -48,7 +48,7 @@ export function createHistoryStateClass(
     decodeContext: context.registry.decodeContext
   };
 
-  class WebviewPsHistoryState extends RemoteClass implements PsHistoryState {
+  class WebviewPsHistoryState extends RemoteClass<PsHistoryState, PsHistoryStateReadableKey, Record<string, never>> implements PsHistoryState {
     declare readonly typename: Promise<"HistoryState">;
     declare readonly id: Promise<number>;
     declare readonly docId: Promise<number>;

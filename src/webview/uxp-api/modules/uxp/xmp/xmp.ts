@@ -19,6 +19,7 @@ import { XMP_CONST } from "./constants.js";
 import type {
   UxpXmp,
   XMPDateTime,
+  XMPDateTimeBatchProperties,
   XMPFile,
   XMPFileInfo,
   XMPIterator,
@@ -193,7 +194,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPMeta extends RemoteClass implements XMPMeta {
+  class WebviewXMPMeta extends RemoteClass<Record<never, never>, never, Record<string, never>> implements XMPMeta {
     declare appendArrayItem: (
       schemaNS: string,
       arrayName: string,
@@ -353,7 +354,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPFile extends RemoteClass implements XMPFile {
+  class WebviewXMPFile extends RemoteClass<Record<never, never>, never, Record<string, never>> implements XMPFile {
     declare canPutXMP: (xmpData: XMPMeta | string) => Promise<boolean>;
     declare closeFile: (closeFlags: number) => Promise<void>;
     declare getXMP: XMPFile["getXMP"];
@@ -396,7 +397,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPIterator extends RemoteClass implements XMPIterator {
+  class WebviewXMPIterator extends RemoteClass<Record<never, never>, never, Record<string, never>> implements XMPIterator {
     declare next: () => Promise<XMPProperty | null>;
     declare skipSiblings: () => Promise<void>;
     declare skipSubtree: () => Promise<void>;
@@ -453,7 +454,11 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPDateTime extends RemoteClass implements XMPDateTime {
+  class WebviewXMPDateTime extends RemoteClass<
+    XMPDateTimeBatchProperties,
+    keyof XMPDateTimeBatchProperties,
+    Partial<XMPDateTimeBatchProperties>
+  > implements XMPDateTime {
     declare year: Promise<number>;
     declare month: Promise<number>;
     declare day: Promise<number>;

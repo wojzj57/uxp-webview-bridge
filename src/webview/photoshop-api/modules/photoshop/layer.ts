@@ -29,7 +29,9 @@ import type {
   PercentValue,
   PixelValue,
   PsDocument,
-  PsLayer
+  PsLayer,
+  PsLayerReadableKey,
+  PsLayerWritableProps
 } from "./types.js";
 
 /** Read-only scalar Layer properties. */
@@ -131,7 +133,7 @@ export function createLayerClass(context: PhotoshopContext): {
     decodeContext: registry.decodeContext
   };
 
-  class WebviewPsLayer extends RemoteClass implements PsLayer {
+  class WebviewPsLayer extends RemoteClass<PsLayer, PsLayerReadableKey, Partial<PsLayerWritableProps>> implements PsLayer {
     declare readonly typename: Promise<"Layer">;
     declare readonly id: Promise<number>;
     declare readonly locked: Promise<boolean>;

@@ -122,6 +122,17 @@ export interface RemoteMethodNames {
   readonly dispose: string;
 }
 
+/** Resolve the selected remote property types after the outer batch Promise settles. */
+export type RemoteBatchGetResult<TProperties, K extends keyof TProperties> = {
+  [P in K]: Awaited<TProperties[P]>;
+};
+
+/** Uniform empty batch surface for RemoteClasses that declare no remote properties. */
+export interface EmptyRemoteBatchOperations {
+  batchGet(propertyNames: readonly never[]): Promise<Record<never, never>>;
+  batchSet(properties: Readonly<Record<string, never>>): Promise<void>;
+}
+
 /** Internal symbol used by RemoteClass subclasses for bound sub-namespaces such as Document.saveAs. */
 export const REMOTE_INVOKE = Symbol("RemoteClass.invokeRemote");
 
@@ -140,13 +151,18 @@ export interface RemoteConstructionRequest {
  * wrappers, plus `batchGet` / `batchSet`. All bridge communication lives here; subclasses are pure
  * declarations. See docs/adr/0002 and docs/adr/0008.
  */
-export abstract class RemoteClass implements RemoteReferenceHolder {
+export abstract class RemoteClass<
+  TReadableProperties extends object = Record<string, unknown>,
+  TReadableKey extends keyof TReadableProperties & string = keyof TReadableProperties & string,
+  TBatchSetProperties extends object = Record<string, unknown>
+> implements RemoteReferenceHolder {
   readonly #config: RemoteClassConfig;
   readonly #referencePromise: Promise<RemoteReference>;
   readonly #scheduler = new RemoteOperationScheduler();
 
   protected constructor(config: RemoteClassConfig, source: RemoteReference | RemoteConstructionRequest) {
     assertNoPromiseLikeRemoteMembers(config);
+    assertBatchMethodsConfigured(config);
     this.#config = config;
     this.#referencePromise = isConstructionRequest(source)
       ? config.rpc.call<RemoteReference>(config.moduleId, source.method, source.args)
@@ -200,41 +216,48 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
   }
 
   /** Read multiple properties of this object in a single RPC. */
-  batchGet<K extends string>(propertyNames: readonly K[]): Promise<Record<K, unknown>> {
-    const method = this.#config.methodNames.batchGet;
-    if (!method) {
-      return Promise.reject(new Error("This remote class does not support batchGet."));
+  async batchGet<K extends TReadableKey>(
+    propertyNames: readonly K[]
+  ): Promise<RemoteBatchGetResult<TReadableProperties, K>> {
+    const names = normalizeBatchGetNames(propertyNames, this.#config.properties);
+    if (names.length === 0) {
+      return {} as RemoteBatchGetResult<TReadableProperties, K>;
     }
+    const method = this.#requireMethodName(this.#config.methodNames.batchGet, "batch get properties");
     return this.#scheduler.run(async () => {
       const reference = await this.#referencePromise;
       const raw = await this.#config.rpc.call<Record<string, unknown>>(this.#config.moduleId, method, [
         reference,
-        propertyNames
+        names
       ]);
 
-      const result = {} as Record<K, unknown>;
-      for (const name of propertyNames) {
-        result[name] = this.#decodeProperty(name, raw[name]);
+      const result = {} as RemoteBatchGetResult<TReadableProperties, K>;
+      for (const name of names) {
+        result[name] = this.#decodeProperty(name, raw[name]) as Awaited<TReadableProperties[typeof name]>;
       }
       return result;
     });
   }
 
-  /** Set multiple writable properties of this object in a single queued RPC. */
-  batchSet(properties: Readonly<Record<string, unknown>>): void {
-    const method = this.#config.methodNames.batchSet;
-    if (!method) {
-      throw new Error("This remote class does not support batchSet.");
-    }
-    for (const name of Object.keys(properties)) {
+  /** Set multiple writable properties of this object in one explicit, awaitable RPC. */
+  async batchSet(properties: Readonly<TBatchSetProperties>): Promise<void> {
+    const snapshot = snapshotBatchSetProperties(properties);
+    const names = Object.keys(snapshot);
+    for (const name of names) {
       const descriptor = this.#config.properties[name];
       if (!descriptor || !descriptor.writable) {
-        throw new Error(`Cannot batchSet non-writable property: ${name}`);
+        throw new TypeError(`Cannot batchSet non-writable property: ${name}`);
       }
     }
-    this.#scheduler.enqueueWrite(async () => {
+    if (names.length === 0) {
+      return;
+    }
+    const method = this.#requireMethodName(this.#config.methodNames.batchSet, "batch set properties");
+    const encodedPromise = this.#encodeObject(snapshot);
+    void encodedPromise.catch(() => undefined);
+    return this.#scheduler.writeExplicit(async () => {
       const reference = await this.#referencePromise;
-      const encoded = await this.#encodeObject(properties);
+      const encoded = await encodedPromise;
       await this.#config.rpc.call<void>(this.#config.moduleId, method, [reference, encoded]);
     });
   }
@@ -389,6 +412,60 @@ function assertNoPromiseLikeRemoteMembers(config: RemoteClassConfig): void {
       );
     }
   }
+}
+
+function assertBatchMethodsConfigured(config: RemoteClassConfig): void {
+  const propertyNames = Object.keys(config.properties);
+  if (propertyNames.length > 0 && config.methodNames.batchGet === undefined) {
+    throw new TypeError(`Remote class ${config.moduleId} has readable properties but no batchGet RPC method.`);
+  }
+  if (
+    propertyNames.some((name) => config.properties[name]?.writable) &&
+    config.methodNames.batchSet === undefined
+  ) {
+    throw new TypeError(`Remote class ${config.moduleId} has writable properties but no batchSet RPC method.`);
+  }
+}
+
+function normalizeBatchGetNames<K extends string>(
+  propertyNames: readonly K[],
+  descriptors: Readonly<Record<string, RemotePropertyDescriptor>>
+): K[] {
+  if (!Array.isArray(propertyNames)) {
+    throw new TypeError("batchGet property names must be an array.");
+  }
+  const seen = new Set<string>();
+  const result: K[] = [];
+  for (const name of propertyNames) {
+    if (typeof name !== "string") {
+      throw new TypeError("batchGet property names must contain only strings.");
+    }
+    if (!Object.prototype.hasOwnProperty.call(descriptors, name)) {
+      throw new TypeError(`Cannot batchGet unknown property: ${name}`);
+    }
+    if (!seen.has(name)) {
+      seen.add(name);
+      result.push(name as K);
+    }
+  }
+  return result;
+}
+
+function snapshotBatchSetProperties(
+  properties: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+  if (properties === null || typeof properties !== "object" || Array.isArray(properties)) {
+    throw new TypeError("batchSet properties must be a plain object.");
+  }
+  const prototype = Object.getPrototypeOf(properties);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("batchSet properties must be a plain object.");
+  }
+  const snapshot = Object.create(null) as Record<string, unknown>;
+  for (const name of Object.keys(properties)) {
+    snapshot[name] = properties[name];
+  }
+  return snapshot;
 }
 
 function isConstructionRequest(source: RemoteReference | RemoteConstructionRequest): source is RemoteConstructionRequest {

@@ -64,6 +64,25 @@ test("Documents snapshot exposes collection metadata and stable remote members",
   assert.notEqual(await documents.add({ name: "Two" }), null);
 });
 
+test("PhotoshopApp batchSet snapshots nested values when invoked", async () => {
+  const { createPhotoshopNamespace } = await import(namespaceModule);
+  const calls = [];
+  const { app } = createPhotoshopNamespace({
+    async call(_module, method, args = []) {
+      calls.push({ method, args });
+      return undefined;
+    }
+  });
+  const foregroundColor = { rgb: { red: 12, green: 34, blue: 56 } };
+
+  const write = app.batchSet({ foregroundColor });
+  foregroundColor.rgb.red = 200;
+  await write;
+
+  const call = calls.find(({ method }) => method === "app.batchSet");
+  assert.equal(call.args[1].foregroundColor.data.rgb.red, 12);
+});
+
 test("SolidColor is constructible, transport-safe, and completes nearestWebColor/isEqual", async () => {
   const { SolidColor, encodePhotoshopArgument } = await import(solidColorModule);
   const { RGBColor } = await import(colorModelsModule);
@@ -170,6 +189,25 @@ test("host dispatches app, Documents, TextFonts, action tree, and Preferences th
     ]);
     const prefsRef = dispatchPhotoshopCall("app.propertyGet", [appRef, "preferences"]);
     const generalRef = dispatchPhotoshopCall("preferences.propertyGet", [prefsRef, "general"]);
+    let colorPickerReads = 0;
+    const colorPicker = preferences.general.colorPicker;
+    Object.defineProperty(preferences.general, "colorPicker", {
+      configurable: true,
+      get() {
+        colorPickerReads += 1;
+        return colorPicker;
+      }
+    });
+    assert.throws(
+      () => dispatchPhotoshopCall("preferences.batchGet", [generalRef, ["colorPicker", "missing"]]),
+      /Unknown PreferencesGeneral property: missing/
+    );
+    assert.equal(colorPickerReads, 0, "Host must validate every batch key before invoking a getter");
+    assert.deepEqual(
+      dispatchPhotoshopCall("preferences.batchGet", [generalRef, ["colorPicker", "colorPicker"]]),
+      { colorPicker }
+    );
+    assert.equal(colorPickerReads, 1, "Host must read a duplicate batch key only once");
     await dispatchPhotoshopCall("preferences.propertySet", [generalRef, "exportClipboard", true]);
     assert.equal(preferences.general.exportClipboard, true);
     assert.deepEqual(modal, [
@@ -194,6 +232,77 @@ test("host rejects malformed app calls before requiring Photoshop", async () => 
     assert.throws(() => dispatchPhotoshopCall("app.showAlert", [appRef, 42]), /message/);
     assert.throws(() => dispatchPhotoshopCall("app.propertyGet", [appRef, "notAProperty"]), /Unknown Photoshop property/);
     assert.equal(requireCalls, 0);
+  } finally {
+    if (originalRequire === undefined) delete globalThis.require; else globalThis.require = originalRequire;
+  }
+});
+
+test("host validates and decodes an app batch before entering modal execution", async () => {
+  const { dispatchPhotoshopCall } = await import(hostModule);
+  const originalRequire = globalThis.require;
+  let modalCalls = 0;
+  class NativeColor {
+    constructor() {
+      this.rgb = {};
+      this.hsb = {};
+      this.cmyk = {};
+      this.lab = {};
+      this.gray = {};
+    }
+  }
+  const app = {
+    displayDialogs: "silent",
+    foregroundColor: new NativeColor(),
+    SolidColor: NativeColor
+  };
+  const assignments = [];
+  let displayDialogs = app.displayDialogs;
+  let foregroundColor = app.foregroundColor;
+  Object.defineProperties(app, {
+    displayDialogs: {
+      configurable: true,
+      get: () => displayDialogs,
+      set(value) {
+        assignments.push("displayDialogs");
+        displayDialogs = value;
+      }
+    },
+    foregroundColor: {
+      configurable: true,
+      get: () => foregroundColor,
+      set(value) {
+        assignments.push("foregroundColor");
+        foregroundColor = value;
+      }
+    }
+  });
+  globalThis.require = () => ({
+    app,
+    core: {
+      async executeAsModal(target) {
+        modalCalls += 1;
+        return target({});
+      }
+    }
+  });
+
+  try {
+    await assert.rejects(
+      async () => dispatchPhotoshopCall("app.batchSet", [
+        appRef,
+        { displayDialogs: "all", foregroundColor: {} }
+      ]),
+      /requires at least one color-model view/
+    );
+    assert.equal(app.displayDialogs, "silent", "a later decode failure must prevent every assignment");
+    assert.equal(modalCalls, 0, "invalid input must be rejected before modal execution");
+
+    await dispatchPhotoshopCall("app.batchSet", [
+      appRef,
+      { foregroundColor: { rgb: { red: 1, green: 2, blue: 3 } }, displayDialogs: "all" }
+    ]);
+    assert.deepEqual(assignments, ["displayDialogs", "foregroundColor"]);
+    assert.equal(modalCalls, 1, "a valid mutating batch must use one modal execution");
   } finally {
     if (originalRequire === undefined) delete globalThis.require; else globalThis.require = originalRequire;
   }

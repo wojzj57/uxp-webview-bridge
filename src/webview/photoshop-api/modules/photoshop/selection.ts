@@ -23,6 +23,7 @@ import type {
   PsLayer,
   PsPathItem,
   PsSelection,
+  PsSelectionReadableKey,
   SelectionBounds,
   SelectionPoint
 } from "./types.js";
@@ -100,7 +101,7 @@ export function createSelectionClass(context: PhotoshopContext): { new (referenc
     decodeContext: context.registry.decodeContext
   };
 
-  class WebviewPsSelection extends RemoteClass implements PsSelection {
+  class WebviewPsSelection extends RemoteClass<PsSelection, PsSelectionReadableKey, Record<string, never>> implements PsSelection {
     declare readonly typename: Promise<"Selection">;
     declare readonly docId: Promise<number>;
     declare readonly parent: PsSelection["parent"];

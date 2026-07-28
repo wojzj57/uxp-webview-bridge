@@ -202,6 +202,29 @@ type _LayerWritableExcludesReadonly = "id" extends keyof PsLayerWritableProps ? 
 const _layerWritableExcludesReadonly: _LayerWritableExcludesReadonly = true;
 void _layerWritableExcludesReadonly;
 
+function assertRemoteBatchTypes(layer: PsLayer, app: PhotoshopApp): void {
+  const layerRead: Promise<{ id: number; name: string; visible: boolean }> = layer.batchGet([
+    "id",
+    "name",
+    "visible"
+  ]);
+  const layerWrite: Promise<void> = layer.batchSet({ visible: true });
+  const appRead: Promise<{ typename: "Photoshop" }> = app.batchGet(["typename"]);
+  const appWrite: Promise<void> = app.batchSet({ displayDialogs: "silent" });
+  void layerRead;
+  void layerWrite;
+  void appRead;
+  void appWrite;
+  // @ts-expect-error `id` is a read-only Layer property.
+  void layer.batchSet({ id: 1 });
+  // @ts-expect-error PhotoshopApp has no declared property named `missing`.
+  void app.batchGet(["missing"]);
+  const dynamicKeys: string[] = ["name"];
+  // @ts-expect-error Dynamic strings must be narrowed to the RemoteClass readable-key union.
+  void layer.batchGet(dynamicKeys);
+}
+void assertRemoteBatchTypes;
+
 /**
  * Descriptor <-> declare lock (type-level half).
  *
@@ -870,25 +893,24 @@ export default defineWebviewCdpCases([
 
       const original = batch.opacity as number;
       const target = original >= 50 ? 30 : 80;
-      layer.batchSet({ opacity: target, visible: true });
+      await layer.batchSet({ opacity: target, visible: true });
       const afterOpacity = await layer.opacity;
       assert.equal(Math.round(afterOpacity), target, "batchSet then read-your-writes should reflect the batch.");
 
       // Read-only property rejected at compile time (writable-only partial) AND at runtime
-      // (base `batchSet` throws for non-writable keys). The `@ts-expect-error` proves the compile-time
-      // guard; the try/catch proves the runtime guard without failing the case on the expected throw.
+      // (base `batchSet` rejects for non-writable keys). The `@ts-expect-error` proves the compile-time
+      // guard; the try/catch proves the runtime guard without failing the case on the expected rejection.
       let readOnlyRejected = false;
       try {
         // @ts-expect-error `id` is read-only and must not be assignable through batchSet.
-        layer.batchSet({ id: 1 });
+        await layer.batchSet({ id: 1 });
       } catch {
         readOnlyRejected = true;
       }
       assert.ok(readOnlyRejected, "batchSet of a read-only property should throw at runtime.");
 
       // Restore.
-      layer.batchSet({ opacity: original });
-      await layer.opacity;
+      await layer.batchSet({ opacity: original });
 
       return { batchKeys: 4, target };
     }

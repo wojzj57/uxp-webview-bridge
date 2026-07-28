@@ -8,7 +8,11 @@
  * constant *value* types come from RFC-0004's `photoshop-constants.ts`.
  */
 
-import type { RemoteResult } from "@webview/uxp-api/remote/index.js";
+import type { RemoteBatchGetResult, RemoteResult } from "@webview/uxp-api/remote/index.js";
+import type {
+  PhotoshopPreferenceCategoryProperty,
+  PhotoshopPreferenceRootProperty
+} from "@shared/photoshop-api/photoshop-preferences.js";
 
 import type {
   AnchorPositionValue,
@@ -332,8 +336,8 @@ export interface PsSelection {
     interpolation?: InterpolationMethodValue
   ): Promise<void>;
 
-  batchGet<K extends PsSelectionReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsSelectionWritableProps>): void;
+  batchGet<K extends PsSelectionReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsSelection, K>>;
+  batchSet(properties: Readonly<Partial<PsSelectionWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -348,8 +352,8 @@ export interface PsHistoryState {
   readonly name: Promise<string>;
   readonly parent: RemoteResult<PsDocument>;
   readonly snapshot: Promise<boolean>;
-  batchGet<K extends PsHistoryStateReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsHistoryStateWritableProps>): void;
+  batchGet<K extends PsHistoryStateReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsHistoryState, K>>;
+  batchSet(properties: Readonly<Partial<PsHistoryStateWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -376,8 +380,8 @@ export interface PsGuide {
   direction: Promise<DirectionValue>;
   coordinate: Promise<number>;
   delete(): Promise<void>;
-  batchGet<K extends PsGuideReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsGuideWritableProps>): void;
+  batchGet<K extends PsGuideReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsGuide, K>>;
+  batchSet(properties: Readonly<Partial<PsGuideWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export type PsGuideReadableKey = "typename" | "id" | "docId" | "parent" | "direction" | "coordinate";
@@ -419,8 +423,8 @@ export interface PsPathItem {
   remove(): Promise<void>;
   select(): Promise<void>;
   strokePath(tool?: ToolTypeValue, simulatePressure?: boolean, sourceOrigin?: SelectionPoint, sourceLayer?: PsLayer): Promise<void>;
-  batchGet<K extends PsPathItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsPathItemWritableProps>): void;
+  batchGet<K extends PsPathItemReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsPathItem, K>>;
+  batchSet(properties: Readonly<Partial<PsPathItemWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export type PsPathItemReadableKey = "typename" | "id" | "docId" | "parent" | "kind" | "name" | "subPathItems";
@@ -432,8 +436,8 @@ export interface PsSubPathItem {
   readonly operation: Promise<ShapeOperationValue>;
   readonly closed: Promise<boolean>;
   readonly pathPoints: Promise<PathPoints>;
-  batchGet<K extends PsSubPathItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Record<string, never>): void;
+  batchGet<K extends PsSubPathItemReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsSubPathItem, K>>;
+  batchSet(properties: Readonly<Record<string, never>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export type PsSubPathItemReadableKey = "typename" | "parent" | "operation" | "closed" | "pathPoints";
@@ -445,8 +449,8 @@ export interface PsPathPoint {
   readonly kind: Promise<PointKindValue>;
   readonly leftDirection: Promise<number[]>;
   readonly rightDirection: Promise<number[]>;
-  batchGet<K extends PsPathPointReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Record<string, never>): void;
+  batchGet<K extends PsPathPointReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsPathPoint, K>>;
+  batchSet(properties: Readonly<Record<string, never>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export type PsPathPointReadableKey = "typename" | "parent" | "anchor" | "kind" | "leftDirection" | "rightDirection";
@@ -470,8 +474,8 @@ export interface PsColorSampler {
   readonly color: Promise<SampledColor>;
   move(position: PsPoint): Promise<void>;
   remove(): Promise<void>;
-  batchGet<K extends PsColorSamplerReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Record<string, never>): void;
+  batchGet<K extends PsColorSamplerReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsColorSampler, K>>;
+  batchSet(properties: Readonly<Record<string, never>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export type PsColorSamplerReadableKey = "typename" | "docId" | "parent" | "position" | "color";
@@ -490,8 +494,8 @@ export interface PsCountItem {
   readonly position: Promise<PsPoint>;
   move(position: PsPoint): Promise<void>;
   remove(): Promise<void>;
-  batchGet<K extends PsCountItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Record<string, never>): void;
+  batchGet<K extends PsCountItemReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsCountItem, K>>;
+  batchSet(properties: Readonly<Record<string, never>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export type PsCountItemReadableKey = "itemIndex" | "groupIndex" | "typename" | "parent" | "position";
@@ -545,8 +549,8 @@ export interface PsLayerComp {
   recapture(options?: LayerCompRecaptureOptions, layers?: readonly PsLayer[]): Promise<void>;
   remove(): Promise<void>;
   resetLayerComp(): Promise<void>;
-  batchGet<K extends PsLayerCompReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsLayerCompWritableProps>): void;
+  batchGet<K extends PsLayerCompReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsLayerComp, K>>;
+  batchSet(properties: Readonly<Partial<PsLayerCompWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export type PsLayerCompReadableKey =
@@ -758,8 +762,8 @@ export interface PsDocument {
   suspendHistory(callback: (context: SuspendHistoryContext) => void | Promise<void>, historyStateName: string): Promise<void>;
 
   // Batch
-  batchGet<K extends PsDocumentReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsDocumentWritableProps>): void;
+  batchGet<K extends PsDocumentReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsDocument, K>>;
+  batchSet(properties: Readonly<Partial<PsDocumentWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -877,8 +881,8 @@ export interface CharacterStyle {
   get fractionalWidths(): Promise<boolean>; set fractionalWidths(value: boolean);
   get antiAliasMethod(): Promise<AntiAliasValue>; set antiAliasMethod(value: AntiAliasValue);
   reset(): Promise<void>;
-  batchGet<K extends CharacterStyleReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<CharacterStyleWritableProps>): void;
+  batchGet<K extends CharacterStyleReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<CharacterStyle, K>>;
+  batchSet(properties: Readonly<Partial<CharacterStyleWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -912,8 +916,8 @@ export interface ParagraphStyle {
   get layoutMode(): Promise<ParagraphLayoutValue>; set layoutMode(value: ParagraphLayoutValue);
   get features(): Promise<TypeInterfaceFeaturesValue>; set features(value: TypeInterfaceFeaturesValue);
   reset(): Promise<void>;
-  batchGet<K extends ParagraphStyleReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<ParagraphStyleWritableProps>): void;
+  batchGet<K extends ParagraphStyleReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<ParagraphStyle, K>>;
+  batchSet(properties: Readonly<Partial<ParagraphStyleWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export interface ParagraphStyleWritableProps {
@@ -932,8 +936,8 @@ export interface TextWarpStyle {
   get horizontalDistortion(): Promise<number>; set horizontalDistortion(value: number);
   get verticalDistortion(): Promise<number>; set verticalDistortion(value: number);
   reset(): Promise<void>;
-  batchGet<K extends TextWarpStyleReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<TextWarpStyleWritableProps>): void;
+  batchGet<K extends TextWarpStyleReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<TextWarpStyle, K>>;
+  batchSet(properties: Readonly<Partial<TextWarpStyleWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export interface TextWarpStyleWritableProps {
@@ -956,8 +960,8 @@ export interface TextItem {
   convertToPointText(): RemoteResult<TextItem>;
   convertToShape(): Promise<void>;
   createWorkPath(): Promise<void>;
-  batchGet<K extends TextItemReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<TextItemWritableProps>): void;
+  batchGet<K extends TextItemReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<TextItem, K>>;
+  batchSet(properties: Readonly<Partial<TextItemWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 export interface TextItemWritableProps { contents: string; textClickPoint: PsPoint; orientation: OrientationValue; }
@@ -1140,8 +1144,8 @@ export interface PsLayer {
   applyImage(options: ApplyImageOptions): Promise<void>;
 
   // Batch
-  batchGet<K extends PsLayerReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsLayerWritableProps>): void;
+  batchGet<K extends PsLayerReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsLayer, K>>;
+  batchSet(properties: Readonly<Partial<PsLayerWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -1225,8 +1229,8 @@ export interface PsChannel {
   remove(): Promise<void>;
 
   // Batch
-  batchGet<K extends PsChannelReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
-  batchSet(properties: Partial<PsChannelWritableProps>): void;
+  batchGet<K extends PsChannelReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PsChannel, K>>;
+  batchSet(properties: Readonly<Partial<PsChannelWritableProps>>): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -1361,7 +1365,8 @@ export interface TextFont {
   readonly postScriptName: Promise<string>;
   readonly style: Promise<string>;
   readonly typename: Promise<"TextFont">;
-  batchGet<K extends TextFontReadableKey>(propertyNames: readonly K[]): Promise<Record<K, unknown>>;
+  batchGet<K extends TextFontReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<TextFont, K>>;
+  batchSet(properties: Readonly<Record<string, never>>): Promise<void>;
 }
 export type TextFontReadableKey = "family" | "name" | "parent" | "postScriptName" | "style" | "typename";
 
@@ -1375,9 +1380,11 @@ export interface Tool {
   get id(): Promise<string>;
   set id(value: string);
   readonly typename: Promise<"Tool">;
-  batchGet(propertyNames: readonly ("id" | "typename")[]): Promise<Record<string, unknown>>;
-  batchSet(properties: { readonly id?: string }): void;
+  batchGet<K extends ToolReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<Tool, K>>;
+  batchSet(properties: Readonly<Partial<ToolWritableProps>>): Promise<void>;
 }
+export type ToolReadableKey = "id" | "typename";
+export interface ToolWritableProps { id: string; }
 
 export interface ActionSet {
   readonly typename: Promise<"ActionSet">;
@@ -1389,7 +1396,11 @@ export interface ActionSet {
   delete(): Promise<void>;
   duplicate(): RemoteResult<ActionSet>;
   play(): Promise<void>;
+  batchGet<K extends ActionSetReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<ActionSet, K>>;
+  batchSet(properties: Readonly<Partial<ActionSetWritableProps>>): Promise<void>;
 }
+export type ActionSetReadableKey = "typename" | "index" | "id" | "name" | "actions";
+export interface ActionSetWritableProps { name: string; }
 
 export interface Action {
   readonly typename: Promise<"Action">;
@@ -1401,20 +1412,34 @@ export interface Action {
   delete(): Promise<void>;
   duplicate(): RemoteResult<Action>;
   play(): Promise<void>;
+  batchGet<K extends ActionReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<Action, K>>;
+  batchSet(properties: Readonly<Partial<ActionWritableProps>>): Promise<void>;
 }
+export type ActionReadableKey = "typename" | "id" | "index" | "name" | "parent";
+export interface ActionWritableProps { name: string; }
 
 export interface ColorPickerOption {
   readonly type: "photoshopPicker" | "systemPicker" | "pluginPicker";
   readonly pluginId?: string;
 }
 
-export interface PreferencesBase {
+export interface PreferencesBase<
+  TRemote extends object,
+  TReadableKey extends keyof TRemote & string,
+  TWritableKey extends TReadableKey
+> {
   readonly typename: Promise<string>;
-  batchGet(propertyNames: readonly string[]): Promise<Record<string, unknown>>;
-  batchSet(properties: Readonly<Record<string, unknown>>): void;
+  batchGet<K extends TReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<TRemote, K>>;
+  batchSet(
+    properties: Readonly<Partial<RemoteBatchGetResult<TRemote, TWritableKey>>>
+  ): Promise<void>;
 }
 
-export interface Preferences {
+export interface Preferences extends PreferencesBase<
+  Preferences,
+  "typename" | PhotoshopPreferenceRootProperty,
+  never
+> {
   readonly typename: Promise<"Preferences">;
   readonly general: RemoteResult<PreferencesGeneral>;
   readonly interface: RemoteResult<PreferencesInterface>;
@@ -1430,12 +1455,20 @@ export interface Preferences {
   readonly notifications: RemoteResult<PreferencesNotifications>;
 }
 
-export interface PreferencesCursors extends PreferencesBase {
+export interface PreferencesCursors extends PreferencesBase<
+  PreferencesCursors,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesCursors">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesCursors">
+> {
   readonly typename: Promise<"PreferencesCursors">;
   get paintingCursors(): Promise<PaintingCursorsValue>; set paintingCursors(value: PaintingCursorsValue);
   get otherCursors(): Promise<OtherCursorsValue>; set otherCursors(value: OtherCursorsValue);
 }
-export interface PreferencesFileHandling extends PreferencesBase {
+export interface PreferencesFileHandling extends PreferencesBase<
+  PreferencesFileHandling,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesFileHandling">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesFileHandling">
+> {
   readonly typename: Promise<"PreferencesFileHandling">;
   get imagePreviews(): Promise<SavePreviewValue>; set imagePreviews(value: SavePreviewValue);
   get useLowerCaseExtension(): Promise<boolean>; set useLowerCaseExtension(value: boolean);
@@ -1443,7 +1476,11 @@ export interface PreferencesFileHandling extends PreferencesBase {
   get maximizeCompatibility(): Promise<MaximizeCompatibilityValue>; set maximizeCompatibility(value: MaximizeCompatibilityValue);
   get recentFileListMaximum(): Promise<number>; set recentFileListMaximum(value: number);
 }
-export interface PreferencesGeneral extends PreferencesBase {
+export interface PreferencesGeneral extends PreferencesBase<
+  PreferencesGeneral,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesGeneral">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesGeneral">
+> {
   readonly typename: Promise<"PreferencesGeneral">;
   get colorPicker(): Promise<ColorPickerOption>; set colorPicker(value: ColorPickerOption);
   get imageInterpolation(): Promise<InterpolationMethodValue>; set imageInterpolation(value: InterpolationMethodValue);
@@ -1451,14 +1488,22 @@ export interface PreferencesGeneral extends PreferencesBase {
   get autoUpdateOpenDocuments(): Promise<boolean>; set autoUpdateOpenDocuments(value: boolean);
   get beepWhenDone(): Promise<boolean>; set beepWhenDone(value: boolean);
 }
-export interface PreferencesGuidesGridsAndSlices extends PreferencesBase {
+export interface PreferencesGuidesGridsAndSlices extends PreferencesBase<
+  PreferencesGuidesGridsAndSlices,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesGuidesGridsAndSlices">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesGuidesGridsAndSlices">
+> {
   readonly typename: Promise<"PreferencesGuidesGridsAndSlices">;
   get guideStyle(): Promise<GuideLineStyleValue>; set guideStyle(value: GuideLineStyleValue);
   get gridStyle(): Promise<GridLineStyleValue>; set gridStyle(value: GridLineStyleValue);
   get gridSubDivisions(): Promise<number>; set gridSubDivisions(value: number);
   get showSliceNumber(): Promise<boolean>; set showSliceNumber(value: boolean);
 }
-export interface PreferencesHistory extends PreferencesBase {
+export interface PreferencesHistory extends PreferencesBase<
+  PreferencesHistory,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesHistory">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesHistory">
+> {
   readonly typename: Promise<"PreferencesHistory">;
   get createFirstSnapshot(): Promise<boolean>; set createFirstSnapshot(value: boolean);
   get nonLinearHistory(): Promise<boolean>; set nonLinearHistory(value: boolean);
@@ -1467,13 +1512,21 @@ export interface PreferencesHistory extends PreferencesBase {
   get editLogItems(): Promise<EditLogItemsTypeValue>; set editLogItems(value: EditLogItemsTypeValue);
   get saveLogItems(): Promise<SaveLogItemsTypeValue>; set saveLogItems(value: SaveLogItemsTypeValue);
 }
-export interface PreferencesInterface extends PreferencesBase {
+export interface PreferencesInterface extends PreferencesBase<
+  PreferencesInterface,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesInterface">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesInterface">
+> {
   readonly typename: Promise<"PreferencesInterface">;
   get dynamicColorSliders(): Promise<boolean>; set dynamicColorSliders(value: boolean);
   get textFontSize(): Promise<FontSizeValue>; set textFontSize(value: FontSizeValue);
   get colorChannelsInColor(): Promise<boolean>; set colorChannelsInColor(value: boolean);
 }
-export interface PreferencesNotifications extends PreferencesBase {
+export interface PreferencesNotifications extends PreferencesBase<
+  PreferencesNotifications,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesNotifications">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesNotifications">
+> {
   readonly typename: Promise<"PreferencesNotifications">;
   get quietMode(): Promise<boolean>; set quietMode(value: boolean);
   get showFeatureOnboarding(): Promise<boolean>; set showFeatureOnboarding(value: boolean);
@@ -1481,29 +1534,49 @@ export interface PreferencesNotifications extends PreferencesBase {
   get showWhatsNew(): Promise<boolean>; set showWhatsNew(value: boolean);
   get useRichToolTips(): Promise<boolean>; set useRichToolTips(value: boolean);
 }
-export interface PreferencesPerformance extends PreferencesBase {
+export interface PreferencesPerformance extends PreferencesBase<
+  PreferencesPerformance,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesPerformance">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesPerformance">
+> {
   readonly typename: Promise<"PreferencesPerformance">;
   get imageCacheLevels(): Promise<number>; set imageCacheLevels(value: number);
   get maxRAMuse(): Promise<number>; set maxRAMuse(value: number);
 }
-export interface PreferencesTools extends PreferencesBase {
+export interface PreferencesTools extends PreferencesBase<
+  PreferencesTools,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesTools">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesTools">
+> {
   readonly typename: Promise<"PreferencesTools">;
   get showToolTips(): Promise<boolean>; set showToolTips(value: boolean);
   get useShiftKeyForToolSwitch(): Promise<boolean>; set useShiftKeyForToolSwitch(value: boolean);
   get keyboardZoomResizesWindows(): Promise<boolean>; set keyboardZoomResizesWindows(value: boolean);
 }
-export interface PreferencesTransparencyAndGamut extends PreferencesBase {
+export interface PreferencesTransparencyAndGamut extends PreferencesBase<
+  PreferencesTransparencyAndGamut,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesTransparencyAndGamut">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesTransparencyAndGamut">
+> {
   readonly typename: Promise<"PreferencesTransparencyAndGamut">;
   get gridSize(): Promise<GridSizeValue>; set gridSize(value: GridSizeValue);
   get gamutWarningOpacity(): Promise<number>; set gamutWarningOpacity(value: number);
 }
-export interface PreferencesType extends PreferencesBase {
+export interface PreferencesType extends PreferencesBase<
+  PreferencesType,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesType">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesType">
+> {
   readonly typename: Promise<"PreferencesType">;
   get showTextFeatures(): Promise<TypeInterfaceFeaturesValue>; set showTextFeatures(value: TypeInterfaceFeaturesValue);
   get showEnglishFontNames(): Promise<boolean>; set showEnglishFontNames(value: boolean);
   get smartQuotes(): Promise<boolean>; set smartQuotes(value: boolean);
 }
-export interface PreferencesUnitsAndRulers extends PreferencesBase {
+export interface PreferencesUnitsAndRulers extends PreferencesBase<
+  PreferencesUnitsAndRulers,
+  "typename" | PhotoshopPreferenceCategoryProperty<"PreferencesUnitsAndRulers">,
+  PhotoshopPreferenceCategoryProperty<"PreferencesUnitsAndRulers">
+> {
   readonly typename: Promise<"PreferencesUnitsAndRulers">;
   get rulerUnits(): Promise<RulerUnitsValue>; set rulerUnits(value: RulerUnitsValue);
   get typeUnits(): Promise<TypeUnitsValue>; set typeUnits(value: TypeUnitsValue);
@@ -1537,8 +1610,27 @@ export interface PhotoshopApp {
   open(entry?: UxpStorageFile | OpenOptions): RemoteResult<PsDocument>;
   createDocument(options?: DocumentCreateOptions): RemoteResult<PsDocument | null>;
   updateUI(): Promise<void>;
-  batchGet(propertyNames: readonly string[]): Promise<Record<string, unknown>>;
-  batchSet(properties: Readonly<Record<string, unknown>>): void;
+  batchGet<K extends PhotoshopAppReadableKey>(propertyNames: readonly K[]): Promise<RemoteBatchGetResult<PhotoshopApp, K>>;
+  batchSet(properties: Readonly<Partial<PhotoshopAppWritableProps>>): Promise<void>;
+}
+
+export type PhotoshopAppReadableKey =
+  | "typename"
+  | "preferences"
+  | "displayDialogs"
+  | "activeDocument"
+  | "currentTool"
+  | "actionTree"
+  | "documents"
+  | "foregroundColor"
+  | "backgroundColor"
+  | "fonts";
+
+export interface PhotoshopAppWritableProps {
+  displayDialogs: DialogModesValue;
+  activeDocument: PsDocument;
+  foregroundColor: SolidColorInput;
+  backgroundColor: SolidColorInput;
 }
 
 /** Exact Adobe class name; PhotoshopApp remains as the compatibility name. */
