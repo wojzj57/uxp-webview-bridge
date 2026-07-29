@@ -40,8 +40,10 @@
   },
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json && node scripts/copy-shared-types.mjs && node scripts/rewrite-dist-path-aliases.mjs",
+    "changeset": "changeset",
     "generate:photoshop-constants": "node scripts/generate-photoshop-constants.mjs",
     "lint": "eslint .",
+    "release": "pnpm build && changeset publish --no-git-tag",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf dist",
     "test": "pnpm test:static && pnpm typecheck && pnpm test:contract",
