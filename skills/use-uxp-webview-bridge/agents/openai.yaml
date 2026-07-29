@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use UXP WebView Bridge"
+  short_description: "Build Adobe UXP and WebView integrations"
+  default_prompt: "Use $use-uxp-webview-bridge to implement an Adobe UXP host and WebView feature with the correct bridge APIs."
