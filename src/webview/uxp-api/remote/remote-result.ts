@@ -91,8 +91,7 @@ export class RemoteOperationScheduler {
   /** Register a descendant write immediately so later operations wait for it. */
   trackExternalWrite(write: PromiseLike<void>): void {
     const sequence = ++this.#issued;
-    let tracked: Promise<void>;
-    tracked = Promise.resolve(write)
+    const tracked = Promise.resolve(write)
       .catch((error: unknown) => {
         this.#recordFailure(error, sequence);
       })
@@ -172,7 +171,7 @@ function createMemberAccess(parent: ResultState, property: PropertyKey): unknown
   const path = appendPath(parent.path, property);
   const member = parent.scheduler.run(async () => {
     const receiver = requireResolvedObject(await parent.promise, parent.path);
-    return { receiver, value: Reflect.get(receiver, property, receiver) };
+    return { receiver, value: Reflect.get(receiver, property, receiver) as unknown };
   });
   return createMemberNode({ member, scheduler: parent.scheduler, path });
 }
@@ -181,7 +180,7 @@ function createNestedMemberAccess(parent: MemberState, property: PropertyKey): u
   const path = appendPath(parent.path, property);
   const member = parent.scheduler.run(async () => {
     const receiver = requireResolvedObject(await resolveMember(parent), parent.path);
-    return { receiver, value: Reflect.get(receiver, property, receiver) };
+    return { receiver, value: Reflect.get(receiver, property, receiver) as unknown };
   });
   return createMemberNode({ member, scheduler: parent.scheduler, path });
 }
@@ -211,14 +210,14 @@ function createMemberNode(state: MemberState): unknown {
       enqueueResultWrite(target, property, value);
       return true;
     },
-    apply(_target, _thisArg, args) {
+    apply(_target, _thisArg, args): unknown {
       const path = `${state.path}()`;
       const promise = state.scheduler.run(async () => {
         const { receiver, value } = await state.member;
         if (typeof value !== "function") {
           throw new TypeError(`${state.path} is not callable.`);
         }
-        return Reflect.apply(value, receiver, args);
+        return Reflect.apply(value, receiver, args) as unknown;
       });
       return createRemoteResult(
         promise.then((value) => value as object | null | undefined),
@@ -280,5 +279,5 @@ function bindPromiseMethod(
   promise: Promise<unknown>,
   method: "then" | "catch" | "finally"
 ): Promise<unknown>[typeof method] {
-  return promise[method].bind(promise) as Promise<unknown>[typeof method];
+  return promise[method].bind(promise);
 }

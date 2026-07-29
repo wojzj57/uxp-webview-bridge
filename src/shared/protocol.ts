@@ -118,7 +118,7 @@ function assertTransportValue(value: unknown, label: string, ancestors: Set<obje
   if (ancestors.has(value)) {
     throw new TypeError(`${label} must not contain cycles.`);
   }
-  const prototype = Object.getPrototypeOf(value);
+  const prototype = Reflect.getPrototypeOf(value);
   if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
     throw new TypeError(`${label} must contain only arrays and plain objects.`);
   }

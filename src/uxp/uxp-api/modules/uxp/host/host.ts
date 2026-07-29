@@ -29,5 +29,5 @@ function readHostValue(method: UxpHostMethodName): UxpHostValue {
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp host method: ${method}`);
+  throw new Error(`Unsupported uxp host method: ${String(method)}`);
 }

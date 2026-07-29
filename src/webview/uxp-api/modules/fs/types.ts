@@ -3,7 +3,7 @@ import type { fs as nativeFs } from "@shared/types/uxp/internal/fs.js";
 export type FsReadFileOptions = Parameters<typeof nativeFs.readFile>[1];
 export type FsWriteFileOptions = Parameters<typeof nativeFs.writeFile>[2];
 export type FsMkdirOptions = Parameters<typeof nativeFs.mkdir>[1];
-export type FsMethodName = keyof typeof nativeFs & string;
+export type FsMethodName = keyof typeof nativeFs;
 
 export interface FsStats {
   readonly size: number;

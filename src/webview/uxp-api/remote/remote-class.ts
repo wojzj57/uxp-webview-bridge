@@ -457,7 +457,7 @@ function snapshotBatchSetProperties(
   if (properties === null || typeof properties !== "object" || Array.isArray(properties)) {
     throw new TypeError("batchSet properties must be a plain object.");
   }
-  const prototype = Object.getPrototypeOf(properties);
+  const prototype = Reflect.getPrototypeOf(properties);
   if (prototype !== Object.prototype && prototype !== null) {
     throw new TypeError("batchSet properties must be a plain object.");
   }
@@ -469,5 +469,5 @@ function snapshotBatchSetProperties(
 }
 
 function isConstructionRequest(source: RemoteReference | RemoteConstructionRequest): source is RemoteConstructionRequest {
-  return "method" in source && typeof (source as RemoteConstructionRequest).method === "string";
+  return "method" in source && typeof (source).method === "string";
 }

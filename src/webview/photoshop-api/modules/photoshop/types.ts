@@ -171,6 +171,7 @@ export interface LayerCreateOptions {
 
 /** RGB color-model view of a {@link PsSolidColor} (`hexValue` is the sole string field). */
 export interface RgbColorView {
+  readonly typename: "RGBColor";
   red: number;
   green: number;
   blue: number;
@@ -179,6 +180,7 @@ export interface RgbColorView {
 
 /** HSB color-model view of a {@link PsSolidColor}. */
 export interface HsbColorView {
+  readonly typename: "HSBColor";
   hue: number;
   saturation: number;
   brightness: number;
@@ -186,6 +188,7 @@ export interface HsbColorView {
 
 /** CMYK color-model view of a {@link PsSolidColor}. */
 export interface CmykColorView {
+  readonly typename: "CMYKColor";
   cyan: number;
   magenta: number;
   yellow: number;
@@ -194,6 +197,7 @@ export interface CmykColorView {
 
 /** LAB color-model view of a {@link PsSolidColor}. */
 export interface LabColorView {
+  readonly typename: "LabColor";
   l: number;
   a: number;
   b: number;
@@ -201,6 +205,7 @@ export interface LabColorView {
 
 /** Grayscale color-model view of a {@link PsSolidColor}. */
 export interface GrayColorView {
+  readonly typename: "GrayColor";
   gray: number;
 }
 

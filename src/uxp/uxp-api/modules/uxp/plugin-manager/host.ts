@@ -99,5 +99,5 @@ function assertNonEmptyString(value: unknown, label: string): asserts value is s
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp pluginManager method: ${method}`);
+  throw new Error(`Unsupported uxp pluginManager method: ${String(method)}`);
 }

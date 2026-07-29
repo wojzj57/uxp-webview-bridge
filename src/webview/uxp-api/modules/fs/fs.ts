@@ -1,7 +1,6 @@
 import {
   FS_MODULE_ID,
   fsTransportToArrayBuffer,
-  fsTransportToUint8Array,
   fsValueToTransport,
   type FsSerializedReadResult,
   type FsSerializedStats,

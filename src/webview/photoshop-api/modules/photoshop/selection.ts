@@ -19,9 +19,7 @@ import type { PhotoshopContext } from "./context.js";
 import type {
   ImagingBounds,
   PsChannel,
-  PsDocument,
   PsLayer,
-  PsPathItem,
   PsSelection,
   PsSelectionReadableKey,
   SelectionBounds,

@@ -139,5 +139,5 @@ function destroyUxpHandles(): void {
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp method: ${method}`);
+  throw new Error(`Unsupported uxp method: ${String(method)}`);
 }

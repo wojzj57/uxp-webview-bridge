@@ -2,7 +2,7 @@ import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-ap
 import type { DirectionValue } from "@shared/photoshop-api/photoshop-constants.js";
 import { RemoteClass, type RemoteClassConfig, type RemoteMethodNames, type RemotePropertyDescriptor, type RemoteReference } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopContext } from "./context.js";
-import type { PsDocument, PsGuide, PsGuideReadableKey, PsGuideWritableProps } from "./types.js";
+import type { PsGuide, PsGuideReadableKey, PsGuideWritableProps } from "./types.js";
 const SCALARS = ["typename", "id", "docId", "direction", "coordinate"] as const;
 export function createGuideProperties(): Record<string, RemotePropertyDescriptor> {
   const result: Record<string, RemotePropertyDescriptor> = Object.fromEntries(SCALARS.map((name) => [name, { writable: name === "direction" || name === "coordinate", mutating: name === "direction" || name === "coordinate", remoteKey: name }]));

@@ -6,4 +6,4 @@ export interface UxpHostHostModule {
 }
 
 export type UxpHostMethodName = Extract<UxpProtocolMethodName, `host.${string}`>;
-export type UxpHostValue = typeof nativeHost.name | typeof nativeHost.version | typeof nativeHost.uiLocale;
+export type UxpHostValue = typeof nativeHost.name    ;

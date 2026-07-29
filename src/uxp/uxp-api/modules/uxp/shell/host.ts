@@ -75,5 +75,5 @@ function assertNotFileUrl(url: string): void {
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp shell method: ${method}`);
+  throw new Error(`Unsupported uxp shell method: ${String(method)}`);
 }

@@ -51,7 +51,7 @@ export interface UxpModuleAdapter {
     method: string,
     args: readonly unknown[],
     context: UxpDispatchContext
-  ): unknown | Promise<unknown>;
+  ): unknown;
   destroy?(): void | Promise<void>;
 }
 
@@ -75,7 +75,7 @@ const unavailableCallbacks: UxpCallbackBridge = {
 };
 
 export interface UxpModuleRegistry {
-  dispatch(payload: BridgeCallPayload, options?: UxpDispatchOptions): unknown | Promise<unknown>;
+  dispatch(payload: BridgeCallPayload, options?: UxpDispatchOptions): unknown;
 }
 
 export function createUxpModuleRegistry(

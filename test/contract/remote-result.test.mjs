@@ -5,8 +5,6 @@ const remoteResultModule = "../../dist/webview/uxp-api/remote/remote-result.js";
 const photoshopModule = "../../dist/webview/photoshop-api/modules/photoshop/photoshop.js";
 
 const reference = (type, id) => ({ kind: "uxp.remote.ref", type, id });
-const appReference = reference("Photoshop", "photoshop.app");
-
 test("RemoteResult preserves direct await while forwarding deep members and methods", async () => {
   const { createRemoteResult } = await import(remoteResultModule);
   const child = {

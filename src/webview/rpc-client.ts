@@ -21,7 +21,7 @@ export interface WebViewBridgeTarget {
   postMessage(message: unknown): void;
 }
 
-export type RpcCallback = (...args: readonly unknown[]) => unknown | Promise<unknown>;
+export type RpcCallback = (...args: readonly unknown[]) => unknown;
 
 export interface RpcClientOptions {
   readonly target?: WebViewBridgeTarget;
@@ -181,7 +181,7 @@ export class RpcClient {
       } catch (error) {
         this.pending.delete(message.operationId);
         clearTimeout(timeoutId);
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }

@@ -105,5 +105,5 @@ function toUint8Array(value: Uint8Array | ArrayBuffer | ArrayBufferView): Uint8A
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp key-value-storage method: ${method}`);
+  throw new Error(`Unsupported uxp key-value-storage method: ${String(method)}`);
 }

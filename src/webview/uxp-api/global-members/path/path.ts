@@ -15,16 +15,16 @@ export function createPathNamespace(rpc: PathRpc): PathNamespace {
     get delimiter() {
       return platform.delimiter;
     },
-    normalize: platform.normalize,
-    join: platform.join,
-    resolve: platform.resolve,
-    isAbsolute: platform.isAbsolute,
-    relative: platform.relative,
-    dirname: platform.dirname,
-    basename: platform.basename,
-    extname: platform.extname,
-    parse: platform.parse,
-    format: platform.format,
+    normalize: (input) => platform.normalize(input),
+    join: (...inputs) => platform.join(...inputs),
+    resolve: (...inputs) => platform.resolve(...inputs),
+    isAbsolute: (input) => platform.isAbsolute(input),
+    relative: (from, to) => platform.relative(from, to),
+    dirname: (input) => platform.dirname(input),
+    basename: (input, ext) => platform.basename(input, ext),
+    extname: (input) => platform.extname(input),
+    parse: (input) => platform.parse(input),
+    format: (input) => platform.format(input),
     posix: createPathFlavor(rpc, "posix."),
     win32: createPathFlavor(rpc, "win32.")
   };

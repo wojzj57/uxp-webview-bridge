@@ -65,8 +65,6 @@ interface ActionListenerRegistration {
   removing?: Promise<void>;
 }
 
-let defaultNamespace: PhotoshopNamespace | undefined;
-
 export function createPhotoshopNamespace(rpc: PhotoshopRpc): PhotoshopNamespace {
   const { context, app } = createPhotoshopContext(rpc);
   const notificationListeners = new WeakMap<
@@ -413,8 +411,7 @@ function batchPlaySync(
 }
 
 export const photoshop: PhotoshopNamespace =
-  defaultNamespace ??
-  (defaultNamespace = createPhotoshopNamespace({
+  createPhotoshopNamespace({
     call: <T>(module: string, method: string, args?: readonly unknown[]) =>
       getBridgeRpcClient().call<T>(module, method, args),
     get activeModalSessionId() {
@@ -426,7 +423,7 @@ export const photoshop: PhotoshopNamespace =
     retainCallback: (callback) =>
       getBridgeRpcClient().retainCallback(callback as (...args: readonly unknown[]) => unknown),
     releaseCallback: (reference) => getBridgeRpcClient().releaseCallback(reference)
-  }));
+  });
 
 function normalizeActionNotificationEvents(
   events: readonly string[],
@@ -441,5 +438,5 @@ function normalizeActionNotificationEvents(
   if (events.some((event) => typeof event !== "string" || event.length === 0)) {
     throw new TypeError("Action notification events must contain non-empty strings.");
   }
-  return [...new Set(events)].sort();
+  return [...new Set<string>(events)].sort();
 }

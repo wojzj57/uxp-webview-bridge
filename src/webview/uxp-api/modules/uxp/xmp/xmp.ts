@@ -5,7 +5,6 @@ import {
   encodeRemoteArgs,
   isRemoteReference,
   RemoteClass,
-  type IdentityCache,
   type RemoteArgEncoder,
   type RemoteClassConfig,
   type RemoteConstructionRequest,
@@ -48,8 +47,6 @@ const DATE_TIME_PROPERTY_NAMES = [
   "tzMinute"
 ] as const;
 
-let defaultXmpNamespace: UxpXmp | undefined;
-
 export function createUxpXmpNamespace(rpc: XmpRpc): UxpXmp {
   const context = createXmpContext(rpc);
 
@@ -60,7 +57,7 @@ export function createUxpXmpNamespace(rpc: XmpRpc): UxpXmp {
     XMPDateTime: context.XMPDateTime,
     XMPFile: context.XMPFile,
     XMPMeta: context.XMPMeta,
-    XMPIterator: context.XMPIterator as unknown as { new (): never },
+    XMPIterator: context.XMPIterator,
     XMPUtils: context.XMPUtils
   };
 }
@@ -609,8 +606,7 @@ function trimTrailingUndefined(values: unknown[]): unknown[] {
 }
 
 export const xmp: UxpXmp =
-  defaultXmpNamespace ??
-  (defaultXmpNamespace = createUxpXmpNamespace({
+  createUxpXmpNamespace({
     call: <T>(module: string, method: string, args?: readonly unknown[]) =>
       getBridgeRpcClient().call<T>(module, method, args)
-  }));
+  });

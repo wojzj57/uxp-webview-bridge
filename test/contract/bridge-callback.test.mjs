@@ -437,7 +437,6 @@ function installMessageBus() {
     }
   };
   globalThis.window = fakeWindow;
-  let webview;
   const dispatch = (data, source, origin = "plugin://test") => {
     queueMicrotask(() => {
       for (const listener of [...listeners]) {
@@ -445,7 +444,7 @@ function installMessageBus() {
       }
     });
   };
-  webview = { postMessage: (message) => dispatch(message, null) };
+  const webview = { postMessage: (message) => dispatch(message, null) };
   const clientTarget = { postMessage: (message) => dispatch(message, webview) };
   return {
     webview,

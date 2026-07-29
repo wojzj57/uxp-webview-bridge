@@ -190,15 +190,13 @@ function installClientEnvironment() {
   const originalLog = console.log;
   const listeners = new Set();
   const posted = [];
-  let target;
-
   const dispatch = (data, origin, source = null) => {
     for (const listener of listeners) {
       listener({ data, origin, source });
     }
   };
 
-  target = {
+  const target = {
     postMessage(message) {
       posted.push(message);
       if (message.type === "bridge.release-all") {

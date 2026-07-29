@@ -114,5 +114,5 @@ export function createChannelClass(context: PhotoshopContext): {
     }
   }
 
-  return WebviewPsChannel as unknown as { new (reference: RemoteReference): PsChannel };
+  return WebviewPsChannel;
 }

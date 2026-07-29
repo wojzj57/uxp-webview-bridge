@@ -160,7 +160,7 @@ type _SaveOptionsExact = AssertMutual<SaveOptionsValue, AdobeSaveOptions>;
 type _PSLayerKindExact = AssertMutual<PSLayerKindValue, AdobePSLayerKind>;
 
 /** Every Adobe enum name is generated and carried by the public Photoshop namespace type. */
-type AssertNever<T extends never> = true;
+type AssertNever<T extends never> = [T] extends [never] ? true : false;
 type ExpectedGeneratedConstantName =
   | Exclude<keyof typeof AdobeConstants, "constants">
   | "PSLayerKind";
@@ -345,6 +345,7 @@ type _OptionsToAdobe = Assignable<BatchPlayCommandOptions, AdobeBatchPlayCommand
 // enabled) do not strip them; `type` aliases are erased regardless.
 export type _StaticConsistencyProof = [
   _SaveOptionsExact,
+  _PSLayerKindExact,
   _AnchorCompatible,
   _BlendModeCompatible,
   _LayerKindCompatible,
@@ -482,7 +483,11 @@ export default defineWebviewCdpCases([
       assert.equal(photoshop.LayerKind.NORMAL, "pixel", "LayerKind.NORMAL should transcribe to 'pixel'.");
       assert.equal(photoshop.BlendMode.SUBTRACT, "blendSubtraction", "BlendMode.SUBTRACT should transcribe correctly.");
       assert.equal(photoshop.SaveOptions.DONOTSAVECHANGES, 0, "SaveOptions.DONOTSAVECHANGES should be 0.");
-      assert.equal(photoshop.GridSize.DOTTED, undefined, "GridSize must not acquire GridLineStyle members.");
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(photoshop.GridSize, "DOTTED"),
+        false,
+        "GridSize must not acquire GridLineStyle members."
+      );
       assert.equal(photoshop.GenerativeUpscaleModel.FIREFLY, "firefly", "the final declaration enum should be present.");
 
       const diagnostics = hostDiagnostics as {
@@ -496,10 +501,14 @@ export default defineWebviewCdpCases([
       );
       const nativeConstants = diagnostics.__UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS__;
       assert.ok(nativeConstants && typeof nativeConstants === "object", "native Photoshop constants snapshot must exist.");
+      const webviewConstants = photoshop.constants as Readonly<
+        Record<string, Readonly<Record<string, string | number>>>
+      >;
       let nativeMembersChecked = 0;
       for (const [enumName, nativeEnum] of Object.entries(nativeConstants ?? {})) {
-        const webviewEnum = photoshop.constants[enumName];
+        const webviewEnum = webviewConstants[enumName];
         assert.ok(webviewEnum && typeof webviewEnum === "object", `native enum ${enumName} must exist in WebView constants.`);
+        if (webviewEnum === undefined) throw new Error(`Missing WebView enum ${enumName}.`);
         for (const [memberName, nativeValue] of Object.entries(nativeEnum)) {
           assert.equal(
             webviewEnum[memberName],
@@ -650,6 +659,7 @@ export default defineWebviewCdpCases([
         const [descriptor] = await app.batchPlay([
           { _obj: "get", _target: [{ _ref: "document", _id: documentId }] }
         ], { dialogOptions: "silent" });
+        if (descriptor === undefined) throw new Error("app.batchPlay returned no descriptor.");
         assert.ok(typeof descriptor === "object" && descriptor !== null, "app.batchPlay should return a descriptor.");
         assert.equal(descriptor.documentID, documentId, "app.batchPlay should address the disposable document by native id.");
 
@@ -660,9 +670,9 @@ export default defineWebviewCdpCases([
           writes: ["displayDialogs", "activeDocument", "foregroundColor", "backgroundColor"]
         };
       } finally {
-        try { app.displayDialogs = originalDialogs; await app.displayDialogs; } catch {}
-        try { app.foregroundColor = originalForeground; await app.foregroundColor; } catch {}
-        try { app.backgroundColor = originalBackground; await app.backgroundColor; } catch {}
+        try { app.displayDialogs = originalDialogs; await app.displayDialogs; } catch { /* Best-effort cleanup. */ }
+        try { app.foregroundColor = originalForeground; await app.foregroundColor; } catch { /* Best-effort cleanup. */ }
+        try { app.backgroundColor = originalBackground; await app.backgroundColor; } catch { /* Best-effort cleanup. */ }
         await closeDocumentQuietly(second ?? undefined);
         await closeDocumentQuietly(first ?? undefined);
       }
@@ -1168,7 +1178,7 @@ export default defineWebviewCdpCases([
         path.name = "Bridge Path Renamed" as unknown as Promise<string>; assert.equal(await path.name, "Bridge Path Renamed", "path name writes should flush.");
         duplicate = await path.duplicate("Bridge Path Copy"); await duplicate.select(); await duplicate.deselect();
         return { subPaths: subPaths.length, points: points.length, stableIdentity: true };
-      } finally { try { await duplicate?.remove(); } catch {} try { await path?.remove(); } catch {} await closeDocumentQuietly(document); }
+      } finally { try { await duplicate?.remove(); } catch { /* Best-effort cleanup. */ } try { await path?.remove(); } catch { /* Best-effort cleanup. */ } await closeDocumentQuietly(document); }
     }
   },
   {
@@ -1476,8 +1486,8 @@ export default defineWebviewCdpCases([
       } finally {
         await closeDocumentQuietly(document ?? undefined);
         if (displacementFile) {
-          try { await displacementFile.delete(); } catch {}
-          try { await displacementFile.dispose(); } catch {}
+          try { await displacementFile.delete(); } catch { /* Best-effort cleanup. */ }
+          try { await displacementFile.dispose(); } catch { /* Best-effort cleanup. */ }
         }
       }
     }
@@ -1523,7 +1533,10 @@ export default defineWebviewCdpCases([
         try {
           return await read;
         } catch (error) {
-          throw new Error(`document.${name} failed: ${normalizeError(error).message}`);
+          throw Object.assign(
+            new Error(`document.${name} failed: ${normalizeError(error).message}`),
+            { cause: error }
+          );
         }
       };
       const channels = await readCollection("compositeChannels", source.compositeChannels);
@@ -1638,8 +1651,8 @@ export default defineWebviewCdpCases([
         await closeDocumentQuietly(reopened);
         await closeDocumentQuietly(document ?? undefined);
         for (const file of files) {
-          try { await file.delete(); } catch {}
-          try { await file.dispose(); } catch {}
+          try { await file.delete(); } catch { /* Best-effort cleanup. */ }
+          try { await file.dispose(); } catch { /* Best-effort cleanup. */ }
         }
       }
     }
@@ -1839,10 +1852,8 @@ export default defineWebviewCdpCases([
       assert.ok(typeof await sourceSet.id === "number", "ActionSet.id should resolve to a number.");
       assert.ok(typeof await sourceSet.index === "number", "ActionSet.index should resolve to a number.");
       assert.nonEmptyString(await sourceSet.name, "ActionSet.name");
-      const sourceActions = await sourceSet.actions;
-
       let duplicateSet: typeof sourceSet | undefined;
-      let duplicateAction: (typeof sourceActions)[number] | undefined;
+      let duplicateAction: Awaited<typeof sourceSet.actions>[number] | undefined;
       try {
         duplicateSet = await sourceSet.duplicate();
         const setName = `UXP Bridge Set ${Date.now()}`;
@@ -1872,8 +1883,8 @@ export default defineWebviewCdpCases([
           intentionallyNotPlayed: true
         };
       } finally {
-        try { await duplicateAction?.delete(); } catch {}
-        try { await duplicateSet?.delete(); } catch {}
+        try { await duplicateAction?.delete(); } catch { /* Best-effort cleanup. */ }
+        try { await duplicateSet?.delete(); } catch { /* Best-effort cleanup. */ }
       }
     }
   },
@@ -1891,6 +1902,7 @@ export default defineWebviewCdpCases([
       const [layerDescriptor] = await bridge.photoshop.action.batchPlay([
         { _obj: "get", _target: [{ _ref: "layer", _enum: "ordinal", _value: "targetEnum" }] }
       ]);
+      if (layerDescriptor === undefined) throw new Error("batchPlay read returned no descriptor.");
       assert.ok(typeof layerDescriptor === "object" && layerDescriptor !== null, "batchPlay read should return a descriptor.");
       const nativeLayerId = layerDescriptor.layerID as number;
       assert.ok(typeof nativeLayerId === "number", "the read descriptor should carry a native layerID.");
@@ -1939,6 +1951,7 @@ export default defineWebviewCdpCases([
       const [descriptor] = await bridge.photoshop.action.batchPlaySync([
         { _obj: "get", _target: reference }
       ]);
+      if (descriptor === undefined) throw new Error("batchPlaySync returned no descriptor.");
       assert.ok(typeof descriptor === "object" && descriptor !== null, "batchPlaySync should return a descriptor.");
       assert.equal(descriptor.documentID, documentId, "batchPlaySync should read the active native document id.");
 
@@ -1968,7 +1981,7 @@ function isSkip(value: unknown): value is SkipMarker {
 }
 
 async function getActiveDocument(
-  bridge: { photoshop: any },
+  bridge: { photoshop: PhotoshopNamespace },
   skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
 ): Promise<PsDocument | SkipMarker> {
   try {
@@ -1983,7 +1996,7 @@ async function getActiveDocument(
 }
 
 async function getActiveLayer(
-  bridge: { photoshop: any },
+  bridge: { photoshop: PhotoshopNamespace },
   skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
 ): Promise<PsLayer | SkipMarker> {
   const document = await getActiveDocument(bridge, skip);

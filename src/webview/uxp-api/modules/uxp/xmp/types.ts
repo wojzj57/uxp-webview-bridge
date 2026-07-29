@@ -6,14 +6,12 @@ import type {
 } from "@webview/uxp-api/remote/index.js";
 import type {
   XMPConst as NativeXMPConst,
-  XMPDateTime as NativeXMPDateTime,
   XMPFile as NativeXMPFile,
   XMPFileInfo,
   XMPIterator as NativeXMPIterator,
   XMPMeta as NativeXMPMeta,
   XMPPacketInfo,
   XMPProperty as NativeXMPProperty,
-  XMPUtils as NativeXMPUtils,
   XMPValue as NativeXMPValue
 } from "@shared/types/uxp/internal/xmp.js";
 

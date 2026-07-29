@@ -54,7 +54,7 @@ export function dispatchImagingCall(
   method: string,
   args: readonly unknown[],
   context?: UxpDispatchContext
-): unknown | Promise<unknown> {
+): unknown {
   assertPhotoshopImagingMethodName(method);
   if (context && !context.capabilities.imaging) {
     throw new Error("imaging capability is disabled.");
@@ -162,7 +162,7 @@ function dispatchCreateImageDataFromBuffer(
     "imaging.createImageDataFromBuffer",
     () => getImaging().createImageDataFromBuffer(bytes, optionsRecord),
     context
-  ).then((imageData) => serializeImageData(imageData as PhotoshopImageDataLike));
+  ).then((imageData) => serializeImageData(imageData));
 }
 
 /** `encodeImageData` resolves its handle then returns the raw base64/number[] result verbatim. */

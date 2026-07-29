@@ -13,7 +13,6 @@ import type { PhotoshopContext } from "./context.js";
 import type {
   CharacterStyle,
   ParagraphStyle,
-  PsLayer,
   PsPoint,
   PsSolidColor,
   TextItem,

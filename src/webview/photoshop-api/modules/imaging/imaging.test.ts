@@ -22,6 +22,7 @@
  */
 
 import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
+import type { PhotoshopNamespace } from "@webview/photoshop-api/modules/photoshop/types.js";
 
 // --- Static layer: type-only imports (erased at runtime; allowed by the static boundary checker) ---
 import type {
@@ -256,7 +257,7 @@ function isSkip(value: unknown): value is SkipMarker {
 }
 
 async function getActiveDocument(
-  bridge: { photoshop: any },
+  bridge: { photoshop: PhotoshopNamespace },
   skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
 ): Promise<unknown | SkipMarker> {
   try {

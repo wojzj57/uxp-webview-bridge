@@ -34,7 +34,7 @@ test("CDP reporter formats compact suite results without protocol noise", () => 
     { color: "never" }
   );
 
-  assert.match(output, /CDP suite: all  \[FAIL\]/);
+  assert.match(output, /CDP suite: all {2}\[FAIL\]/);
   assert.match(output, /Cases: 1 passed, 1 failed, 0 skipped/);
   assert.match(output, /\[PASS\]\s+bridge\.ping\s+ok=true, hasUxpHost=true/);
   assert.match(output, /\[FAIL\]\s+bridge\.remote-error-shape\s+Error: uxp shell capability is disabled/);
@@ -77,5 +77,6 @@ test("CDP reporter can force ANSI colors", () => {
     { color: "always" }
   );
 
-  assert.match(output, /\x1b\[32m\[PASS\]\x1b\[0m\s+os\.platform/);
+  const escape = String.fromCharCode(27);
+  assert.match(output, new RegExp(`${escape}\\[32m\\[PASS\\]${escape}\\[0m\\s+os\\.platform`));
 });

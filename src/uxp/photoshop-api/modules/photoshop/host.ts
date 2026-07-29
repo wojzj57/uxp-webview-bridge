@@ -327,7 +327,7 @@ export function dispatchPhotoshopCall(
   method: string,
   args: readonly unknown[],
   context?: UxpDispatchContext
-): unknown | Promise<unknown> {
+): unknown {
   if (context && isBatchPlayMethod(method) && !context.capabilities.batchPlay) {
     throw new Error("batchPlay capability is disabled.");
   }
@@ -346,7 +346,7 @@ function isBatchPlayMethod(method: string): boolean {
     method === "action.batchPlaySync";
 }
 
-function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]): unknown {
   assertPhotoshopProtocolMethodName(method);
   photoshopRegistry.prune();
 
@@ -441,7 +441,7 @@ export function destroyPhotoshopHandles(): void | Promise<void> {
 
 // ---------------------------------------------------------------------------- app.*
 
-function dispatchAppCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchAppCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "app.activeDocument") { expectArgs(args, 0, 0, method); return serializeDocument(getPhotoshop().app.activeDocument); }
   if (method === "app.documents") {
     expectArgs(args, 0, 0, method);
@@ -572,7 +572,7 @@ function decodeDocumentCreateOptions(value: unknown): unknown {
 
 // ---------------------------------------------------------------------------- app-owned collections and objects
 
-function dispatchDocumentsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchDocumentsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const [reference, value] = expectReferenceArgs(args, 1, 2, method);
   const app = getPhotoshopApp(reference);
   if (method === "documents.getByName") {
@@ -603,7 +603,7 @@ function dispatchTextFontCall(method: PhotoshopProtocolMethodName, args: readonl
   return dispatchSimpleObjectCall(PHOTOSHOP_REMOTE_TYPE.TextFont, method, args, TEXT_FONT_SCALARS, new Set());
 }
 
-function dispatchToolCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchToolCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   return dispatchSimpleObjectCall(PHOTOSHOP_REMOTE_TYPE.Tool, method, args, TOOL_SCALARS, new Set(["id"]));
 }
 
@@ -611,7 +611,7 @@ function dispatchActionObjectCall(
   type: typeof PHOTOSHOP_REMOTE_TYPE.ActionSet | typeof PHOTOSHOP_REMOTE_TYPE.Action,
   method: PhotoshopProtocolMethodName,
   args: readonly unknown[]
-): unknown | Promise<unknown> {
+): unknown {
   const prefix = type === PHOTOSHOP_REMOTE_TYPE.ActionSet ? "actionSet" : "actionObject";
   const scalars = type === PHOTOSHOP_REMOTE_TYPE.ActionSet ? ACTION_SET_SCALARS : ACTION_SCALARS;
   if (method === `${prefix}.dispose`) {
@@ -631,7 +631,7 @@ function dispatchActionObjectCall(
   return resolveMaybePromise(run, (value) => serializeResult(photoshopMethodResultKind(type, methodName), reference, value));
 }
 
-function dispatchPreferencesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchPreferencesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const reference = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method)[0];
   if (!isPhotoshopPreferenceType(reference.type)) throw new Error(`Expected a Preferences reference, received ${reference.type}.`);
   const readable = preferenceReadableProperties(reference.type);
@@ -653,7 +653,7 @@ function dispatchSimpleObjectCall(
   readable: ReadonlySet<string>,
   writable: ReadonlySet<string>,
   modalWrites = false
-): unknown | Promise<unknown> {
+): unknown {
   const suffix = method.slice(method.lastIndexOf(".") + 1);
   if (suffix === "dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method); photoshopRegistry.dispose(reference); return undefined;
@@ -697,7 +697,7 @@ function dispatchSimpleObjectCall(
 
 // ---------------------------------------------------------------------------- document.*
 
-function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "document.suspendHistory") {
     return dispatchDocumentSuspendHistory(args, method, activePhotoshopDispatchContext);
   }
@@ -860,7 +860,7 @@ function decodeDocumentPropertyValue(name: string, value: unknown, method: strin
 
 // ---------------------------------------------------------------------------- layer.*
 
-function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "layer.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -936,7 +936,7 @@ function serializeLayerProperty(ownerReference: RemoteReference, name: string, v
     throw new Error(`Unknown layer property: ${name}`);
   }
   if (name === "textItem" && value && typeof value === "object") {
-    textItemOwners.set(value as object, getLayer(ownerReference));
+    textItemOwners.set(value, getLayer(ownerReference));
   }
   return serializeResult(resultKind, ownerReference, value);
 }
@@ -961,7 +961,7 @@ function decodeLayerMethodArgs(methodName: string, values: readonly unknown[], m
 
 // ---------------------------------------------------------------------------- text item and styles
 
-function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "textItem.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -1006,8 +1006,8 @@ function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonl
   const run = executeAsModal(name, () => callMethod(getTextItem(reference), name, decodeArgs(rest)));
   return resolveMaybePromise(run, (value) => {
     if (value && typeof value === "object") {
-      const owner = textItemOwners.get(getTextItem(reference) as object);
-      if (owner) textItemOwners.set(value as object, owner);
+      const owner = textItemOwners.get(getTextItem(reference));
+      if (owner) textItemOwners.set(value, owner);
     }
     return serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.TextItem, name), reference, value);
   });
@@ -1017,10 +1017,10 @@ function serializeTextItemProperty(reference: RemoteReference, name: string, val
   const kind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.TextItem, name);
   if (kind.kind === "scalar" && !TEXT_ITEM_SCALARS.has(name)) throw new Error(`Unknown TextItem property: ${name}`);
   if (value && typeof value === "object") {
-    const owner = textItemOwners.get(getTextItem(reference) as object);
-    if (owner && name === "characterStyle") characterStyleOwners.set(value as object, owner);
-    if (owner && name === "paragraphStyle") paragraphStyleOwners.set(value as object, owner);
-    if (owner && name === "warpStyle") textWarpStyleOwners.set(value as object, owner);
+    const owner = textItemOwners.get(getTextItem(reference));
+    if (owner && name === "characterStyle") characterStyleOwners.set(value, owner);
+    if (owner && name === "paragraphStyle") paragraphStyleOwners.set(value, owner);
+    if (owner && name === "warpStyle") textWarpStyleOwners.set(value, owner);
   }
   return serializeResult(kind, reference, value);
 }
@@ -1031,7 +1031,7 @@ function dispatchTextStyleCall(
   properties: ReadonlySet<string>,
   method: PhotoshopProtocolMethodName,
   args: readonly unknown[]
-): unknown | Promise<unknown> {
+): unknown {
   if (method === `${prefix}.dispose`) {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -1087,7 +1087,7 @@ function dispatchTextStyleCall(
 
 // ---------------------------------------------------------------------------- layers.*
 
-function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "layers.snapshot") {
     const [reference, collectionKey] = expectReferenceArgs(args, 1, 2, method);
     const owner = resolveOwner(reference);
@@ -1123,7 +1123,7 @@ function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly 
 
 // ---------------------------------------------------------------------------- channel.*
 
-function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "channel.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -1250,7 +1250,7 @@ function buildSolidColor(input: unknown): unknown {
 
 // ---------------------------------------------------------------------------- channels.*
 
-function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "channels.snapshot") {
     const [reference, collectionKey] = expectReferenceArgs(args, 1, 2, method);
     const document = getDocument(reference);
@@ -1287,7 +1287,7 @@ function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonl
 
 // ---------------------------------------------------------------------------- ColorSampler(s), CountItem(s), LayerComp(s)
 
-function dispatchColorSamplerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchColorSamplerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "colorSampler.dispose") {
     const [ref] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(ref);
@@ -1334,14 +1334,14 @@ function serializeColorSamplerProperty(ref: RemoteReference, name: string, value
 }
 
 function colorSamplerPropertyValue(sampler: PhotoshopColorSamplerLike, name: string): unknown {
-  const owner = colorSamplerOwners.get(sampler as object);
+  const owner = colorSamplerOwners.get(sampler);
   if (name === "parent") return owner ?? sampler.parent;
   if (name === "docId") return sampler.docId ?? owner?.id;
   if (name === "typename") return sampler.typename ?? "ColorSampler";
   return sampler[name];
 }
 
-function dispatchColorSamplersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchColorSamplersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const expectedLength = method === "colorSamplers.add" ? 2 : 1;
   const [ref, ...rest] = expectReferenceArgs(args, expectedLength, expectedLength, method);
   const document = getDocument(ref);
@@ -1363,7 +1363,7 @@ function dispatchColorSamplersCall(method: PhotoshopProtocolMethodName, args: re
   return unsupported(method);
 }
 
-function dispatchCountItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchCountItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "countItem.dispose") {
     const [ref] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(ref);
@@ -1413,13 +1413,13 @@ function serializeCountItemProperty(ref: RemoteReference, name: string, value: u
 function countItemPropertyValue(item: PhotoshopCountItemLike, name: string): unknown {
   if (name === "typename") return item.typename ?? "CountItem";
   if (name !== "parent") return item[name];
-  const document = countItemOwners.get(item as object);
+  const document = countItemOwners.get(item);
   if (!document) throw new Error("CountItem parent document is unavailable.");
   const owner = serializeDocument(document);
   return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.CountItem, owner, document.countItems);
 }
 
-function dispatchCountItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchCountItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const name = method.slice("countItems.".length);
   if (!COUNT_ITEMS_METHODS.has(name)) return unsupported(method);
   const takesArgument = name !== "removeAllFromActiveGroup" && name !== "getAll";
@@ -1452,7 +1452,7 @@ function dispatchCountItemsCall(method: PhotoshopProtocolMethodName, args: reado
   });
 }
 
-function dispatchLayerCompCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayerCompCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "layerComp.dispose") {
     const [ref] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(ref);
@@ -1522,7 +1522,7 @@ function decodeLayerCompPropertyValue(name: string, value: unknown, method: stri
   return value;
 }
 
-function dispatchLayerCompsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayerCompsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const name = method.slice("layerComps.".length);
   if (!LAYER_COMPS_METHODS.has(name)) return unsupported(method);
   const minLength = name === "getAllByName" ? 2 : 1;
@@ -1542,7 +1542,7 @@ function dispatchLayerCompsCall(method: PhotoshopProtocolMethodName, args: reado
 
 // ---------------------------------------------------------------------------- selection.*
 
-function dispatchSelectionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchSelectionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "selection.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -1666,7 +1666,7 @@ function dispatchHistoryStatesCall(method: PhotoshopProtocolMethodName, args: re
 
 // ---------------------------------------------------------------------------- guide/path geometry
 
-function dispatchGuideCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchGuideCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "guide.dispose") { const [ref] = expectReferenceArgs(args, 1, 1, method); photoshopRegistry.dispose(ref); return undefined; }
   if (method === "guide.propertyGet") { const [ref, key] = expectReferenceArgs(args, 2, 2, method); const name = assertString(key, `${method} property`); return serializeGuideProperty(ref, name, getGuide(ref)[name]); }
   if (method === "guide.propertySet") { const [ref, key, value] = expectReferenceArgs(args, 3, 3, method); const name = assertString(key, `${method} property`); if (name !== "direction" && name !== "coordinate") throw new Error(`Guide property is not writable: ${name}`); return executeAsModal(`guide.set.${name}`, () => { getGuide(ref)[name] = decodeValue(value); }); }
@@ -1678,7 +1678,7 @@ function dispatchGuideCall(method: PhotoshopProtocolMethodName, args: readonly u
 
 function serializeGuideProperty(ref: RemoteReference, name: string, value: unknown): unknown { const kind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.Guide, name); if (kind.kind === "scalar" && !GUIDE_SCALARS.has(name)) throw new Error(`Unknown guide property: ${name}`); return serializeResult(kind, ref, value); }
 
-function dispatchGuidesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchGuidesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const [ref, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method); const guides = (getDocument(ref) as Record<string, unknown>).guides;
   if (method === "guides.snapshot") return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.Guide, ref, guides);
   if (method === "guides.add") return resolveMaybePromise(executeAsModal("guides.add", () => callMethod(guides, "add", decodeArgs(rest))), (value) => serializeGuide(value as PhotoshopGuideLike));
@@ -1686,16 +1686,16 @@ function dispatchGuidesCall(method: PhotoshopProtocolMethodName, args: readonly 
   return unsupported(method);
 }
 
-function dispatchPathItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchPathItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const [ref, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method); const paths = (getDocument(ref) as Record<string, unknown>).pathItems;
   if (method === "pathItems.snapshot") return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.PathItem, ref, paths);
-  if (method === "pathItems.getByName") { const name = assertString(rest[0], `${method} name`); const found = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (found == null) return null; pathItemOwners.set(found as object, getDocument(ref)); return serializePathItem(found as PhotoshopPathItemLike); }
-  if (method === "pathItems.add") { const name = assertString(rest[0], `${method} name`); const infos = buildSubPathInfos(rest[1]); return resolveMaybePromise(executeAsModal("pathItems.add", () => callMethod(paths, "add", [name, infos])), () => { const value = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (!value) throw new Error(`pathItems.add did not create ${name}.`); pathItemOwners.set(value as object, getDocument(ref)); rememberPathGeometry(value as PhotoshopPathItemLike, rest[1]); return serializePathItem(value as PhotoshopPathItemLike); }); }
+  if (method === "pathItems.getByName") { const name = assertString(rest[0], `${method} name`); const found = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (found == null) return null; pathItemOwners.set(found, getDocument(ref)); return serializePathItem(found as PhotoshopPathItemLike); }
+  if (method === "pathItems.add") { const name = assertString(rest[0], `${method} name`); const infos = buildSubPathInfos(rest[1]); return resolveMaybePromise(executeAsModal("pathItems.add", () => callMethod(paths, "add", [name, infos])), () => { const value = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (!value) throw new Error(`pathItems.add did not create ${name}.`); pathItemOwners.set(value, getDocument(ref)); rememberPathGeometry(value as PhotoshopPathItemLike, rest[1]); return serializePathItem(value as PhotoshopPathItemLike); }); }
   if (method === "pathItems.removeAll") return executeAsModal("pathItems.removeAll", () => callMethod(paths, "removeAll", []));
   return unsupported(method);
 }
 
-function dispatchPathItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchPathItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "pathItem.dispose") { const [ref] = expectReferenceArgs(args, 1, 1, method); photoshopRegistry.dispose(ref); return undefined; }
   if (method === "pathItem.propertyGet") { const [ref, key] = expectReferenceArgs(args, 2, 2, method); const name = assertString(key, `${method} property`); const item = getPathItem(ref); return serializePathItemProperty(ref, name, pathItemPropertyValue(item, name)); }
   if (method === "pathItem.propertySet") { const [ref, key, value] = expectReferenceArgs(args, 3, 3, method); const name = assertString(key, `${method} property`); if (name !== "kind" && name !== "name") throw new Error(`PathItem property is not writable: ${name}`); return executeAsModal(`pathItem.set.${name}`, () => { getPathItem(ref)[name] = decodeValue(value); }); }
@@ -1708,9 +1708,9 @@ function dispatchPathItemCall(method: PhotoshopProtocolMethodName, args: readonl
 function serializePathItemProperty(ref: RemoteReference, name: string, value: unknown): unknown { const kind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.PathItem, name); if (kind.kind === "scalar" && !PATH_ITEM_SCALARS.has(name)) throw new Error(`Unknown path item property: ${name}`); return serializeResult(kind, ref, value); }
 
 function pathItemPropertyValue(item: PhotoshopPathItemLike, name: string): unknown {
-  if (name === "subPathItems" && item[name] === undefined) return pathItemGeometry.get(item as object);
+  if (name === "subPathItems" && item[name] === undefined) return pathItemGeometry.get(item);
   if (name !== "parent") return item[name];
-  const knownOwner = pathItemOwners.get(item as object);
+  const knownOwner = pathItemOwners.get(item);
   if (knownOwner) return knownOwner;
   const documents = getPhotoshop().app.documents;
   for (let index = 0; index < documents.length; index += 1) {
@@ -1751,7 +1751,7 @@ function rememberPathGeometry(pathItem: PhotoshopPathItemLike, value: unknown): 
     subPath.pathPoints = points;
     return subPath;
   });
-  pathItemGeometry.set(pathItem as object, subPaths);
+  pathItemGeometry.set(pathItem, subPaths);
 }
 
 // ---------------------------------------------------------------------------- action.*
@@ -1762,7 +1762,7 @@ function rememberPathGeometry(pathItem: PhotoshopPathItemLike, value: unknown): 
  * would corrupt `_ref`/`_id` values in Photoshop's own id space). Batch execution enters a modal
  * scope; id/reference helpers and action-recording metadata calls execute directly.
  */
-function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "action.addNotificationListener") {
     return dispatchActionAddNotificationListener(args, method, activePhotoshopDispatchContext);
   }
@@ -1846,7 +1846,7 @@ function getActionCompatibilityTarget(methodName: "batchPlaySync" | "validateRef
 
 function getOptionalActionCompatibilityTarget(
   methodName: "batchPlaySync" | "validateReference"
-): unknown | undefined {
+): unknown {
   const photoshop = getPhotoshop();
   if (typeof photoshop.action[methodName] === "function") {
     return photoshop.action;
@@ -1949,15 +1949,15 @@ function serializeColorSampler(value: PhotoshopColorSamplerLike): RemoteReferenc
 }
 
 function serializeCountItem(value: PhotoshopCountItemLike, owner?: PhotoshopDocumentLike): RemoteReference {
-  const document = owner ?? countItemOwners.get(value as object);
-  if (document) countItemOwners.set(value as object, document);
+  const document = owner ?? countItemOwners.get(value);
+  if (document) countItemOwners.set(value, document);
   const key = `${PHOTOSHOP_REMOTE_TYPE.CountItem}:${document?.id ?? "unknown"}:${value.groupIndex}:${value.itemIndex}`;
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.CountItem, key, () => value);
 }
 
 function serializeLayerComp(value: PhotoshopLayerCompLike, owner?: PhotoshopDocumentLike): RemoteReference {
-  const document = owner ?? layerCompOwners.get(value as object);
-  if (document) layerCompOwners.set(value as object, document);
+  const document = owner ?? layerCompOwners.get(value);
+  if (document) layerCompOwners.set(value, document);
   const docId = value.docId ?? document?.id;
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.LayerComp, `LayerComp:${docId}:${value.id}`, () => value);
 }
@@ -1973,9 +1973,9 @@ function serializeTextFont(font: PhotoshopTextFontLike): RemoteReference {
 }
 
 function serializeTextItem(value: PhotoshopTextItemLike, owner?: PhotoshopLayerLike): RemoteReference {
-  const layer = owner ?? textItemOwners.get(value as object) ?? value.parent as PhotoshopLayerLike | undefined;
+  const layer = owner ?? textItemOwners.get(value) ?? value.parent as PhotoshopLayerLike | undefined;
   if (!layer || typeof layer.id !== "number") throw new Error("TextItem owner Layer is unavailable.");
-  textItemOwners.set(value as object, layer);
+  textItemOwners.set(value, layer);
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.TextItem, `TextItem:${layerIdentityKey(layer)}`, () => value);
 }
 
@@ -1986,7 +1986,7 @@ function serializeTextStyle(
   const owners = type === PHOTOSHOP_REMOTE_TYPE.CharacterStyle
     ? characterStyleOwners
     : type === PHOTOSHOP_REMOTE_TYPE.ParagraphStyle ? paragraphStyleOwners : textWarpStyleOwners;
-  const layer = owners.get(value as object);
+  const layer = owners.get(value);
   if (!layer) throw new Error(`${type} owner Layer is unavailable.`);
   return photoshopRegistry.getOrCreate(type, `${type}:${layerIdentityKey(layer)}`, () => value);
 }
@@ -2023,7 +2023,7 @@ function serializeGuide(guide: PhotoshopGuideLike): RemoteReference {
 }
 
 function serializePathItem(pathItem: PhotoshopPathItemLike): RemoteReference {
-  const owner = pathItemOwners.get(pathItem as object);
+  const owner = pathItemOwners.get(pathItem);
   const record = pathItem as Record<string, unknown>;
   const documentId = pathItem.docId ?? record._docId ?? owner?.id;
   const pathId = pathItem.id ?? record._id ?? record.name ?? geometryKey("PathItem", pathItem);
@@ -2129,8 +2129,9 @@ function serializeSnapshot(memberKind: string, ownerReference: RemoteReference, 
   try {
     members = getMemberArray(collection);
   } catch (error) {
-    const shape = collection == null ? String(collection) : `${typeof collection}:${Object.keys(collection as object).join(",")}`;
-    throw new Error(`Expected a ${memberKind} member collection for ${ownerReference.type}; received ${shape}: ${String(error)}`);
+    const shape = collection == null ? String(collection) : `${typeof collection}:${Object.keys(collection).join(",")}`;
+    const message = `Expected a ${memberKind} member collection for ${ownerReference.type}; received ${shape}: ${String(error)}`;
+    throw Object.assign(new Error(message), { cause: error });
   }
   if (memberKind === PHOTOSHOP_REMOTE_TYPE.PathItem && ownerReference.type === PHOTOSHOP_REMOTE_TYPE.Document) {
     const document = getDocument(ownerReference);
@@ -2333,7 +2334,7 @@ function dispatchDocumentModalControl(
   args: readonly unknown[],
   method: Extract<PhotoshopProtocolMethodName, `document.modal.${string}`>,
   context?: UxpDispatchContext
-): unknown | Promise<unknown> {
+): unknown {
   const [documentReference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
   getDocument(documentReference);
   const callbacks = requirePhotoshopCallbackContext(context, method);
@@ -2484,7 +2485,7 @@ function callMethod(target: unknown, methodName: string, args: readonly unknown[
   return (method as (...callArgs: unknown[]) => unknown).apply(target, [...args]);
 }
 
-function resolveMaybePromise(value: unknown, serialize: (resolved: unknown) => unknown): unknown | Promise<unknown> {
+function resolveMaybePromise(value: unknown, serialize: (resolved: unknown) => unknown): unknown {
   if (value && typeof (value as Promise<unknown>).then === "function") {
     return (value as Promise<unknown>).then(serialize);
   }
@@ -2619,7 +2620,7 @@ function assertPropertyMap(value: unknown, method: string): Record<string, unkno
   if (!value || typeof value !== "object") {
     throw new Error(`${method} requires a property map.`);
   }
-  const prototype = Object.getPrototypeOf(value);
+  const prototype = Reflect.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
     throw new Error(`${method} requires a plain property map.`);
   }

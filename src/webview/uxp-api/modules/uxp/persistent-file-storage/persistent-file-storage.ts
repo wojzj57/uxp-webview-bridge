@@ -643,11 +643,11 @@ function isUxpStorageEntry(value: unknown): value is UxpStorageEntry {
 }
 
 function isUxpStorageFile(value: unknown): value is UxpStorageFile {
-  return isUxpStorageEntry(value) && (value as UxpStorageEntry).isFile === true;
+  return isUxpStorageEntry(value) && (value).isFile === true;
 }
 
 function isUxpStorageFolder(value: unknown): value is UxpStorageFolder {
-  return isUxpStorageEntry(value) && (value as UxpStorageEntry).isFolder === true;
+  return isUxpStorageEntry(value) && (value).isFolder === true;
 }
 
 function isUxpStorageFileSystemProvider(value: unknown): value is UxpFileSystemProvider {

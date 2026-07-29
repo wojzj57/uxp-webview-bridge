@@ -158,7 +158,7 @@ test("UXP shell adapter rejects invalid args before requiring uxp", async () => 
       /uxp\.shell\.openPath expects 1-2 arguments/
     );
     assert.throws(
-      () => dispatchUxpCall("shell.openExternal", ["FILE:\/\/\/tmp\/example.txt"]),
+      () => dispatchUxpCall("shell.openExternal", ["FILE:///tmp/example.txt"]),
       /uxp\.shell\.openExternal does not allow file: URLs/
     );
     assert.equal(required, false);

@@ -84,7 +84,7 @@ export function dispatchCoreCall(
   method: string,
   args: readonly unknown[],
   context?: UxpDispatchContext
-): unknown | Promise<unknown> {
+): unknown {
   assertPhotoshopCoreRpcMethodName(method);
   const core = getCore();
 
@@ -197,7 +197,7 @@ function dispatchAddNotificationListener(
   }
   const subscriptionId = `photoshop.core.notification:${key}`;
   const nativeListener = (...nativeArgs: readonly unknown[]): void => {
-    const eventName = typeof nativeArgs[0] === "string" ? nativeArgs[0] : String(nativeArgs[0] ?? "");
+    const eventName = typeof nativeArgs[0] === "string" ? nativeArgs[0] : "";
     const descriptor = nativeArgs[1] ?? {};
     void Promise.resolve().then(() => callbacks.invoke(reference, [eventName, descriptor], {
       mode: "listener",
@@ -346,7 +346,7 @@ function dispatchModalHostControl(
   args: readonly unknown[],
   method: PhotoshopCoreInternalMethodName,
   context?: UxpDispatchContext
-): unknown | Promise<unknown> {
+): unknown {
   const callbacks = requireCallbackContext(context, method);
   const sessionId = context?.modalSessionId;
   const native = sessionId === undefined ? undefined : modalContexts.get(callbacks)?.get(sessionId);
@@ -401,7 +401,7 @@ function dispatchCalculateDialogSize(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectOptions(args, method);
   assertKnownKeys(options, ["preferredSize", "identifier", "minimumSize"], `${method} options`);
   assertSize(options.preferredSize, `${method} options.preferredSize`);
@@ -420,7 +420,7 @@ function dispatchConvertColor(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   expectArgs(args, 2, method);
   const sourceColor = assertObject(args[0], `${method} sourceColor`);
   assertString(sourceColor._obj, `${method} sourceColor._obj`);
@@ -434,7 +434,7 @@ function dispatchConvertGlobalToLocal(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   expectArgs(args, 2, method);
   const target = assertString(args[0], `${method} target`);
   const location = assertPoint(args[1], `${method} location`);
@@ -512,7 +512,7 @@ function dispatchEndModalToolState(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   expectArgs(args, 1, method);
   const commit = assertBoolean(args[0], `${method} commit`);
   return resolveResult(callCore(core, "endModalToolState", [commit]), () => undefined);
@@ -522,7 +522,7 @@ function dispatchActiveTool(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   expectArgs(args, 0, method);
   return resolveResult(callCore(core, "getActiveTool"), (value) => normalizeActiveTool(value, method));
 }
@@ -531,7 +531,7 @@ function dispatchObjectQuery(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: "core.getCPUInfo" | "core.getGPUInfo" | "core.getPluginInfo"
-): unknown | Promise<unknown> {
+): unknown {
   expectArgs(args, 0, method);
   return resolveResult(callCore(core, method.slice("core.".length)), (value) =>
     assertObject(value, `${method} result`)
@@ -542,7 +542,7 @@ function dispatchDisplayConfiguration(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   expectArgsRange(args, 0, 1, method);
   const options = args.length === 0 ? {} : assertObject(args[0], `${method} options`);
   assertKnownKeys(options, ["physicalResolution"], `${method} options`);
@@ -553,7 +553,7 @@ function dispatchDisplayConfiguration(
     if (!Array.isArray(value)) {
       throw new Error(`${method} returned a non-array value.`);
     }
-    return value;
+    return value as unknown[];
   });
 }
 
@@ -561,7 +561,7 @@ function dispatchMenuCommandState(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectMenuCommandOptions(args, method);
   return resolveResult(callCore(core, "getMenuCommandState", [options]), (value) =>
     normalizeMenuState(value, method)
@@ -572,7 +572,7 @@ function dispatchMenuCommandTitle(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectOptions(args, method);
   assertKnownKeys(options, ["commandID", "menuID", "scheduling"], `${method} options`);
   const hasCommand = typeof options.commandID === "number";
@@ -591,7 +591,7 @@ function dispatchPerformMenuCommand(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectMenuCommandOptions(args, method);
   // Do not wrap menu dispatch in executeAsModal. A menu item may enter its own modal scope or invoke
   // another plugin; an outer bridge-owned modal scope changes native command availability.
@@ -625,7 +625,7 @@ function dispatchSetExecutionMode(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectOptions(args, method);
   assertKnownKeys(options, ["enableErrorStacktraces", "logRejections"], `${method} options`);
   if (options.enableErrorStacktraces === undefined && options.logRejections === undefined) {
@@ -644,7 +644,7 @@ function dispatchSetUserIdleTime(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   expectArgs(args, 1, method);
   const idleTime = assertNonNegativeNumber(args[0], `${method} idleTime`);
   return resolveResult(callCore(core, "setUserIdleTime", [idleTime]), () => undefined);
@@ -654,7 +654,7 @@ function dispatchShowAlert(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectOptions(args, method);
   assertKnownKeys(options, ["message"], `${method} options`);
   assertString(options.message, `${method} options.message`);
@@ -665,7 +665,7 @@ function dispatchSuppressResizeGripper(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectOptions(args, method);
   assertKnownKeys(options, ["type", "target", "value"], `${method} options`);
   if (assertString(options.type, `${method} options.type`) !== "panel") {
@@ -680,7 +680,7 @@ function dispatchHistorySuspended(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectOptions(args, method);
   assertKnownKeys(options, ["documentID"], `${method} options`);
   assertPositiveInteger(options.documentID, `${method} options.documentID`);
@@ -693,7 +693,7 @@ function dispatchLayerGroupContents(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: "core.getLayerGroupContents" | "core.getLayerGroupContentsSync"
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectDocumentOptions(args, method);
   assertKnownKeys(options, ["documentID", "layerID"], `${method} options`);
   assertPositiveInteger(options.layerID, `${method} options.layerID`);
@@ -706,7 +706,7 @@ function dispatchLayerTree(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: "core.getLayerTree" | "core.getLayerTreeSync"
-): unknown | Promise<unknown> {
+): unknown {
   const options = expectDocumentOptions(args, method);
   assertKnownKeys(options, ["documentID"], `${method} options`);
   return resolveResult(callCore(core, method.slice("core.".length), [options]), (value) =>
@@ -888,7 +888,7 @@ function coreRemoteError(remoteName: string, remoteMessage: string, code: string
   });
 }
 
-function resolveResult(value: unknown, normalize: (resolved: unknown) => unknown): unknown | Promise<unknown> {
+function resolveResult(value: unknown, normalize: (resolved: unknown) => unknown): unknown {
   return value && typeof (value as Promise<unknown>).then === "function"
     ? (value as Promise<unknown>).then(normalize)
     : normalize(value);

@@ -261,7 +261,7 @@ function normalizeNotificationKey(group: string, events: readonly string[]): rea
   if (!Array.isArray(events) || events.length === 0) {
     throw new TypeError("Notification events must be a non-empty array.");
   }
-  const normalized = [...new Set(events)];
+  const normalized = [...new Set<string>(events)];
   if (normalized.some((event) => typeof event !== "string" || event.length === 0)) {
     throw new TypeError("Notification events must contain non-empty strings.");
   }

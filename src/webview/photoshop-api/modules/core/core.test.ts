@@ -1,4 +1,5 @@
 import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
+import type { PhotoshopNamespace, PsDocument } from "@webview/photoshop-api/modules/photoshop/types.js";
 
 import type {
   CPUInfo as AdobeCPUInfo,
@@ -238,6 +239,9 @@ export default defineWebviewCdpCases([
       return withFixtureDocument(bridge, skip, "layer-hierarchy", async (document) => {
         const documentID = await document.id;
         const group = await document.createLayerGroup({ name: `uxp-core-tree-${Date.now()}` });
+        if (group === null) {
+          return skip("photoshop.app.createLayerGroup returned null.");
+        }
         const layerID = await group.id;
         const asyncTree = await bridge.photoshop.core.getLayerTree({ documentID });
         const syncTree = await bridge.photoshop.core.getLayerTreeSync({ documentID });
@@ -250,16 +254,6 @@ export default defineWebviewCdpCases([
     }
   }
 ]);
-
-interface FixtureDocumentLike {
-  readonly id: Promise<number>;
-  createLayerGroup(options?: { readonly name?: string }): Promise<ActiveLayerLike>;
-  closeWithoutSaving(): Promise<void>;
-}
-
-interface ActiveLayerLike {
-  readonly id: Promise<number>;
-}
 
 interface LayerTreeLike {
   readonly layerID: number;
@@ -296,23 +290,12 @@ function treeContainsLayer(items: readonly LayerTreeLike[], layerID: number): bo
 }
 
 async function withFixtureDocument<T>(
-  bridge: {
-    photoshop: {
-      app: {
-        createDocument(options?: {
-          readonly name?: string;
-          readonly width?: number;
-          readonly height?: number;
-          readonly resolution?: number;
-        }): Promise<FixtureDocumentLike | null>;
-      };
-    };
-  },
+  bridge: { photoshop: PhotoshopNamespace },
   skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown,
   caseLabel: string,
-  run: (document: FixtureDocumentLike) => Promise<T>
+  run: (document: PsDocument) => Promise<T>
 ): Promise<unknown> {
-  let document: FixtureDocumentLike | null;
+  let document: PsDocument | null;
   try {
     document = await bridge.photoshop.app.createDocument({
       name: `uxp-webview-bridge-${caseLabel}-${Date.now()}`,

@@ -1,5 +1,8 @@
 import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
-import type { UxpPersistentFileStorage } from "@webview/uxp-api/modules/uxp/persistent-file-storage/index.js";
+import type {
+  UxpPersistentFileStorage,
+  UxpStorageFile
+} from "@webview/uxp-api/modules/uxp/persistent-file-storage/index.js";
 import type { XMPDateTime, XMPFile, XMPMeta } from "@webview/uxp-api/modules/uxp/xmp/index.js";
 
 function assertXmpBatchTypes(dateTime: XMPDateTime): void {
@@ -76,21 +79,11 @@ export default defineWebviewCdpCases([
 
       const storage = bridge.uxp.storage;
       const fileName = `uxp-webview-bridge-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`;
-      let file: {
-        write(data: string | ArrayBuffer | ArrayBufferView, options?: unknown): Promise<number>;
-        read(options?: unknown): Promise<string | ArrayBuffer>;
-        getMetadata(): Promise<{ name: string; size: number; isFile: boolean; isFolder: boolean }>;
-        delete(): Promise<number>;
-        dispose(): Promise<void>;
-      } | null = null;
+      let file: UxpStorageFile | null = null;
 
       try {
-        let folder: {
-          createFile(name: string, options?: unknown): Promise<typeof file>;
-        };
         try {
           const folderResult = storage.localFileSystem.getTemporaryFolder();
-          folder = await folderResult;
           file = await folderResult.createFile(fileName, { overwrite: true });
         } catch (error) {
           return skip("uxp.storage.localFileSystem is unavailable in this UXP host.", {

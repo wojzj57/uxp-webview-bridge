@@ -11,22 +11,25 @@ await runNodeScript("test/runner/prepare-uxp-fixture.mjs", []);
 await stopStaleDevtoolsProcesses(devtoolsPortRange);
 
 const cdpHelper = startCdpUrlHelper();
-let exitCode = 1;
-
-try {
-  const cdpUrl = await withTimeout(
-    cdpHelper.cdpUrlPromise,
-    cdpUrlTimeoutMs,
-    `Timed out waiting ${cdpUrlTimeoutMs}ms for uxp-cli to print a CDP URL.`
-  );
-  console.log(`Captured CDP URL. Running CDP test with ${cdpUrl}`);
-  exitCode = await runNodeScript("test/runner/run-cdp-test.mjs", ["--cdp-url", cdpUrl, ...args]);
-  console.log(`CDP test process exited with code ${exitCode}.`);
-} finally {
-  await stopProcessTree(cdpHelper.process.pid);
-}
+const exitCode = await runCdpTest(cdpHelper);
 
 process.exit(exitCode);
+
+async function runCdpTest(helper) {
+  try {
+    const cdpUrl = await withTimeout(
+      helper.cdpUrlPromise,
+      cdpUrlTimeoutMs,
+      `Timed out waiting ${cdpUrlTimeoutMs}ms for uxp-cli to print a CDP URL.`
+    );
+    console.log(`Captured CDP URL. Running CDP test with ${cdpUrl}`);
+    const code = await runNodeScript("test/runner/run-cdp-test.mjs", ["--cdp-url", cdpUrl, ...args]);
+    console.log(`CDP test process exited with code ${code}.`);
+    return code;
+  } finally {
+    await stopProcessTree(helper.process.pid);
+  }
+}
 
 function startCdpUrlHelper() {
   const child = spawn(

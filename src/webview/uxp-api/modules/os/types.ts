@@ -1,6 +1,6 @@
 import type { os as nativeOs } from "@shared/types/uxp/internal/os.js";
 
-export type OsMethodName = keyof typeof nativeOs & string;
+export type OsMethodName = keyof typeof nativeOs;
 export type CpuInfo = Awaited<ReturnType<typeof nativeOs.cpus>>[number];
 
 export interface OsNamespace {

@@ -19,12 +19,12 @@ export function normalizeActiveTool(value: unknown, method: string): Record<stri
 }
 
 export function normalizeMenuState(value: unknown, method: string): boolean {
-  const state = Array.isArray(value) && value.length === 1 ? value[0] : value;
+  const state: unknown = Array.isArray(value) && value.length === 1 ? value[0] : value;
   return assertBoolean(state, `${method} result`);
 }
 
 export function normalizeMenuTitle(value: unknown, method: string): string {
-  const title = Array.isArray(value) && value.length === 1 ? value[0] : value;
+  const title: unknown = Array.isArray(value) && value.length === 1 ? value[0] : value;
   return assertString(title, `${method} result`);
 }
 

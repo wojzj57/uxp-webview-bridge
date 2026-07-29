@@ -1,3 +1,13 @@
+import type { PhotoshopNamespace } from "@webview/photoshop-api/modules/photoshop/types.js";
+import type { ClipboardNamespace } from "@webview/uxp-api/global-members/clipboard/types.js";
+import type { CryptoNamespace } from "@webview/uxp-api/global-members/crypto/types.js";
+import type { LocalStorageNamespace } from "@webview/uxp-api/global-members/local-storage/types.js";
+import type { PathNamespace } from "@webview/uxp-api/global-members/path/types.js";
+import type { SessionStorageNamespace } from "@webview/uxp-api/global-members/session-storage/types.js";
+import type { FsNamespace } from "@webview/uxp-api/modules/fs/types.js";
+import type { OsNamespace } from "@webview/uxp-api/modules/os/types.js";
+import type { UxpNamespace } from "@webview/uxp-api/modules/uxp/types.js";
+
 export interface WebviewCdpAssert {
   ok(value: unknown, message?: string): void;
   equal(actual: unknown, expected: unknown, message?: string): void;
@@ -9,15 +19,15 @@ export interface WebviewCdpAssert {
 
 export interface WebviewCdpBridge {
   ensureConfigured(): unknown;
-  clipboard: any;
-  crypto: any;
-  fs: any;
-  localStorage: any;
-  os: any;
-  path: any;
-  photoshop: any;
-  sessionStorage: any;
-  uxp: any;
+  clipboard: ClipboardNamespace;
+  crypto: CryptoNamespace;
+  fs: FsNamespace;
+  localStorage: LocalStorageNamespace;
+  os: OsNamespace;
+  path: PathNamespace;
+  photoshop: PhotoshopNamespace;
+  sessionStorage: SessionStorageNamespace;
+  uxp: UxpNamespace;
 }
 
 export interface WebviewCdpCaseContext {

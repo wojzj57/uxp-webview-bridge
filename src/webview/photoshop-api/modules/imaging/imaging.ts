@@ -159,7 +159,7 @@ export function createImagingNamespace(rpc: ImagingRpc): PhotoshopImaging {
     if (!(imageData instanceof RemoteImageData)) {
       throw new Error("imageData must be a PsImageData produced by this bridge.");
     }
-    return { ...(rest as Omit<T, "imageData">), imageData: imageData.reference };
+    return { ...(rest), imageData: imageData.reference };
   }
 
   return {

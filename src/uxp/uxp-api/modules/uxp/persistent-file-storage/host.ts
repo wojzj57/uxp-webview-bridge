@@ -135,13 +135,13 @@ async function dispatchGetFolder(args: readonly unknown[]): Promise<UxpStorageEn
 async function dispatchCreateEntryWithUrl(args: readonly unknown[]): Promise<UxpStorageEntryReference> {
   expectArgs(args, 1, 2, "storage.localFileSystem.createEntryWithUrl");
   assertNonEmptyString(args[0], "storage.localFileSystem.createEntryWithUrl url");
-  return serializeEntry(await getLocalFileSystem().createEntryWithUrl(args[0] as string, decodeValue(args[1]) as never));
+  return serializeEntry(await getLocalFileSystem().createEntryWithUrl(args[0], decodeValue(args[1]) as never));
 }
 
 async function dispatchGetEntryWithUrl(args: readonly unknown[]): Promise<UxpStorageEntryReference> {
   expectArgs(args, 1, 1, "storage.localFileSystem.getEntryWithUrl");
   assertNonEmptyString(args[0], "storage.localFileSystem.getEntryWithUrl url");
-  return serializeEntry(await getLocalFileSystem().getEntryWithUrl(args[0] as string));
+  return serializeEntry(await getLocalFileSystem().getEntryWithUrl(args[0]));
 }
 
 function dispatchEntryToStringResult(
@@ -161,7 +161,7 @@ async function dispatchTokenToEntry(
 ): Promise<UxpStorageEntryReference> {
   expectArgs(args, 1, 1, method);
   assertNonEmptyString(args[0], `${method} token`);
-  return serializeEntry(await getLocalFileSystem()[hostMethod](args[0] as string));
+  return serializeEntry(await getLocalFileSystem()[hostMethod](args[0]));
 }
 
 async function dispatchCreatePersistentToken(args: readonly unknown[]): Promise<string> {
@@ -529,5 +529,5 @@ function pruneExpiredHandles(): void {
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp persistent-file-storage method: ${method}`);
+  throw new Error(`Unsupported uxp persistent-file-storage method: ${String(method)}`);
 }

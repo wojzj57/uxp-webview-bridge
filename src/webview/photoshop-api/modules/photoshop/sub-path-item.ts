@@ -1,7 +1,7 @@
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import type { ShapeOperationValue } from "@shared/photoshop-api/photoshop-constants.js";
 import { RemoteClass, type RemoteClassConfig, type RemoteMethodNames, type RemotePropertyDescriptor, type RemoteReference } from "@webview/uxp-api/remote/index.js";
-import type { PhotoshopContext } from "./context.js"; import type { PathPoints, PsPathItem, PsSubPathItem, PsSubPathItemReadableKey } from "./types.js";
+import type { PhotoshopContext } from "./context.js"; import type { PathPoints, PsSubPathItem, PsSubPathItemReadableKey } from "./types.js";
 export function createSubPathItemProperties(): Record<string, RemotePropertyDescriptor> { return {
   typename: { writable: false, mutating: false, remoteKey: "typename" }, operation: { writable: false, mutating: false, remoteKey: "operation" }, closed: { writable: false, mutating: false, remoteKey: "closed" },
   parent: { writable: false, mutating: false, remoteKey: "parent", refType: PHOTOSHOP_REMOTE_TYPE.PathItem }, pathPoints: { writable: false, mutating: false, remoteKey: "pathPoints", collectionOf: PHOTOSHOP_REMOTE_TYPE.PathPoint }

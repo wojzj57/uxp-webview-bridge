@@ -1,7 +1,7 @@
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import { RemoteClass, type RemoteClassConfig, type RemoteMethodDescriptor, type RemoteMethodNames, type RemotePropertyDescriptor, type RemoteReference } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopContext } from "./context.js";
-import type { PsDocument, PsLayer, PsPathItem, PsPathItemReadableKey, PsPathItemWritableProps, SolidColorInput, SubPathItems, SelectionPoint } from "./types.js";
+import type { PsLayer, PsPathItem, PsPathItemReadableKey, PsPathItemWritableProps, SolidColorInput, SubPathItems, SelectionPoint } from "./types.js";
 import type { ColorBlendModeValue, PathKindValue, SelectionTypeValue, ToolTypeValue } from "@shared/photoshop-api/photoshop-constants.js";
 
 const SCALARS = ["typename", "id", "docId", "kind", "name"] as const;

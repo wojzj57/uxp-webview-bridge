@@ -9,7 +9,7 @@ import {
   type RemoteReference
 } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopContext } from "./context.js";
-import type { PsDocument, PsHistoryState, PsHistoryStateReadableKey } from "./types.js";
+import type { PsHistoryState, PsHistoryStateReadableKey } from "./types.js";
 
 const HISTORY_STATE_SCALARS = ["typename", "id", "docId", "name", "snapshot"] as const;
 

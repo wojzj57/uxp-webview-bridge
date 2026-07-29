@@ -23,5 +23,5 @@ function dispatchUserId(args: readonly unknown[]): UxpUserInfoValue {
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp userInfo method: ${method}`);
+  throw new Error(`Unsupported uxp userInfo method: ${String(method)}`);
 }

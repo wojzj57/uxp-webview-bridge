@@ -220,7 +220,7 @@ export function createPhotoshopTypeRegistry(
     }
 
     // `Array`'s constructor treats a single numeric argument as a length; build via `from`.
-    return SnapshotCollection.from(resolved) as SnapshotCollection;
+    return SnapshotCollection.from(resolved);
   }
 
   function decodeCollectionMethodResult(result: RemoteResultTyping | undefined, raw: unknown): unknown {

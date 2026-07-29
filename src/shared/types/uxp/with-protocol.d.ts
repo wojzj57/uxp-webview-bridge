@@ -7,7 +7,8 @@ declare module 'adobe:os' {
   export * from 'node:os';
 }
 declare module 'adobe:path' {
-  // eslint-disable-next-line ts/no-require-imports
+  // TypeScript's import assignment is required to accurately model Node's `export =` declaration.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   import path = require('node:path');
 
   export = path;

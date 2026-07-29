@@ -20,15 +20,13 @@ import {
   type RemotePropertyDescriptor,
   type RemoteReference
 } from "@webview/uxp-api/remote/index.js";
-import type { AnchorPositionValue, BlendModeValue, ElementPlacementValue, FlipAxisValue, LayerKindValue } from "@shared/photoshop-api/photoshop-constants.js";
+import type { BlendModeValue, ElementPlacementValue, FlipAxisValue, LayerKindValue } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopContext } from "./context.js";
 import type {
-  AngleValue,
   ImagingBounds,
   Layers,
   PercentValue,
   PixelValue,
-  PsDocument,
   PsLayer,
   PsLayerReadableKey,
   PsLayerWritableProps
@@ -228,5 +226,5 @@ export function createLayerClass(context: PhotoshopContext): {
     }
   }
 
-  return WebviewPsLayer as unknown as { new (reference: RemoteReference): PsLayer };
+  return WebviewPsLayer;
 }

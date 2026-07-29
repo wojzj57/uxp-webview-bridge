@@ -415,8 +415,8 @@ function dateLikeToMs(date: Date | undefined, fallback: number | undefined): num
 }
 
 function callOptionalStatsPredicate(stats: FsStats, name: keyof FsStats): boolean {
-  const predicate = stats[name];
-  return typeof predicate === "function" ? Boolean(predicate.call(stats)) : false;
+  if (typeof stats[name] !== "function") return false;
+  return Boolean(stats[name]());
 }
 
 function assertNever(method: never): never {
