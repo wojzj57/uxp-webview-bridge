@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "reviewedCommit": "38a66fab153355046c1b272d3ddc086093ccae68",
+  "updatedAt": "2026-07-29",
+  "surfaces": [
+    "docs",
+    "README.md",
+    "README_zh.md"
+  ]
+}
