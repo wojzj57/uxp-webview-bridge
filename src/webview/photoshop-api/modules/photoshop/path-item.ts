@@ -1,7 +1,7 @@
 import { PHOTOSHOP_MODULE_ID, PHOTOSHOP_REMOTE_TYPE } from "@shared/photoshop-api/photoshop-protocol.js";
 import { RemoteClass, type RemoteClassConfig, type RemoteMethodDescriptor, type RemoteMethodNames, type RemotePropertyDescriptor, type RemoteReference } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopContext } from "./context.js";
-import type { PsDocument, PsLayer, PsPathItem, SolidColorInput, SubPathItems, SelectionPoint } from "./types.js";
+import type { PsLayer, PsPathItem, PsPathItemReadableKey, PsPathItemWritableProps, SolidColorInput, SubPathItems, SelectionPoint } from "./types.js";
 import type { ColorBlendModeValue, PathKindValue, SelectionTypeValue, ToolTypeValue } from "@shared/photoshop-api/photoshop-constants.js";
 
 const SCALARS = ["typename", "id", "docId", "kind", "name"] as const;
@@ -25,10 +25,10 @@ export function createPathItemClass(context: PhotoshopContext): { new(reference:
     method: Object.fromEntries(METHODS.map((name) => [name, `pathItem.${name}`])),
     batchGet: "pathItem.batchGet", batchSet: "pathItem.batchSet", dispose: "pathItem.dispose"
   } satisfies RemoteMethodNames };
-  class WebviewPsPathItem extends RemoteClass implements PsPathItem {
+  class WebviewPsPathItem extends RemoteClass<PsPathItem, PsPathItemReadableKey, Partial<PsPathItemWritableProps>> implements PsPathItem {
     declare readonly typename: Promise<"PathItem">; declare readonly id: Promise<number>; declare readonly docId: Promise<number>;
-    declare readonly parent: Promise<PsDocument>; declare kind: Promise<PathKindValue>; declare name: Promise<string>; declare readonly subPathItems: Promise<SubPathItems>;
-    declare deselect: () => Promise<void>; declare duplicate: (name?: string) => Promise<PsPathItem>;
+    declare readonly parent: PsPathItem["parent"]; declare kind: Promise<PathKindValue>; declare name: Promise<string>; declare readonly subPathItems: Promise<SubPathItems>;
+    declare deselect: () => Promise<void>; declare duplicate: PsPathItem["duplicate"];
     declare fillPath: (fillColor?: SolidColorInput, mode?: ColorBlendModeValue, opacity?: number, preserveTransparency?: boolean, feather?: number, wholePath?: boolean, antiAlias?: boolean) => Promise<void>;
     declare makeClippingPath: (flatness?: number) => Promise<void>; declare makeSelection: (feather?: number, antiAlias?: boolean, operation?: SelectionTypeValue) => Promise<void>;
     declare remove: () => Promise<void>; declare select: () => Promise<void>;

@@ -20,16 +20,16 @@ import {
   type RemotePropertyDescriptor,
   type RemoteReference
 } from "@webview/uxp-api/remote/index.js";
-import type { AnchorPositionValue, BlendModeValue, ElementPlacementValue, FlipAxisValue, LayerKindValue } from "@shared/photoshop-api/photoshop-constants.js";
+import type { BlendModeValue, ElementPlacementValue, FlipAxisValue, LayerKindValue } from "@shared/photoshop-api/photoshop-constants.js";
 import type { PhotoshopContext } from "./context.js";
 import type {
-  AngleValue,
   ImagingBounds,
   Layers,
   PercentValue,
   PixelValue,
-  PsDocument,
-  PsLayer
+  PsLayer,
+  PsLayerReadableKey,
+  PsLayerWritableProps
 } from "./types.js";
 
 /** Read-only scalar Layer properties. */
@@ -131,7 +131,7 @@ export function createLayerClass(context: PhotoshopContext): {
     decodeContext: registry.decodeContext
   };
 
-  class WebviewPsLayer extends RemoteClass implements PsLayer {
+  class WebviewPsLayer extends RemoteClass<PsLayer, PsLayerReadableKey, Partial<PsLayerWritableProps>> implements PsLayer {
     declare readonly typename: Promise<"Layer">;
     declare readonly id: Promise<number>;
     declare readonly locked: Promise<boolean>;
@@ -156,8 +156,8 @@ export function createLayerClass(context: PhotoshopContext): {
     declare selected: Promise<boolean>;
     declare readonly bounds: Promise<ImagingBounds>;
     declare readonly boundsNoEffects: Promise<ImagingBounds>;
-    declare readonly document: Promise<PsDocument>;
-    declare readonly parent: Promise<PsLayer | null>;
+    declare readonly document: PsLayer["document"];
+    declare readonly parent: PsLayer["parent"];
     declare readonly linkedLayers: Promise<Layers>;
     declare readonly textItem: PsLayer["textItem"];
     declare readonly layers: PsLayer["layers"];
@@ -174,7 +174,7 @@ export function createLayerClass(context: PhotoshopContext): {
     declare flip: (axis: FlipAxisValue) => Promise<void>;
     declare scale: PsLayer["scale"];
     declare rotate: PsLayer["rotate"];
-    declare merge: () => Promise<PsLayer>;
+    declare merge: PsLayer["merge"];
     declare rasterize: PsLayer["rasterize"];
     declare applyAddNoise: PsLayer["applyAddNoise"];
     declare applyAverage: PsLayer["applyAverage"];
@@ -226,5 +226,5 @@ export function createLayerClass(context: PhotoshopContext): {
     }
   }
 
-  return WebviewPsLayer as unknown as { new (reference: RemoteReference): PsLayer };
+  return WebviewPsLayer;
 }

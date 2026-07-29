@@ -8,6 +8,8 @@
  * `componentSize`; `dispose` releases the host handle.
  */
 
+import type { RemoteResult } from "@webview/uxp-api/remote/index.js";
+
 /** A rectangle in the imaging coordinate space (Adobe `ImagingBounds2`). */
 export interface ImagingRect {
   readonly left: number;
@@ -168,6 +170,6 @@ export interface PhotoshopImaging {
   createImageDataFromBuffer(
     buffer: Uint8Array | Uint16Array | Float32Array,
     options: CreateImageDataFromBufferOptions
-  ): Promise<PsImageData>;
+  ): RemoteResult<PsImageData>;
   encodeImageData(options: EncodeImageDataOptions): Promise<number[] | string>;
 }

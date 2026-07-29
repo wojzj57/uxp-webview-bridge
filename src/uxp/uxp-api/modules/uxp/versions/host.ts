@@ -31,5 +31,5 @@ function readVersion(method: UxpVersionsMethodName): UxpVersionValue {
 }
 
 function assertNever(method: never): never {
-  throw new Error(`Unsupported uxp versions method: ${method}`);
+  throw new Error(`Unsupported uxp versions method: ${String(method)}`);
 }

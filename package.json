@@ -1,14 +1,27 @@
 {
   "name": "uxp-webview-bridge",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Bridge library for Adobe UXP plugin hosts and WebView clients.",
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wojzj57/uxp-webview-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wojzj57/uxp-webview-bridge/issues"
+  },
+  "homepage": "https://github.com/wojzj57/uxp-webview-bridge#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "packageManager": "pnpm@11.5.0",
   "sideEffects": false,
   "files": [
     "dist",
     "README.md",
+    "README_zh.md",
     "CONTEXT.md"
   ],
   "exports": {
@@ -27,7 +40,10 @@
   },
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json && node scripts/copy-shared-types.mjs && node scripts/rewrite-dist-path-aliases.mjs",
+    "changeset": "changeset",
     "generate:photoshop-constants": "node scripts/generate-photoshop-constants.mjs",
+    "lint": "eslint .",
+    "release": "pnpm build && changeset publish --no-git-tag",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf dist",
     "test": "pnpm test:static && pnpm typecheck && pnpm test:contract",
@@ -38,9 +54,14 @@
   },
   "devDependencies": {
     "@bubblydoo/uxp-cli": "^0.0.12",
+    "@changesets/cli": "^2.31.1",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.14.12",
     "esbuild": "^0.28.1",
+    "eslint": "^10.8.0",
+    "globals": "^17.8.0",
     "rimraf": "^6.0.1",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.65.0"
   }
 }

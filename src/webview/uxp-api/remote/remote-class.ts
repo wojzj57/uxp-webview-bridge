@@ -5,6 +5,12 @@ import {
   type RemoteReferenceHolder,
   type RemoteValueDecoder
 } from "./reference.js";
+import {
+  createRemoteResult,
+  REMOTE_RESULT_SCHEDULER,
+  REMOTE_RESULT_SET,
+  RemoteOperationScheduler
+} from "./remote-result.js";
 
 /**
  * Minimal RPC surface a {@link RemoteClass} needs. Matches the WebView bridge rpc client.
@@ -28,6 +34,8 @@ export interface RemoteResultTyping {
   readonly refTypes?: readonly string[];
   readonly valueKind?: string;
   readonly collectionOf?: string;
+  /** Explicit chainable-object marker for modules that decode references through `decode`. */
+  readonly remoteResult?: boolean;
 }
 
 /**
@@ -114,6 +122,17 @@ export interface RemoteMethodNames {
   readonly dispose: string;
 }
 
+/** Resolve the selected remote property types after the outer batch Promise settles. */
+export type RemoteBatchGetResult<TProperties, K extends keyof TProperties> = {
+  [P in K]: Awaited<TProperties[P]>;
+};
+
+/** Uniform empty batch surface for RemoteClasses that declare no remote properties. */
+export interface EmptyRemoteBatchOperations {
+  batchGet(propertyNames: readonly never[]): Promise<Record<never, never>>;
+  batchSet(properties: Readonly<Record<string, never>>): Promise<void>;
+}
+
 /** Internal symbol used by RemoteClass subclasses for bound sub-namespaces such as Document.saveAs. */
 export const REMOTE_INVOKE = Symbol("RemoteClass.invokeRemote");
 
@@ -132,12 +151,18 @@ export interface RemoteConstructionRequest {
  * wrappers, plus `batchGet` / `batchSet`. All bridge communication lives here; subclasses are pure
  * declarations. See docs/adr/0002 and docs/adr/0008.
  */
-export abstract class RemoteClass implements RemoteReferenceHolder {
+export abstract class RemoteClass<
+  TReadableProperties extends object = Record<string, unknown>,
+  TReadableKey extends keyof TReadableProperties & string = keyof TReadableProperties & string,
+  TBatchSetProperties extends object = Record<string, unknown>
+> implements RemoteReferenceHolder {
   readonly #config: RemoteClassConfig;
   readonly #referencePromise: Promise<RemoteReference>;
-  #queue: Promise<unknown> = Promise.resolve();
+  readonly #scheduler = new RemoteOperationScheduler();
 
   protected constructor(config: RemoteClassConfig, source: RemoteReference | RemoteConstructionRequest) {
+    assertNoPromiseLikeRemoteMembers(config);
+    assertBatchMethodsConfigured(config);
     this.#config = config;
     this.#referencePromise = isConstructionRequest(source)
       ? config.rpc.call<RemoteReference>(config.moduleId, source.method, source.args)
@@ -150,61 +175,89 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     return this.#referencePromise;
   }
 
-  async dispose(): Promise<void> {
-    const reference = await this.#referencePromise;
-    await this.#config.rpc.call<void>(this.#config.moduleId, this.#config.methodNames.dispose, [reference]);
+  dispose(): Promise<void> {
+    return this.#scheduler.run(async () => {
+      const reference = await this.#referencePromise;
+      await this.#config.rpc.call<void>(this.#config.moduleId, this.#config.methodNames.dispose, [reference]);
+    });
+  }
+
+  get [REMOTE_RESULT_SCHEDULER](): RemoteOperationScheduler {
+    return this.#scheduler;
+  }
+
+  [REMOTE_RESULT_SET](name: PropertyKey, value: unknown, bypassExternalWrites = false): Promise<void> {
+    if (typeof name !== "string") {
+      return Promise.reject(new TypeError(`Remote property names must be strings: ${String(name)}`));
+    }
+    const descriptor = this.#config.properties[name];
+    if (!descriptor?.writable) {
+      return Promise.reject(new TypeError(`Cannot assign non-writable remote property: ${name}`));
+    }
+    return this.#scheduler.write(() => this.#writeProperty(name, value), bypassExternalWrites);
   }
 
   /**
    * Invoke an RPC owned by a subclass-local bound namespace while preserving this instance's
    * reference, queued-write ordering, recursive argument encoding, and result decoding.
    */
-  protected async [REMOTE_INVOKE]<T>(
+  protected [REMOTE_INVOKE]<T>(
     method: string,
     args: readonly unknown[] = [],
     result?: RemoteResultTyping & { readonly decode?: RemoteValueDecoder }
   ): Promise<T> {
-    const reference = await this.#referencePromise;
-    await this.#queue;
-    const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
-    const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
-    return this.#decodeResult(result, raw) as T;
+    const promise = this.#scheduler.run(async () => {
+      const reference = await this.#referencePromise;
+      const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
+      const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
+      return this.#decodeResult(result, raw) as T;
+    });
+    return this.#wrapRemoteResult(promise, result, method) as Promise<T>;
   }
 
   /** Read multiple properties of this object in a single RPC. */
-  async batchGet<K extends string>(propertyNames: readonly K[]): Promise<Record<K, unknown>> {
-    const method = this.#config.methodNames.batchGet;
-    if (!method) {
-      throw new Error("This remote class does not support batchGet.");
+  async batchGet<K extends TReadableKey>(
+    propertyNames: readonly K[]
+  ): Promise<RemoteBatchGetResult<TReadableProperties, K>> {
+    const names = normalizeBatchGetNames(propertyNames, this.#config.properties);
+    if (names.length === 0) {
+      return {} as RemoteBatchGetResult<TReadableProperties, K>;
     }
-    const reference = await this.#referencePromise;
-    await this.#queue;
-    const raw = await this.#config.rpc.call<Record<string, unknown>>(this.#config.moduleId, method, [
-      reference,
-      propertyNames
-    ]);
+    const method = this.#requireMethodName(this.#config.methodNames.batchGet, "batch get properties");
+    return this.#scheduler.run(async () => {
+      const reference = await this.#referencePromise;
+      const raw = await this.#config.rpc.call<Record<string, unknown>>(this.#config.moduleId, method, [
+        reference,
+        names
+      ]);
 
-    const result = {} as Record<K, unknown>;
-    for (const name of propertyNames) {
-      result[name] = this.#decodeProperty(name, raw[name]);
-    }
-    return result;
+      const result = {} as RemoteBatchGetResult<TReadableProperties, K>;
+      for (const name of names) {
+        result[name] = this.#decodeProperty(name, raw[name]) as Awaited<TReadableProperties[typeof name]>;
+      }
+      return result;
+    });
   }
 
-  /** Set multiple writable properties of this object in a single queued RPC. */
-  batchSet(properties: Readonly<Record<string, unknown>>): void {
-    const method = this.#config.methodNames.batchSet;
-    if (!method) {
-      throw new Error("This remote class does not support batchSet.");
-    }
-    for (const name of Object.keys(properties)) {
+  /** Set multiple writable properties of this object in one explicit, awaitable RPC. */
+  async batchSet(properties: Readonly<TBatchSetProperties>): Promise<void> {
+    const snapshot = snapshotBatchSetProperties(properties);
+    const names = Object.keys(snapshot);
+    for (const name of names) {
       const descriptor = this.#config.properties[name];
       if (!descriptor || !descriptor.writable) {
-        throw new Error(`Cannot batchSet non-writable property: ${name}`);
+        throw new TypeError(`Cannot batchSet non-writable property: ${name}`);
       }
     }
-    this.#enqueueWrite(async (reference) => {
-      const encoded = await this.#encodeObject(properties);
+    if (names.length === 0) {
+      return;
+    }
+    const method = this.#requireMethodName(this.#config.methodNames.batchSet, "batch set properties");
+    const encodedPromise = this.#encodeObject(snapshot);
+    void encodedPromise.catch(() => undefined);
+    return this.#scheduler.writeExplicit(async () => {
+      const reference = await this.#referencePromise;
+      const encoded = await encodedPromise;
       await this.#config.rpc.call<void>(this.#config.moduleId, method, [reference, encoded]);
     });
   }
@@ -222,6 +275,12 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     }
 
     for (const name of Object.keys(this.#config.methods)) {
+      // A subclass may provide a callback-aware implementation for a descriptor-backed method.
+      // Keep the descriptor as the public/result-kind source of truth, but do not shadow the
+      // prototype implementation with RemoteClass's generic argument encoder.
+      if (name in this) {
+        continue;
+      }
       Object.defineProperty(this, name, {
         enumerable: false,
         writable: false,
@@ -230,33 +289,59 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     }
   }
 
-  async #getProperty(name: string): Promise<unknown> {
-    const reference = await this.#referencePromise;
-    await this.#queue;
-    const method = this.#requireMethodName(this.#config.methodNames.propertyGet[name], `get property ${name}`);
-    const remoteKey = this.#config.properties[name]?.remoteKey;
-    const callArgs = remoteKey === undefined ? [reference] : [reference, remoteKey];
-    const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, callArgs);
-    return this.#decodeProperty(name, raw);
+  #getProperty(name: string): unknown {
+    const promise = this.#scheduler.run(async () => {
+      const reference = await this.#referencePromise;
+      const method = this.#requireMethodName(this.#config.methodNames.propertyGet[name], `get property ${name}`);
+      const remoteKey = this.#config.properties[name]?.remoteKey;
+      const callArgs = remoteKey === undefined ? [reference] : [reference, remoteKey];
+      const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, callArgs);
+      return this.#decodeProperty(name, raw);
+    });
+    return this.#wrapRemoteResult(promise, this.#config.properties[name], name);
   }
 
   #setProperty(name: string, value: unknown): void {
-    const method = this.#requireMethodName(this.#config.methodNames.propertySet[name], `set property ${name}`);
-    const remoteKey = this.#config.properties[name]?.remoteKey;
-    this.#enqueueWrite(async (reference) => {
-      const [encoded] = await encodeRemoteArgs([value], this.#config.argEncoders);
-      const callArgs = remoteKey === undefined ? [reference, encoded] : [reference, remoteKey, encoded];
-      await this.#config.rpc.call<void>(this.#config.moduleId, method, callArgs);
-    });
+    this.#scheduler.enqueueWrite(() => this.#writeProperty(name, value));
   }
 
-  async #callMethod(name: string, args: readonly unknown[]): Promise<unknown> {
+  #callMethod(name: string, args: readonly unknown[]): unknown {
+    const promise = this.#scheduler.run(async () => {
+      const reference = await this.#referencePromise;
+      const method = this.#requireMethodName(this.#config.methodNames.method[name], `call method ${name}`);
+      const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
+      const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
+      return this.#decodeResult(this.#config.methods[name], raw);
+    });
+    return this.#wrapRemoteResult(promise, this.#config.methods[name], name);
+  }
+
+  async #writeProperty(name: string, value: unknown): Promise<void> {
     const reference = await this.#referencePromise;
-    await this.#queue;
-    const method = this.#requireMethodName(this.#config.methodNames.method[name], `call method ${name}`);
-    const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
-    const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
-    return this.#decodeResult(this.#config.methods[name], raw);
+    const method = this.#requireMethodName(this.#config.methodNames.propertySet[name], `set property ${name}`);
+    const remoteKey = this.#config.properties[name]?.remoteKey;
+    const [encoded] = await encodeRemoteArgs([value], this.#config.argEncoders);
+    const callArgs = remoteKey === undefined ? [reference, encoded] : [reference, remoteKey, encoded];
+    await this.#config.rpc.call<void>(this.#config.moduleId, method, callArgs);
+  }
+
+  #wrapRemoteResult(
+    promise: Promise<unknown>,
+    descriptor: RemoteResultTyping | undefined,
+    memberName: string
+  ): unknown {
+    if (
+      descriptor?.refType === undefined &&
+      descriptor?.refTypes === undefined &&
+      descriptor?.remoteResult !== true
+    ) {
+      return promise;
+    }
+    return createRemoteResult(
+      promise as Promise<object | null | undefined>,
+      this.#scheduler,
+      `${this.constructor.name}.${memberName}`
+    );
   }
 
   #decodeProperty(name: string, raw: unknown): unknown {
@@ -304,14 +389,6 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
     return method;
   }
 
-  #enqueueWrite(run: (reference: RemoteReference) => Promise<void>): void {
-    this.#queue = this.#queue.then(async () => {
-      const reference = await this.#referencePromise;
-      await run(reference);
-    });
-    void this.#queue.catch(() => undefined);
-  }
-
   async #encodeObject(properties: Readonly<Record<string, unknown>>): Promise<Record<string, unknown>> {
     const entries = await Promise.all(
       Object.entries(properties).map(
@@ -322,6 +399,75 @@ export abstract class RemoteClass implements RemoteReferenceHolder {
   }
 }
 
+const PROMISE_MEMBER_NAMES = ["then", "catch", "finally"] as const;
+
+function assertNoPromiseLikeRemoteMembers(config: RemoteClassConfig): void {
+  for (const name of PROMISE_MEMBER_NAMES) {
+    if (
+      Object.prototype.hasOwnProperty.call(config.properties, name) ||
+      Object.prototype.hasOwnProperty.call(config.methods, name)
+    ) {
+      throw new TypeError(
+        `Remote member ${name} is reserved because chainable remote results implement the Promise interface.`
+      );
+    }
+  }
+}
+
+function assertBatchMethodsConfigured(config: RemoteClassConfig): void {
+  const propertyNames = Object.keys(config.properties);
+  if (propertyNames.length > 0 && config.methodNames.batchGet === undefined) {
+    throw new TypeError(`Remote class ${config.moduleId} has readable properties but no batchGet RPC method.`);
+  }
+  if (
+    propertyNames.some((name) => config.properties[name]?.writable) &&
+    config.methodNames.batchSet === undefined
+  ) {
+    throw new TypeError(`Remote class ${config.moduleId} has writable properties but no batchSet RPC method.`);
+  }
+}
+
+function normalizeBatchGetNames<K extends string>(
+  propertyNames: readonly K[],
+  descriptors: Readonly<Record<string, RemotePropertyDescriptor>>
+): K[] {
+  if (!Array.isArray(propertyNames)) {
+    throw new TypeError("batchGet property names must be an array.");
+  }
+  const seen = new Set<string>();
+  const result: K[] = [];
+  for (const name of propertyNames) {
+    if (typeof name !== "string") {
+      throw new TypeError("batchGet property names must contain only strings.");
+    }
+    if (!Object.prototype.hasOwnProperty.call(descriptors, name)) {
+      throw new TypeError(`Cannot batchGet unknown property: ${name}`);
+    }
+    if (!seen.has(name)) {
+      seen.add(name);
+      result.push(name as K);
+    }
+  }
+  return result;
+}
+
+function snapshotBatchSetProperties(
+  properties: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+  if (properties === null || typeof properties !== "object" || Array.isArray(properties)) {
+    throw new TypeError("batchSet properties must be a plain object.");
+  }
+  const prototype = Reflect.getPrototypeOf(properties);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("batchSet properties must be a plain object.");
+  }
+  const snapshot = Object.create(null) as Record<string, unknown>;
+  for (const name of Object.keys(properties)) {
+    snapshot[name] = properties[name];
+  }
+  return snapshot;
+}
+
 function isConstructionRequest(source: RemoteReference | RemoteConstructionRequest): source is RemoteConstructionRequest {
-  return "method" in source && typeof (source as RemoteConstructionRequest).method === "string";
+  return "method" in source && typeof (source).method === "string";
 }

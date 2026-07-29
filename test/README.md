@@ -81,6 +81,8 @@ Colocated case names are global and must include the module prefix, such as `fs.
 
 The fixture preparation step compiles colocated WebView module cases, copies bridge cases into the fixture, and generates the case registry. `pnpm test:uxp` runs all generated cases by default.
 
+Photoshop cases that need document state must create a minimal document through `ctx.bridge.photoshop.app.createDocument` and close it without saving in `finally`. If isolated creation is unavailable, skip before reading or mutating `activeDocument`; the test suite never borrows a user's document as fixture state.
+
 ## Fixture Notes
 
 The WebView is loaded from local plugin content:
@@ -91,4 +93,4 @@ The WebView is loaded from local plugin content:
 
 This requires UXP v8.0 or later and `requiredPermissions.webview.allowLocalRendering` set to `"yes"` in `test/uxp-plugin/manifest.json`.
 
-The fixture may enable test-only capabilities needed by CDP cases, such as `fs: true` for real plugin-data filesystem tests. Keep those capability overrides in `test/uxp-plugin/host.js`; do not change production defaults just to satisfy CDP coverage.
+The fixture may state capability values explicitly when CDP cases depend on them, such as `fs: true` for real plugin-data filesystem tests. Keep fixture-specific overrides in `test/uxp-plugin/host.js`; production defaults must follow the public capability contract rather than CDP convenience.

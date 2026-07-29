@@ -19,10 +19,10 @@ const DOCUMENT_METHODS = [
   "calculations", "changeMode", "close", "closeWithoutSaving", "convertProfile", "createLayer", "createLayerGroup",
   "createPixelLayer", "createTextLayer", "crop", "duplicate", "duplicateLayers", "flatten", "generativeUpscale",
   "groupLayers", "linkLayers", "mergeVisibleLayers", "paste", "rasterizeAllLayers", "resizeCanvas", "resizeImage",
-  "revealAll", "rotate", "sampleColor", "save", "splitChannels", "trap", "trim"
+  "revealAll", "rotate", "sampleColor", "save", "splitChannels", "suspendHistory", "trap", "trim"
 ];
 
-test("PsDocument exposes exactly the 65 transportable documented members and saveAs honors queued writes", async () => {
+test("PsDocument exposes exactly the 66 transportable documented members and saveAs honors queued writes", async () => {
   const { createPhotoshopNamespace } = await import(namespaceModule);
   const docRef = ref("Document", "doc-1");
   const calls = [];
@@ -43,15 +43,15 @@ test("PsDocument exposes exactly the 65 transportable documented members and sav
       if (method === "layerComps.getAllByName") return snapshot("LayerComp", docRef, ["comp-1"]);
       if (method === "document.sampleColor") return value("SampledColor", { typename: "NoColor" });
       if (method === "document.calculations") return ref("Channel", "channel-1");
+      if (method === "channel.propertyGet" && args[1] === "name") return "Alpha";
       if (method === "document.splitChannels") return snapshot("Document", docRef, ["doc-2"]);
       return undefined;
     }
   };
   const { app } = createPhotoshopNamespace(rpc);
   const document = await app.activeDocument;
-  assert.equal(DOCUMENT_PROPERTIES.length + DOCUMENT_METHODS.length, 65);
+  assert.equal(DOCUMENT_PROPERTIES.length + DOCUMENT_METHODS.length, 66);
   for (const name of [...DOCUMENT_PROPERTIES, ...DOCUMENT_METHODS]) assert.ok(name in document, `document.${name} must exist.`);
-  assert.equal("suspendHistory" in document, false, "callback-bound suspendHistory must not be falsely exposed.");
 
   document.quickMaskMode = true;
   const fileRef = { kind: "uxp.storage.entry", type: "file", id: "file-1" };
@@ -72,7 +72,11 @@ test("PsDocument exposes exactly the 65 transportable documented members and sav
   assert.equal(comps.typename, "LayerComps");
   assert.equal((await comps.getAllByName("A"))[0], comps[0]);
   assert.deepEqual(await document.sampleColor({ x: 0, y: 0 }), { typename: "NoColor" });
-  assert.ok(await document.calculations({}), "calculations should decode a reference union.");
+  assert.equal(
+    await document.calculations({}).name,
+    "Alpha",
+    "calculations should expose decoded reference unions as chainable remote results."
+  );
   assert.equal((await document.splitChannels()).length, 1);
 });
 

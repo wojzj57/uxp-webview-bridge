@@ -4,6 +4,10 @@ import { test } from "node:test";
 const baseCapabilities = {
   fs: false,
   os: true,
+  clipboard: true,
+  localStorage: true,
+  sessionStorage: true,
+  fetch: true,
   shell: true,
   userInfo: true,
   pluginManager: true,

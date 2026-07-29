@@ -94,6 +94,10 @@ Use these top-level script names:
 
 The CDP runner does not reload the UXP panel by default because UXP's CDP `Runtime.evaluate` can hang when evaluation triggers `location.reload()`. Use `--reload` only as a manual debugging option.
 
+Colocated cases may declare `timeoutMs`. Fixture preparation carries that metadata through the
+generated registry, and the runner honors it for both all-case and `--case` runs. Explicit suite
+case/suite timeouts take precedence; cases without metadata use `UXP_TEST_TIMEOUT_MS` or 15 seconds.
+
 ## CDP URL Ownership
 
 Use the single public auto wrapper for CDP URL ownership:
@@ -266,7 +270,7 @@ The initial CDP case set is:
 - `fs.file-descriptor-binary-roundtrip`: verifies open, read, write, close, and binary transport through a real file descriptor.
 - `bridge.remote-error-shape`: triggers a real remote error and confirms the WebView side receives the bridge remote error fields.
 
-Keep Photoshop coverage out of the initial all-case default until the fixture can create and clean up document state safely.
+Photoshop cases may participate in the default all-case run only when every case that needs document state creates its own minimal fixture document through the public WebView API and closes it without saving in `finally`. A case that cannot create an isolated document must call `skip(...)` before reading or mutating any user document.
 
 ## Failure Strategy
 
@@ -278,8 +282,8 @@ Support `--fail-fast` for local debugging, but do not make it the default CI beh
 
 ## Photoshop Fixture State
 
-Photoshop CDP cases must not depend on the user's current Photoshop document state. Photoshop fixture setup should declare prerequisites such as `requiresPhotoshopDocument: true` when that layer exists.
+Photoshop CDP cases must not depend on the user's current Photoshop document state. Prefer a per-case fixture helper over an ambient `activeDocument`; setup should declare prerequisites such as `requiresPhotoshopDocument: true` only if a future suite-level fixture layer owns creation and teardown.
 
 The fixture setup should create the minimum document and layer state needed by the suite, and teardown should close test documents without saving. Cases must not modify user documents. If the current Photoshop host cannot support a required setup capability, mark the affected case as `skipped` and include diagnostics.
 
-The default all-case run should not create Photoshop documents until Photoshop fixture setup and teardown are implemented.
+The default all-case run may create Photoshop documents only through this fixture-owned lifecycle. Teardown failure is a case failure because an unclosed test document is material leaked state.

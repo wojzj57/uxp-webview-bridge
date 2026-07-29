@@ -64,7 +64,7 @@ export class SubPathInfo implements SubPathInfoInput {
   get entireSubPath(): readonly PathPointInfoInput[] { return [...this.#entireSubPath]; }
   set entireSubPath(value: readonly PathPointInfoInput[]) {
     if (!Array.isArray(value)) throw new TypeError("entireSubPath must be an array.");
-    this.#entireSubPath = [...value];
+    this.#entireSubPath = Array.from<PathPointInfoInput>(value);
   }
   get operation(): ShapeOperationValue { return this.#operation; }
   set operation(value: ShapeOperationValue) {

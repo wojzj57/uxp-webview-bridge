@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      repair_version:
+        description: Existing npm version whose missing tag or GitHub Release should be repaired
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify a manual run
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm lint && pnpm test && pnpm build
+
+      - name: Configure release commit identity
+        run: |
+          git config user.name "wojzj57"
+          git config user.email "wojzj57@gmail.com"
+
+      - name: Create release pull request or publish to npm
+        id: changesets
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          commit: |-
+            chore: release
+
+            Signed-off-by: wojzj57 <wojzj57@gmail.com>
+          createGithubReleases: false
+          publish: pnpm release
+          setupGitUser: false
+          title: "chore: release"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ""
+
+      - name: Resolve release version
+        id: release-version
+        if: >-
+          steps.changesets.outputs.published == 'true' ||
+          (github.event_name == 'workflow_dispatch' && inputs.repair_version != '')
+        env:
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          REPAIR_VERSION: ${{ inputs.repair_version }}
+        run: |
+          if [[ -n "$REPAIR_VERSION" ]]; then
+            version="$REPAIR_VERSION"
+            current_version="$(node --print "require('./package.json').version")"
+            if [[ "$version" != "$current_version" ]]; then
+              echo "repair_version must match package.json ($current_version)." >&2
+              exit 1
+            fi
+            package_name="$(node --print "require('./package.json').name")"
+            npm view "$package_name@$version" version >/dev/null
+          else
+            version="$(node --input-type=module --eval "const releases = JSON.parse(process.env.PUBLISHED_PACKAGES); if (releases.length !== 1) throw new Error('Expected exactly one published package.'); process.stdout.write(releases[0].version);")"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare GitHub Release notes
+        if: steps.release-version.outputs.version != ''
+        run: node scripts/extract-release-notes.mjs "${{ steps.release-version.outputs.version }}" > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create version tag
+        if: steps.release-version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          remote_target="$(git ls-remote --tags origin "refs/tags/$VERSION" | cut -f1)"
+          if [[ -n "$remote_target" && "$remote_target" != "$(git rev-parse HEAD)" ]]; then
+            echo "Tag $VERSION already points to a different commit." >&2
+            exit 1
+          fi
+          if [[ -z "$remote_target" ]]; then
+            git tag "$VERSION"
+            git push origin "refs/tags/$VERSION"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.release-version.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" \
+              --title "$VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              --verify-tag
+          fi

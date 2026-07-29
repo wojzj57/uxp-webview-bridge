@@ -264,7 +264,7 @@ for (const testCase of CASES) {
     const { type, batchGetName, batchSetName, writableProp } = testCase;
     const module = "photoshop-api/modules/photoshop";
     // Channel has no `id` scalar; read a property it actually exposes for the batchGet probe.
-    const readableProp = testCase.readableProp ?? (type === "Channel" || type === "PathItem" || type === "LayerComp" ? "name" : type === "Guide" ? "coordinate" : type === "SubPathItem" || type === "PathPoint" || type === "ColorSampler" || type === "CountItem" ? "typename" : "id");
+    const readableProp = testCase.readableProp ?? (type === "Channel" || type === "PathItem" || type === "LayerComp" ? "name" : type === "Selection" ? "solid" : type === "Guide" ? "coordinate" : type === "SubPathItem" || type === "PathPoint" || type === "ColorSampler" || type === "CountItem" ? "typename" : "id");
 
     await instance.batchGet([readableProp]);
     const batchGetCall = rpc.calls.find((call) => call.method === batchGetName);
@@ -273,9 +273,7 @@ for (const testCase of CASES) {
     assert.deepEqual(batchGetCall.args, [reference(type), [readableProp]]);
 
     if (writableProp !== undefined) {
-      instance.batchSet({ [writableProp]: 1 });
-      await instance.toRemoteReference();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await instance.batchSet({ [writableProp]: 1 });
       const batchSetCall = rpc.calls.find((call) => call.method === batchSetName);
       assert.ok(batchSetCall, `batchSet should call ${batchSetName}.`);
       assert.equal(batchSetCall.args[0].type, type, "batchSet reference type");
@@ -289,8 +287,8 @@ for (const testCase of CASES) {
     // signature already forbids it (belt and suspenders — see photoshop.test.ts @ts-expect-error).
     // Channel has no `id`, so use its read-only `histogram` instead.
     const readOnlyProp = testCase.readOnlyProp ?? (testCase.type === "Channel" ? "histogram" : testCase.type === "Selection" ? "solid" : testCase.type === "SubPathItem" || testCase.type === "PathPoint" || testCase.type === "ColorSampler" || testCase.type === "CountItem" ? "typename" : "id");
-    assert.throws(
-      () => instance.batchSet({ [readOnlyProp]: 1 }),
+    await assert.rejects(
+      instance.batchSet({ [readOnlyProp]: 1 }),
       new RegExp(`Cannot batchSet non-writable property: ${readOnlyProp}`)
     );
   });

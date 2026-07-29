@@ -451,6 +451,12 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "document.sampleColor",
   "document.splitChannels",
   "document.trap",
+  "document.suspendHistory",
+  "document.modal.reportProgress",
+  "document.modal.suspendHistory",
+  "document.modal.resumeHistory",
+  "document.modal.registerAutoCloseDocument",
+  "document.modal.unregisterAutoCloseDocument",
   "document.saveAs.bmp",
   "document.saveAs.gif",
   "document.saveAs.jpg",
@@ -694,7 +700,9 @@ export const PHOTOSHOP_METHOD_NAMES = [
   "action.batchPlaySync",
   "action.getIDFromString",
   "action.recordAction",
-  "action.validateReference"
+  "action.validateReference",
+  "action.addNotificationListener",
+  "action.removeNotificationListener"
 ] as const;
 
 export type PhotoshopProtocolMethodName = (typeof PHOTOSHOP_METHOD_NAMES)[number];

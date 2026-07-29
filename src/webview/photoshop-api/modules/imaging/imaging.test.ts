@@ -22,6 +22,7 @@
  */
 
 import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
+import type { PhotoshopNamespace } from "@webview/photoshop-api/modules/photoshop/types.js";
 
 // --- Static layer: type-only imports (erased at runtime; allowed by the static boundary checker) ---
 import type {
@@ -42,6 +43,7 @@ import type {
   GetLayerMaskOptions,
   GetPixelsOptions,
   GetSelectionOptions,
+  PhotoshopImaging,
   PsImageData,
   PutLayerMaskOptions,
   PutPixelsOptions,
@@ -170,17 +172,18 @@ export default defineWebviewCdpCases([
 
       // Build a tiny 2x1 RGBA buffer host-side from an incoming byte buffer, then read it back.
       const source = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]);
-      const created: PsImageData = await bridge.photoshop.imaging.createImageDataFromBuffer(source, {
+      const createdResult = bridge.photoshop.imaging.createImageDataFromBuffer(source, {
         width: 2,
         height: 1,
         components: 4,
         colorSpace: "RGB"
       });
+      const created: PsImageData = await createdResult;
       try {
         assert.equal(created.width, 2, "createImageDataFromBuffer should honor the requested width.");
         assert.equal(created.height, 1, "createImageDataFromBuffer should honor the requested height.");
 
-        const readBack = await created.getData();
+        const readBack = await createdResult.getData();
         assert.ok(readBack instanceof Uint8Array, "an 8-bit buffer should read back as Uint8Array.");
         assert.equal(readBack.byteLength, source.byteLength, "the round-tripped byte length should match.");
 
@@ -254,7 +257,7 @@ function isSkip(value: unknown): value is SkipMarker {
 }
 
 async function getActiveDocument(
-  bridge: { photoshop: any },
+  bridge: { photoshop: PhotoshopNamespace },
   skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
 ): Promise<unknown | SkipMarker> {
   try {
@@ -290,3 +293,17 @@ function normalizeError(error: unknown): Record<string, unknown> {
   }
   return { message: String(error) };
 }
+
+function assertImagingRemoteResultTypes(imaging: PhotoshopImaging): void {
+  const result = imaging.createImageDataFromBuffer(new Uint8Array(4), {
+    width: 1,
+    height: 1,
+    components: 4,
+    colorSpace: "RGB"
+  });
+  const legacyImageData: Promise<PsImageData> = result;
+  const chainedDispose: Promise<void> = result.dispose();
+  void [legacyImageData, chainedDispose];
+}
+
+void assertImagingRemoteResultTypes;

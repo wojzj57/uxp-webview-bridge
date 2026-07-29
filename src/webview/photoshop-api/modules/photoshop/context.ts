@@ -9,12 +9,36 @@
  */
 
 import type { RemoteRpc } from "@webview/uxp-api/remote/index.js";
+import type { BridgeCallbackReference } from "@shared/protocol.js";
 import type { RemoteArgEncoder } from "@webview/uxp-api/remote/index.js";
 import type { PhotoshopTypeRegistry } from "./registry.js";
 
 /** Late-bound namespace context: the rpc client plus the shared type/value/collection registry. */
+export interface PhotoshopRpc extends RemoteRpc {
+  readonly activeModalSessionId?: string | undefined;
+  readonly callbackScope?: object | undefined;
+  retainCallback?(callback: (...args: never[]) => unknown): BridgeCallbackReference;
+  releaseCallback?(reference: BridgeCallbackReference): void;
+}
+
+export interface PhotoshopCallbackOwner {
+  retainCallback(callback: (...args: never[]) => unknown): BridgeCallbackReference;
+  releaseCallback(reference: BridgeCallbackReference): void;
+}
+
+export function requirePhotoshopCallbackOwner(rpc: PhotoshopRpc): PhotoshopCallbackOwner & object {
+  const candidate = rpc.callbackScope ?? rpc;
+  if (
+    typeof (candidate as Partial<PhotoshopCallbackOwner>).retainCallback !== "function" ||
+    typeof (candidate as Partial<PhotoshopCallbackOwner>).releaseCallback !== "function"
+  ) {
+    throw new Error("This bridge RPC transport does not support callbacks.");
+  }
+  return candidate as PhotoshopCallbackOwner & object;
+}
+
 export interface PhotoshopContext {
-  readonly rpc: RemoteRpc;
+  readonly rpc: PhotoshopRpc;
   readonly registry: PhotoshopTypeRegistry;
   readonly argEncoders: readonly RemoteArgEncoder[];
 }

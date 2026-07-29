@@ -38,7 +38,12 @@ try {
       process.exit(1);
     }
   } else if (caseName) {
-    const result = await runSingleCase(client, caseName ?? "bridge.ping", timeoutMs);
+    const selectedCaseName = caseName ?? "bridge.ping";
+    const result = await runSingleCase(
+      client,
+      selectedCaseName,
+      await readRegisteredCaseTimeout(client, selectedCaseName, timeoutMs)
+    );
     printResult(result);
     if (result.status === "failed") {
       process.exit(1);
@@ -73,7 +78,11 @@ async function runAllCases(client) {
   const results = [];
 
   for (const name of caseNames) {
-    results.push(await runSingleCase(client, name, timeoutMs));
+    results.push(await runSingleCase(
+      client,
+      name,
+      await readRegisteredCaseTimeout(client, name, timeoutMs)
+    ));
   }
 
   return {
@@ -90,10 +99,11 @@ async function runSuite(client, name) {
   const results = [];
 
   for (const testCase of suite.cases) {
+    const registeredTimeout = await readRegisteredCaseTimeout(client, testCase.caseName, timeoutMs);
     const result = await runSingleCase(
       client,
       testCase.caseName,
-      Number(testCase.timeoutMs ?? suite.timeoutMs ?? timeoutMs)
+      normalizeTimeout(testCase.timeoutMs ?? suite.timeoutMs ?? registeredTimeout, testCase.caseName)
     );
     results.push(result);
   }
@@ -104,6 +114,21 @@ async function runSuite(client, name) {
     durationMs: Date.now() - startedAt,
     cases: results
   };
+}
+
+async function readRegisteredCaseTimeout(client, name, fallback) {
+  const registered = await client.evaluate(
+    `window.__UXP_BRIDGE_TEST_CASE_TIMEOUTS__?.[${JSON.stringify(name)}]`
+  );
+  return normalizeTimeout(registered ?? fallback, name);
+}
+
+function normalizeTimeout(value, caseName) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw new Error(`CDP timeout for ${caseName} must be a positive finite number.`);
+  }
+  return normalized;
 }
 
 async function readSuite(name) {

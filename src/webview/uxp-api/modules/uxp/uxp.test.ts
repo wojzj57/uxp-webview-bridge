@@ -1,4 +1,21 @@
 import { defineWebviewCdpCases } from "@test/cdp/webview-cases.js";
+import type {
+  UxpPersistentFileStorage,
+  UxpStorageFile
+} from "@webview/uxp-api/modules/uxp/persistent-file-storage/index.js";
+import type { XMPDateTime, XMPFile, XMPMeta } from "@webview/uxp-api/modules/uxp/xmp/index.js";
+
+function assertXmpBatchTypes(dateTime: XMPDateTime): void {
+  const read: Promise<{ year: number; month: number }> = dateTime.batchGet(["year", "month"]);
+  const write: Promise<void> = dateTime.batchSet({ year: 2026 });
+  void read;
+  void write;
+  // @ts-expect-error XMPDateTime has no readable property named `missing`.
+  void dateTime.batchGet(["missing"]);
+  // @ts-expect-error XMPDateTime batch values retain their declared number types.
+  void dateTime.batchSet({ year: "2026" });
+}
+void assertXmpBatchTypes;
 
 export default defineWebviewCdpCases([
   {
@@ -62,21 +79,12 @@ export default defineWebviewCdpCases([
 
       const storage = bridge.uxp.storage;
       const fileName = `uxp-webview-bridge-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`;
-      let file: {
-        write(data: string | ArrayBuffer | ArrayBufferView, options?: unknown): Promise<number>;
-        read(options?: unknown): Promise<string | ArrayBuffer>;
-        getMetadata(): Promise<{ name: string; size: number; isFile: boolean; isFolder: boolean }>;
-        delete(): Promise<number>;
-        dispose(): Promise<void>;
-      } | null = null;
+      let file: UxpStorageFile | null = null;
 
       try {
-        let folder: {
-          createFile(name: string, options?: unknown): Promise<typeof file>;
-        };
         try {
-          folder = await storage.localFileSystem.getTemporaryFolder();
-          file = await folder.createFile(fileName, { overwrite: true });
+          const folderResult = storage.localFileSystem.getTemporaryFolder();
+          file = await folderResult.createFile(fileName, { overwrite: true });
         } catch (error) {
           return skip("uxp.storage.localFileSystem is unavailable in this UXP host.", {
             error: normalizeError(error)
@@ -453,3 +461,17 @@ function normalizeError(error: unknown): Record<string, unknown> {
 
   return { message: String(error) };
 }
+
+function assertUxpRemoteResultTypes(storage: UxpPersistentFileStorage, xmpFile: XMPFile): void {
+  const legacyFolder = storage.localFileSystem.getDataFolder();
+  const chainedWrite: Promise<number> = storage.localFileSystem
+    .getDataFolder()
+    .createFile("remote-result-type-test.txt")
+    .write("ok");
+  const legacyMeta: Promise<XMPMeta> = xmpFile.getXMP();
+  const chainedPacket: Promise<string> = xmpFile.getXMP().serialize();
+
+  void [legacyFolder, chainedWrite, legacyMeta, chainedPacket];
+}
+
+void assertUxpRemoteResultTypes;

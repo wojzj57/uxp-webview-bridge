@@ -32,6 +32,9 @@ export const PHOTOSHOP_PREFERENCE_CATEGORY_PROPERTIES = {
 } as const;
 
 export type PhotoshopPreferenceCategoryType = keyof typeof PHOTOSHOP_PREFERENCE_CATEGORY_PROPERTIES;
+export type PhotoshopPreferenceRootProperty = keyof typeof PHOTOSHOP_PREFERENCE_ROOT_PROPERTIES;
+export type PhotoshopPreferenceCategoryProperty<T extends PhotoshopPreferenceCategoryType> =
+  (typeof PHOTOSHOP_PREFERENCE_CATEGORY_PROPERTIES)[T][number];
 
 export function isPhotoshopPreferenceType(type: string): boolean {
   return type === PHOTOSHOP_REMOTE_TYPE.Preferences || type in PHOTOSHOP_PREFERENCE_CATEGORY_PROPERTIES;

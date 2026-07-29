@@ -5,7 +5,6 @@ import {
   encodeRemoteArgs,
   isRemoteReference,
   RemoteClass,
-  type IdentityCache,
   type RemoteArgEncoder,
   type RemoteClassConfig,
   type RemoteConstructionRequest,
@@ -19,6 +18,7 @@ import { XMP_CONST } from "./constants.js";
 import type {
   UxpXmp,
   XMPDateTime,
+  XMPDateTimeBatchProperties,
   XMPFile,
   XMPFileInfo,
   XMPIterator,
@@ -47,8 +47,6 @@ const DATE_TIME_PROPERTY_NAMES = [
   "tzMinute"
 ] as const;
 
-let defaultXmpNamespace: UxpXmp | undefined;
-
 export function createUxpXmpNamespace(rpc: XmpRpc): UxpXmp {
   const context = createXmpContext(rpc);
 
@@ -59,7 +57,7 @@ export function createUxpXmpNamespace(rpc: XmpRpc): UxpXmp {
     XMPDateTime: context.XMPDateTime,
     XMPFile: context.XMPFile,
     XMPMeta: context.XMPMeta,
-    XMPIterator: context.XMPIterator as unknown as { new (): never },
+    XMPIterator: context.XMPIterator,
     XMPUtils: context.XMPUtils
   };
 }
@@ -173,7 +171,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     getStructField: { decode: propertyDecoder },
     getQualifier: { decode: propertyDecoder },
     insertArrayItem: {},
-    iterator: { decode: iteratorDecoder },
+    iterator: { decode: iteratorDecoder, remoteResult: true },
     serialize: {},
     serializeToArray: {},
     setArrayItem: {},
@@ -193,7 +191,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPMeta extends RemoteClass implements XMPMeta {
+  class WebviewXMPMeta extends RemoteClass<Record<never, never>, never, Record<string, never>> implements XMPMeta {
     declare appendArrayItem: (
       schemaNS: string,
       arrayName: string,
@@ -238,7 +236,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
       itemValue: XMPValue,
       itemOptions?: number
     ) => Promise<void>;
-    declare iterator: (options?: number, schemaNS?: string, propName?: string) => Promise<XMPIterator>;
+    declare iterator: XMPMeta["iterator"];
     declare serialize: (
       options?: number,
       padding?: number,
@@ -338,7 +336,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
   const fileMethods = {
     canPutXMP: {},
     closeFile: {},
-    getXMP: { decode: metaReferenceDecoder },
+    getXMP: { decode: metaReferenceDecoder, remoteResult: true },
     getPacketInfo: {},
     getFileInfo: {},
     putXMP: {}
@@ -353,10 +351,10 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPFile extends RemoteClass implements XMPFile {
+  class WebviewXMPFile extends RemoteClass<Record<never, never>, never, Record<string, never>> implements XMPFile {
     declare canPutXMP: (xmpData: XMPMeta | string) => Promise<boolean>;
     declare closeFile: (closeFlags: number) => Promise<void>;
-    declare getXMP: () => Promise<XMPMeta>;
+    declare getXMP: XMPFile["getXMP"];
     declare getPacketInfo: () => Promise<XMPPacketInfo>;
     declare getFileInfo: () => Promise<XMPFileInfo>;
     declare putXMP: (xmpData: XMPMeta | string) => Promise<void>;
@@ -396,7 +394,7 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPIterator extends RemoteClass implements XMPIterator {
+  class WebviewXMPIterator extends RemoteClass<Record<never, never>, never, Record<string, never>> implements XMPIterator {
     declare next: () => Promise<XMPProperty | null>;
     declare skipSiblings: () => Promise<void>;
     declare skipSubtree: () => Promise<void>;
@@ -453,7 +451,11 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
     argEncoders
   };
 
-  class WebviewXMPDateTime extends RemoteClass implements XMPDateTime {
+  class WebviewXMPDateTime extends RemoteClass<
+    XMPDateTimeBatchProperties,
+    keyof XMPDateTimeBatchProperties,
+    Partial<XMPDateTimeBatchProperties>
+  > implements XMPDateTime {
     declare year: Promise<number>;
     declare month: Promise<number>;
     declare day: Promise<number>;
@@ -604,8 +606,7 @@ function trimTrailingUndefined(values: unknown[]): unknown[] {
 }
 
 export const xmp: UxpXmp =
-  defaultXmpNamespace ??
-  (defaultXmpNamespace = createUxpXmpNamespace({
+  createUxpXmpNamespace({
     call: <T>(module: string, method: string, args?: readonly unknown[]) =>
       getBridgeRpcClient().call<T>(module, method, args)
-  }));
+  });

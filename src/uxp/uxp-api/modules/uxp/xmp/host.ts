@@ -254,9 +254,33 @@ function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown
     if (!values || typeof values !== "object") {
       throw new Error(`${method} requires a property map.`);
     }
-    for (const [name, value] of Object.entries(values as Record<string, unknown>)) {
+    const prototype = Reflect.getPrototypeOf(values);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error(`${method} requires a plain property map.`);
+    }
+    const props = values as Record<string, unknown>;
+    for (const name of Object.keys(props)) {
       assertDateTimeProperty(name, method);
-      dateTime[name] = decodeValue(value);
+    }
+    const decoded = DATE_TIME_PROPERTY_NAMES
+      .filter((name) => Object.prototype.hasOwnProperty.call(props, name))
+      .map((name) => {
+        const value = decodeValue(props[name]);
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          throw new Error(`${method} ${name} must be a finite number.`);
+        }
+        return [name, value] as const;
+      });
+    for (const [name, value] of decoded) {
+      try {
+        dateTime[name] = value;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw Object.assign(
+          new Error(`Failed to assign XMPDateTime property ${name}: ${message}`),
+          { cause: error }
+        );
+      }
     }
     return undefined;
   }
@@ -300,7 +324,8 @@ function serializeProperty(value: unknown, xmp: XmpApi): XMPSerializedProperty |
     result.path = property.path;
   }
   if (typeof property.toString === "function") {
-    result.stringValue = String(property.toString());
+    const stringValue: unknown = (property as { toString(): unknown }).toString();
+    if (typeof stringValue === "string") result.stringValue = stringValue;
   }
 
   return result;
@@ -315,7 +340,12 @@ function serializePropertyValue(value: unknown, xmp: XmpApi): string | number | 
     return createHandle("XMPDateTime", value);
   }
 
-  return value == null ? null : String(value);
+  if (value == null) return null;
+  if (typeof value === "object" && typeof (value as { toString?: unknown }).toString === "function") {
+    const stringValue: unknown = (value as { toString(): unknown }).toString();
+    if (typeof stringValue === "string") return stringValue;
+  }
+  throw new TypeError("XMP property value must be a primitive, XMPDateTime, or string-convertible object.");
 }
 
 function createHandle(type: XmpHandleType, value: unknown): RemoteReference {

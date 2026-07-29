@@ -79,10 +79,10 @@ export class SolidColor implements PsSolidColor {
 
   #currentRgb(): RgbColorView {
     if (this.#model === "rgb") return new RGBColor(this.#rgb);
-    if (this.#model === "hsb") return completeRgb(rgbFor({ hsb: this.#hsb } as Partial<PsSolidColor>, "hsb"));
-    if (this.#model === "cmyk") return completeRgb(rgbFor({ cmyk: this.#cmyk } as Partial<PsSolidColor>, "cmyk"));
-    if (this.#model === "lab") return completeRgb(rgbFor({ lab: this.#lab } as Partial<PsSolidColor>, "lab"));
-    return completeRgb(rgbFor({ gray: this.#gray } as Partial<PsSolidColor>, "gray"));
+    if (this.#model === "hsb") return completeRgb(rgbFor({ hsb: this.#hsb }, "hsb"));
+    if (this.#model === "cmyk") return completeRgb(rgbFor({ cmyk: this.#cmyk }, "cmyk"));
+    if (this.#model === "lab") return completeRgb(rgbFor({ lab: this.#lab }, "lab"));
+    return completeRgb(rgbFor({ gray: this.#gray }, "gray"));
   }
 
   get nearestWebColor(): RGBColor {
@@ -95,7 +95,7 @@ export class SolidColor implements PsSolidColor {
   isEqual(color: SolidColorInput): boolean {
     const other = color instanceof SolidColor ? color : new SolidColor(color);
     return ["red", "green", "blue"].every(
-      (key) => Math.abs(this.rgb[key as keyof Omit<RgbColorView, "hexValue">] - other.rgb[key as keyof Omit<RgbColorView, "hexValue">]) < 0.5
+      (key) => Math.abs(this.rgb[key as "red" | "green" | "blue"] - other.rgb[key as "red" | "green" | "blue"]) < 0.5
     );
   }
 
@@ -106,7 +106,7 @@ export class SolidColor implements PsSolidColor {
 }
 
 export function createSolidColorFromTransport(value: SolidColorTransport): SolidColor {
-  return new SolidColor(value as PsSolidColor);
+  return new SolidColor(value);
 }
 
 /** Encoder installed on every Photoshop RemoteClass and snapshot collection call. */
@@ -143,25 +143,25 @@ function completeRgb(value: Partial<RgbColorView>): RgbColorView {
   const red = clamp(value.red ?? 255, 0, 255);
   const green = clamp(value.green ?? 255, 0, 255);
   const blue = clamp(value.blue ?? 255, 0, 255);
-  return { red, green, blue, hexValue: rgbHex(red, green, blue) };
+  return { typename: "RGBColor", red, green, blue, hexValue: rgbHex(red, green, blue) };
 }
 
 function rgbToHsb({ red, green, blue }: RgbColorView): HsbColorView {
   const [r, g, b] = [red, green, blue].map((value) => clamp(value, 0, 255) / 255) as [number, number, number];
   const max = Math.max(r, g, b); const min = Math.min(r, g, b); const delta = max - min;
   const hue = delta === 0 ? 0 : max === r ? 60 * (((g - b) / delta) % 6) : max === g ? 60 * ((b - r) / delta + 2) : 60 * ((r - g) / delta + 4);
-  return { hue: (hue + 360) % 360, saturation: max === 0 ? 0 : delta / max * 100, brightness: max * 100 };
+  return { typename: "HSBColor", hue: (hue + 360) % 360, saturation: max === 0 ? 0 : delta / max * 100, brightness: max * 100 };
 }
 
 function rgbToCmyk({ red, green, blue }: RgbColorView): CmykColorView {
   const [r, g, b] = [red, green, blue].map((value) => clamp(value, 0, 255) / 255) as [number, number, number];
   const black = 1 - Math.max(r, g, b);
-  if (black >= 1) return { cyan: 0, magenta: 0, yellow: 0, black: 100 };
-  return { cyan: (1 - r - black) / (1 - black) * 100, magenta: (1 - g - black) / (1 - black) * 100, yellow: (1 - b - black) / (1 - black) * 100, black: black * 100 };
+  if (black >= 1) return { typename: "CMYKColor", cyan: 0, magenta: 0, yellow: 0, black: 100 };
+  return { typename: "CMYKColor", cyan: (1 - r - black) / (1 - black) * 100, magenta: (1 - g - black) / (1 - black) * 100, yellow: (1 - b - black) / (1 - black) * 100, black: black * 100 };
 }
 
 function rgbToGray({ red, green, blue }: RgbColorView): GrayColorView {
-  return { gray: 100 * (1 - (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255) };
+  return { typename: "GrayColor", gray: 100 * (1 - (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255) };
 }
 
 function rgbToLab({ red, green, blue }: RgbColorView): LabColorView {
@@ -172,7 +172,7 @@ function rgbToLab({ red, green, blue }: RgbColorView): LabColorView {
   const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
   const pivot = (value: number) => value > 0.008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116;
   const fx = pivot(x); const fy = pivot(y); const fz = pivot(z);
-  return { l: 116 * fy - 16, a: 500 * (fx - fy), b: 200 * (fy - fz) };
+  return { typename: "LabColor", l: 116 * fy - 16, a: 500 * (fx - fy), b: 200 * (fy - fz) };
 }
 
 function clamp(value: number, min: number, max: number): number {

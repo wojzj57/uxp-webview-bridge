@@ -7,6 +7,7 @@ import type { StorageHost } from "./types.js";
 
 export const localStorageModuleAdapter: UxpModuleAdapter = {
   moduleId: LOCAL_STORAGE_MODULE_ID,
+  capability: "localStorage",
   dispatch: dispatchLocalStorageCall
 };
 

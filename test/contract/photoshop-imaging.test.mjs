@@ -176,6 +176,27 @@ test("createImageDataFromBuffer envelopes the input buffer exactly once", async 
   assert.deepEqual(options, { width: 2, height: 1, components: 4, colorSpace: "RGB" });
 });
 
+test("createImageDataFromBuffer supports old and chained await forms", async () => {
+  const { createImagingNamespace } = await import(imagingModule);
+  const rpc = createRecordingRpc([await makeImageDataTransport(), undefined, await makeImageDataTransport(), undefined]);
+  const imaging = createImagingNamespace(rpc);
+  const options = { width: 1, height: 1, components: 4, colorSpace: "RGB" };
+
+  const imageData = await imaging.createImageDataFromBuffer(new Uint8Array(4), options);
+  await imageData.dispose();
+  await imaging.createImageDataFromBuffer(new Uint8Array(4), options).dispose();
+
+  assert.deepEqual(
+    rpc.calls.map(({ method }) => method),
+    [
+      "imaging.createImageDataFromBuffer",
+      "imaging.imageData.dispose",
+      "imaging.createImageDataFromBuffer",
+      "imaging.imageData.dispose"
+    ]
+  );
+});
+
 test("dispose issues an imaging.imageData.dispose RPC carrying the reference", async () => {
   const { createImagingNamespace } = await import(imagingModule);
   const rpc = createRecordingRpc([await makeImageDataTransport(), undefined]);

@@ -7,5 +7,11 @@ test/uxp-plugin/vendor/
 .DS_Store
 *.log
 
-notes/
+notes/*
+!notes/domain-model.md
+!notes/decisions/
+!notes/decisions/*.md
+!notes/rfcs/
+notes/rfcs/*
+!notes/rfcs/0017-awaitable-typed-remote-class-batches.md
 uxp-document/

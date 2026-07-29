@@ -1,8 +1,12 @@
 import type { BridgeCapabilities } from "./types.js";
 
 export const DEFAULT_BRIDGE_CAPABILITIES: BridgeCapabilities = {
-  fs: false,
+  fs: true,
   os: true,
+  clipboard: true,
+  localStorage: true,
+  sessionStorage: true,
+  fetch: true,
   shell: true,
   userInfo: true,
   pluginManager: true,

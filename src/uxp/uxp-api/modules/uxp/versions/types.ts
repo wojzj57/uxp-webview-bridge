@@ -6,4 +6,4 @@ export interface UxpVersionsHostModule {
 }
 
 export type UxpVersionsMethodName = Extract<UxpProtocolMethodName, `versions.${string}`>;
-export type UxpVersionValue = typeof nativeVersions.uxp | typeof nativeVersions.plugin;
+export type UxpVersionValue = typeof nativeVersions.uxp  ;

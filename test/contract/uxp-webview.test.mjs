@@ -237,6 +237,39 @@ test("WebView uxp.storage.localFileSystem creates storage entry proxies", async 
   ]);
 });
 
+test("WebView storage remote results support old and chained await forms", async () => {
+  const { createUxpNamespace } = await import("../../dist/webview/uxp-api/modules/uxp/index.js");
+  const folderRef = storageRef("folder", "folder-chain", { name: "data", isFolder: true, isFile: false });
+  const fileRef = storageRef("file", "file-chain", { name: "chain.txt", isFolder: false, isFile: true });
+  const calls = [];
+  const uxp = createUxpNamespace({
+    async call(_module, method, args) {
+      calls.push([method, args]);
+      if (method === "storage.localFileSystem.getDataFolder") return folderRef;
+      if (method === "storage.folder.createFile") return fileRef;
+      if (method === "storage.file.write") return 5;
+      return undefined;
+    }
+  });
+
+  const legacyFolder = await uxp.storage.localFileSystem.getDataFolder();
+  assert.equal((await legacyFolder.createFile("legacy.txt")).name, "chain.txt");
+  assert.equal(
+    await uxp.storage.localFileSystem.getDataFolder().createFile("chain.txt").write("hello"),
+    5
+  );
+  assert.deepEqual(
+    calls.map(([method]) => method),
+    [
+      "storage.localFileSystem.getDataFolder",
+      "storage.folder.createFile",
+      "storage.localFileSystem.getDataFolder",
+      "storage.folder.createFile",
+      "storage.file.write"
+    ]
+  );
+});
+
 test("WebView uxp.shell rejects file URLs before calling the bridge", async () => {
   const { createUxpNamespace } = await import("../../dist/webview/uxp-api/modules/uxp/index.js");
   let called = false;

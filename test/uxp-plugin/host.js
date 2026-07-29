@@ -12,6 +12,7 @@
 
   window.__UXP_BRIDGE_WEBVIEW_READY__ = false;
   window.__UXP_BRIDGE_TEST_CASES__ = [];
+  window.__UXP_BRIDGE_TEST_CASE_TIMEOUTS__ = {};
   window.__UXP_BRIDGE_TEST_DIAGNOSTICS__ = {
     bridgeConfigured: false,
     hasWebview: Boolean(webview)
@@ -57,6 +58,8 @@
     if (data.type === READY_TYPE) {
       window.__UXP_BRIDGE_WEBVIEW_READY__ = true;
       window.__UXP_BRIDGE_TEST_CASES__ = Array.isArray(data.caseNames) ? data.caseNames : [];
+      window.__UXP_BRIDGE_TEST_CASE_TIMEOUTS__ =
+        data.caseTimeouts && typeof data.caseTimeouts === "object" ? data.caseTimeouts : {};
       return;
     }
 

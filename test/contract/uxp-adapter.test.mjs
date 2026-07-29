@@ -158,7 +158,7 @@ test("UXP shell adapter rejects invalid args before requiring uxp", async () => 
       /uxp\.shell\.openPath expects 1-2 arguments/
     );
     assert.throws(
-      () => dispatchUxpCall("shell.openExternal", ["FILE:\/\/\/tmp\/example.txt"]),
+      () => dispatchUxpCall("shell.openExternal", ["FILE:///tmp/example.txt"]),
       /uxp\.shell\.openExternal does not allow file: URLs/
     );
     assert.equal(required, false);
@@ -782,6 +782,10 @@ test("UXP module registry gates capability-scoped uxp methods without gating ver
     {
       fs: false,
       os: true,
+      clipboard: true,
+      localStorage: true,
+      sessionStorage: true,
+      fetch: true,
       shell: false,
       userInfo: false,
       pluginManager: false,

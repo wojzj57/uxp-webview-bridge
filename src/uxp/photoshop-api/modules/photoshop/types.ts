@@ -126,6 +126,10 @@ export interface PhotoshopApp {
  * passed through verbatim (ADR 0010). The adapter does not model descriptor internals.
  */
 export interface PhotoshopActionModule {
+  addNotificationListener(
+    events: string[],
+    notifier: (eventName: string, descriptor: Record<string, unknown>) => void
+  ): Promise<void>;
   batchPlay(
     commands: readonly unknown[],
     options?: Record<string, unknown>
@@ -139,6 +143,10 @@ export interface PhotoshopActionModule {
     options: { readonly name: string; readonly methodName: string },
     info: Record<string, unknown>
   ): Promise<void> | void;
+  removeNotificationListener(
+    events: string[],
+    notifier: (eventName: string, descriptor: Record<string, unknown>) => void
+  ): Promise<void>;
   validateReference?(
     ref: Record<string, unknown> | readonly Record<string, unknown>[]
   ): boolean;

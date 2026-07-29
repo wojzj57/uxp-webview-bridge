@@ -1,14 +1,17 @@
 import type { RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 import type {
+  EmptyRemoteBatchOperations,
+  RemoteBatchGetResult,
+  RemoteResult
+} from "@webview/uxp-api/remote/index.js";
+import type {
   XMPConst as NativeXMPConst,
-  XMPDateTime as NativeXMPDateTime,
   XMPFile as NativeXMPFile,
   XMPFileInfo,
   XMPIterator as NativeXMPIterator,
   XMPMeta as NativeXMPMeta,
   XMPPacketInfo,
   XMPProperty as NativeXMPProperty,
-  XMPUtils as NativeXMPUtils,
   XMPValue as NativeXMPValue
 } from "@shared/types/uxp/internal/xmp.js";
 
@@ -37,6 +40,19 @@ export type XMPProperty = Omit<NativeXMPProperty, "value"> & {
 
 export type { XMPFileInfo, XMPPacketInfo };
 
+export interface XMPDateTimeBatchProperties {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  nanosecond: number;
+  tzSign: number;
+  tzHour: number;
+  tzMinute: number;
+}
+
 export interface XMPDateTime {
   year: Promise<number>;
   month: Promise<number>;
@@ -57,6 +73,10 @@ export interface XMPDateTime {
   hasTime(): Promise<boolean>;
   hasTimeZone(): Promise<boolean>;
   toString(): Promise<string>;
+  batchGet<K extends keyof XMPDateTimeBatchProperties>(
+    propertyNames: readonly K[]
+  ): Promise<RemoteBatchGetResult<XMPDateTimeBatchProperties, K>>;
+  batchSet(properties: Readonly<Partial<XMPDateTimeBatchProperties>>): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -89,7 +109,8 @@ export interface XMPMeta
     | "setQualifier"
     | "setProperty"
     | "sort"
-  > {
+  >,
+  EmptyRemoteBatchOperations {
   appendArrayItem(
     schemaNS: string,
     arrayName: string,
@@ -113,7 +134,7 @@ export interface XMPMeta
   getStructField(schemaNS: string, structName: string, fieldNS: string, fieldName: string): Promise<XMPProperty | null>;
   getQualifier(schemaNS: string, propName: string, qualNS: string, qualName: string): Promise<XMPProperty | null>;
   insertArrayItem(schemaNS: string, arrayName: string, itemIndex: number, itemValue: XMPValue, itemOptions?: number): Promise<void>;
-  iterator(options?: number, schemaNS?: string, propName?: string): Promise<XMPIterator>;
+  iterator(options?: number, schemaNS?: string, propName?: string): RemoteResult<XMPIterator>;
   serialize(options?: number, padding?: number, indent?: string, newline?: string, baseIndent?: number): Promise<string>;
   serializeToArray(options?: number, padding?: number, indent?: string, newline?: string, baseIndent?: number): Promise<number[]>;
   setArrayItem(schemaNS: string, arrayName: string, itemIndex: number, itemValue: XMPValue, itemOptions?: number): Promise<void>;
@@ -149,10 +170,11 @@ export interface XMPMetaConstructor {
 }
 
 export interface XMPFile
-  extends Omit<NativeXMPFile, "canPutXMP" | "closeFile" | "getXMP" | "getPacketInfo" | "getFileInfo" | "putXMP"> {
+  extends Omit<NativeXMPFile, "canPutXMP" | "closeFile" | "getXMP" | "getPacketInfo" | "getFileInfo" | "putXMP">,
+  EmptyRemoteBatchOperations {
   canPutXMP(xmpData: XMPMeta | string): Promise<boolean>;
   closeFile(closeFlags: number): Promise<void>;
-  getXMP(): Promise<XMPMeta>;
+  getXMP(): RemoteResult<XMPMeta>;
   getPacketInfo(): Promise<XMPPacketInfo>;
   getFileInfo(): Promise<XMPFileInfo>;
   putXMP(xmpData: XMPMeta | string): Promise<void>;
@@ -164,7 +186,8 @@ export interface XMPFileConstructor {
   getFormatInfo(format: number): Promise<number>;
 }
 
-export interface XMPIterator extends Omit<NativeXMPIterator, "next" | "skipSiblings" | "skipSubtree"> {
+export interface XMPIterator extends Omit<NativeXMPIterator, "next" | "skipSiblings" | "skipSubtree">,
+  EmptyRemoteBatchOperations {
   next(): Promise<XMPProperty | null>;
   skipSiblings(): Promise<void>;
   skipSubtree(): Promise<void>;

@@ -15,6 +15,7 @@ import type { UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.
 
 export const fetchModuleAdapter: UxpModuleAdapter = {
   moduleId: FETCH_MODULE_ID,
+  capability: "fetch",
   dispatch: dispatchFetchCall
 };
 

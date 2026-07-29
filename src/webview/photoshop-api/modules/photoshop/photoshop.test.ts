@@ -122,6 +122,7 @@ import type {
   PsSelection,
   PsSelectionReadableKey,
   PsSelectionWritableProps,
+  PhotoshopApp,
   PhotoshopNamespace,
   TextItem,
   TextWarpStyle,
@@ -159,7 +160,7 @@ type _SaveOptionsExact = AssertMutual<SaveOptionsValue, AdobeSaveOptions>;
 type _PSLayerKindExact = AssertMutual<PSLayerKindValue, AdobePSLayerKind>;
 
 /** Every Adobe enum name is generated and carried by the public Photoshop namespace type. */
-type AssertNever<T extends never> = true;
+type AssertNever<T extends never> = [T] extends [never] ? true : false;
 type ExpectedGeneratedConstantName =
   | Exclude<keyof typeof AdobeConstants, "constants">
   | "PSLayerKind";
@@ -201,6 +202,29 @@ type _LayerWritableExcludesReadonly = "id" extends keyof PsLayerWritableProps ? 
 const _layerWritableExcludesReadonly: _LayerWritableExcludesReadonly = true;
 void _layerWritableExcludesReadonly;
 
+function assertRemoteBatchTypes(layer: PsLayer, app: PhotoshopApp): void {
+  const layerRead: Promise<{ id: number; name: string; visible: boolean }> = layer.batchGet([
+    "id",
+    "name",
+    "visible"
+  ]);
+  const layerWrite: Promise<void> = layer.batchSet({ visible: true });
+  const appRead: Promise<{ typename: "Photoshop" }> = app.batchGet(["typename"]);
+  const appWrite: Promise<void> = app.batchSet({ displayDialogs: "silent" });
+  void layerRead;
+  void layerWrite;
+  void appRead;
+  void appWrite;
+  // @ts-expect-error `id` is a read-only Layer property.
+  void layer.batchSet({ id: 1 });
+  // @ts-expect-error PhotoshopApp has no declared property named `missing`.
+  void app.batchGet(["missing"]);
+  const dynamicKeys: string[] = ["name"];
+  // @ts-expect-error Dynamic strings must be narrowed to the RemoteClass readable-key union.
+  void layer.batchGet(dynamicKeys);
+}
+void assertRemoteBatchTypes;
+
 /**
  * Descriptor <-> declare lock (type-level half).
  *
@@ -216,7 +240,7 @@ type PsDocumentReadableMembers = Exclude<
   "createLayer" | "createPixelLayer" | "createTextLayer" | "createLayerGroup" | "groupLayers" |
   "duplicateLayers" | "linkLayers" | "paste" | "batchGet" | "batchSet" | "dispose" |
   "calculations" | "changeMode" | "convertProfile" | "generativeUpscale" | "sampleColor" |
-  "splitChannels" | "trap" | "saveAs"
+  "splitChannels" | "trap" | "suspendHistory" | "saveAs"
 >;
 type _DocReadableKeysLocked = AssertMutual<PsDocumentReadableMembers, PsDocumentReadableKey>;
 
@@ -321,6 +345,7 @@ type _OptionsToAdobe = Assignable<BatchPlayCommandOptions, AdobeBatchPlayCommand
 // enabled) do not strip them; `type` aliases are erased regardless.
 export type _StaticConsistencyProof = [
   _SaveOptionsExact,
+  _PSLayerKindExact,
   _AnchorCompatible,
   _BlendModeCompatible,
   _LayerKindCompatible,
@@ -458,7 +483,11 @@ export default defineWebviewCdpCases([
       assert.equal(photoshop.LayerKind.NORMAL, "pixel", "LayerKind.NORMAL should transcribe to 'pixel'.");
       assert.equal(photoshop.BlendMode.SUBTRACT, "blendSubtraction", "BlendMode.SUBTRACT should transcribe correctly.");
       assert.equal(photoshop.SaveOptions.DONOTSAVECHANGES, 0, "SaveOptions.DONOTSAVECHANGES should be 0.");
-      assert.equal(photoshop.GridSize.DOTTED, undefined, "GridSize must not acquire GridLineStyle members.");
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(photoshop.GridSize, "DOTTED"),
+        false,
+        "GridSize must not acquire GridLineStyle members."
+      );
       assert.equal(photoshop.GenerativeUpscaleModel.FIREFLY, "firefly", "the final declaration enum should be present.");
 
       const diagnostics = hostDiagnostics as {
@@ -472,10 +501,14 @@ export default defineWebviewCdpCases([
       );
       const nativeConstants = diagnostics.__UXP_BRIDGE_TEST_PHOTOSHOP_CONSTANTS__;
       assert.ok(nativeConstants && typeof nativeConstants === "object", "native Photoshop constants snapshot must exist.");
+      const webviewConstants = photoshop.constants as Readonly<
+        Record<string, Readonly<Record<string, string | number>>>
+      >;
       let nativeMembersChecked = 0;
       for (const [enumName, nativeEnum] of Object.entries(nativeConstants ?? {})) {
-        const webviewEnum = photoshop.constants[enumName];
+        const webviewEnum = webviewConstants[enumName];
         assert.ok(webviewEnum && typeof webviewEnum === "object", `native enum ${enumName} must exist in WebView constants.`);
+        if (webviewEnum === undefined) throw new Error(`Missing WebView enum ${enumName}.`);
         for (const [memberName, nativeValue] of Object.entries(nativeEnum)) {
           assert.equal(
             webviewEnum[memberName],
@@ -555,9 +588,16 @@ export default defineWebviewCdpCases([
       const name = `uxp-bridge-app-${Date.now()}`;
       let document: PsDocument | null | undefined;
       try {
-        document = await bridge.photoshop.app.createDocument({ name, width: 32, height: 24, resolution: 72 });
+        const documentResult = bridge.photoshop.app.createDocument({ name, width: 32, height: 24, resolution: 72 });
+        document = await documentResult;
         if (!document) return skip("app.createDocument returned null.");
         assert.equal(await document.name, name, "created document should retain its requested name.");
+        assert.equal(await documentResult.name, name, "a method RemoteResult should support chained property reads.");
+        assert.equal(
+          await bridge.photoshop.app.activeDocument.name,
+          name,
+          "a property RemoteResult should support a single-await chain."
+        );
         const documents = await bridge.photoshop.app.documents;
         assert.equal(documents.typename, "Documents", "app.documents should decode to Documents.");
         assert.equal(documents.parent, bridge.photoshop.app, "Documents.parent should preserve app identity.");
@@ -619,6 +659,7 @@ export default defineWebviewCdpCases([
         const [descriptor] = await app.batchPlay([
           { _obj: "get", _target: [{ _ref: "document", _id: documentId }] }
         ], { dialogOptions: "silent" });
+        if (descriptor === undefined) throw new Error("app.batchPlay returned no descriptor.");
         assert.ok(typeof descriptor === "object" && descriptor !== null, "app.batchPlay should return a descriptor.");
         assert.equal(descriptor.documentID, documentId, "app.batchPlay should address the disposable document by native id.");
 
@@ -629,9 +670,9 @@ export default defineWebviewCdpCases([
           writes: ["displayDialogs", "activeDocument", "foregroundColor", "backgroundColor"]
         };
       } finally {
-        try { app.displayDialogs = originalDialogs; await app.displayDialogs; } catch {}
-        try { app.foregroundColor = originalForeground; await app.foregroundColor; } catch {}
-        try { app.backgroundColor = originalBackground; await app.backgroundColor; } catch {}
+        try { app.displayDialogs = originalDialogs; await app.displayDialogs; } catch { /* Best-effort cleanup. */ }
+        try { app.foregroundColor = originalForeground; await app.foregroundColor; } catch { /* Best-effort cleanup. */ }
+        try { app.backgroundColor = originalBackground; await app.backgroundColor; } catch { /* Best-effort cleanup. */ }
         await closeDocumentQuietly(second ?? undefined);
         await closeDocumentQuietly(first ?? undefined);
       }
@@ -862,25 +903,24 @@ export default defineWebviewCdpCases([
 
       const original = batch.opacity as number;
       const target = original >= 50 ? 30 : 80;
-      layer.batchSet({ opacity: target, visible: true });
+      await layer.batchSet({ opacity: target, visible: true });
       const afterOpacity = await layer.opacity;
       assert.equal(Math.round(afterOpacity), target, "batchSet then read-your-writes should reflect the batch.");
 
       // Read-only property rejected at compile time (writable-only partial) AND at runtime
-      // (base `batchSet` throws for non-writable keys). The `@ts-expect-error` proves the compile-time
-      // guard; the try/catch proves the runtime guard without failing the case on the expected throw.
+      // (base `batchSet` rejects for non-writable keys). The `@ts-expect-error` proves the compile-time
+      // guard; the try/catch proves the runtime guard without failing the case on the expected rejection.
       let readOnlyRejected = false;
       try {
         // @ts-expect-error `id` is read-only and must not be assignable through batchSet.
-        layer.batchSet({ id: 1 });
+        await layer.batchSet({ id: 1 });
       } catch {
         readOnlyRejected = true;
       }
       assert.ok(readOnlyRejected, "batchSet of a read-only property should throw at runtime.");
 
       // Restore.
-      layer.batchSet({ opacity: original });
-      await layer.opacity;
+      await layer.batchSet({ opacity: original });
 
       return { batchKeys: 4, target };
     }
@@ -1138,7 +1178,7 @@ export default defineWebviewCdpCases([
         path.name = "Bridge Path Renamed" as unknown as Promise<string>; assert.equal(await path.name, "Bridge Path Renamed", "path name writes should flush.");
         duplicate = await path.duplicate("Bridge Path Copy"); await duplicate.select(); await duplicate.deselect();
         return { subPaths: subPaths.length, points: points.length, stableIdentity: true };
-      } finally { try { await duplicate?.remove(); } catch {} try { await path?.remove(); } catch {} await closeDocumentQuietly(document); }
+      } finally { try { await duplicate?.remove(); } catch { /* Best-effort cleanup. */ } try { await path?.remove(); } catch { /* Best-effort cleanup. */ } await closeDocumentQuietly(document); }
     }
   },
   {
@@ -1446,8 +1486,8 @@ export default defineWebviewCdpCases([
       } finally {
         await closeDocumentQuietly(document ?? undefined);
         if (displacementFile) {
-          try { await displacementFile.delete(); } catch {}
-          try { await displacementFile.dispose(); } catch {}
+          try { await displacementFile.delete(); } catch { /* Best-effort cleanup. */ }
+          try { await displacementFile.dispose(); } catch { /* Best-effort cleanup. */ }
         }
       }
     }
@@ -1471,13 +1511,12 @@ export default defineWebviewCdpCases([
         "calculations", "changeMode", "close", "closeWithoutSaving", "convertProfile", "createLayer", "createLayerGroup",
         "createPixelLayer", "createTextLayer", "crop", "duplicate", "duplicateLayers", "flatten", "generativeUpscale",
         "groupLayers", "linkLayers", "mergeVisibleLayers", "paste", "rasterizeAllLayers", "resizeCanvas", "resizeImage",
-        "revealAll", "rotate", "sampleColor", "save", "splitChannels", "trap", "trim"
+        "revealAll", "rotate", "sampleColor", "save", "splitChannels", "trap", "trim", "suspendHistory"
       ];
-      assert.equal(documentedMembers.length, 65, "the transportable Document manifest should contain 65 members.");
+      assert.equal(documentedMembers.length, 66, "the transportable Document manifest should contain 66 members.");
       for (const member of documentedMembers) {
         assert.ok(member in source, `photoshop.Document.${member} must exist.`);
       }
-      assert.equal("suspendHistory" in source, false, "suspendHistory must remain absent until callback transport exists.");
 
       const scalars = await source.batchGet([
         "typename", "histogram", "mode", "zoom", "bitsPerChannel", "colorProfileName", "colorProfileType"
@@ -1494,7 +1533,10 @@ export default defineWebviewCdpCases([
         try {
           return await read;
         } catch (error) {
-          throw new Error(`document.${name} failed: ${normalizeError(error).message}`);
+          throw Object.assign(
+            new Error(`document.${name} failed: ${normalizeError(error).message}`),
+            { cause: error }
+          );
         }
       };
       const channels = await readCollection("compositeChannels", source.compositeChannels);
@@ -1609,8 +1651,8 @@ export default defineWebviewCdpCases([
         await closeDocumentQuietly(reopened);
         await closeDocumentQuietly(document ?? undefined);
         for (const file of files) {
-          try { await file.delete(); } catch {}
-          try { await file.dispose(); } catch {}
+          try { await file.delete(); } catch { /* Best-effort cleanup. */ }
+          try { await file.dispose(); } catch { /* Best-effort cleanup. */ }
         }
       }
     }
@@ -1810,10 +1852,8 @@ export default defineWebviewCdpCases([
       assert.ok(typeof await sourceSet.id === "number", "ActionSet.id should resolve to a number.");
       assert.ok(typeof await sourceSet.index === "number", "ActionSet.index should resolve to a number.");
       assert.nonEmptyString(await sourceSet.name, "ActionSet.name");
-      const sourceActions = await sourceSet.actions;
-
       let duplicateSet: typeof sourceSet | undefined;
-      let duplicateAction: (typeof sourceActions)[number] | undefined;
+      let duplicateAction: Awaited<typeof sourceSet.actions>[number] | undefined;
       try {
         duplicateSet = await sourceSet.duplicate();
         const setName = `UXP Bridge Set ${Date.now()}`;
@@ -1843,8 +1883,8 @@ export default defineWebviewCdpCases([
           intentionallyNotPlayed: true
         };
       } finally {
-        try { await duplicateAction?.delete(); } catch {}
-        try { await duplicateSet?.delete(); } catch {}
+        try { await duplicateAction?.delete(); } catch { /* Best-effort cleanup. */ }
+        try { await duplicateSet?.delete(); } catch { /* Best-effort cleanup. */ }
       }
     }
   },
@@ -1862,6 +1902,7 @@ export default defineWebviewCdpCases([
       const [layerDescriptor] = await bridge.photoshop.action.batchPlay([
         { _obj: "get", _target: [{ _ref: "layer", _enum: "ordinal", _value: "targetEnum" }] }
       ]);
+      if (layerDescriptor === undefined) throw new Error("batchPlay read returned no descriptor.");
       assert.ok(typeof layerDescriptor === "object" && layerDescriptor !== null, "batchPlay read should return a descriptor.");
       const nativeLayerId = layerDescriptor.layerID as number;
       assert.ok(typeof nativeLayerId === "number", "the read descriptor should carry a native layerID.");
@@ -1910,6 +1951,7 @@ export default defineWebviewCdpCases([
       const [descriptor] = await bridge.photoshop.action.batchPlaySync([
         { _obj: "get", _target: reference }
       ]);
+      if (descriptor === undefined) throw new Error("batchPlaySync returned no descriptor.");
       assert.ok(typeof descriptor === "object" && descriptor !== null, "batchPlaySync should return a descriptor.");
       assert.equal(descriptor.documentID, documentId, "batchPlaySync should read the active native document id.");
 
@@ -1939,7 +1981,7 @@ function isSkip(value: unknown): value is SkipMarker {
 }
 
 async function getActiveDocument(
-  bridge: { photoshop: any },
+  bridge: { photoshop: PhotoshopNamespace },
   skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
 ): Promise<PsDocument | SkipMarker> {
   try {
@@ -1954,7 +1996,7 @@ async function getActiveDocument(
 }
 
 async function getActiveLayer(
-  bridge: { photoshop: any },
+  bridge: { photoshop: PhotoshopNamespace },
   skip: (reason: string, diagnostics?: Record<string, unknown>) => unknown
 ): Promise<PsLayer | SkipMarker> {
   const document = await getActiveDocument(bridge, skip);
@@ -2009,3 +2051,20 @@ function normalizeError(error: unknown): Record<string, unknown> {
   }
   return { message: String(error) };
 }
+
+// Compile-time API contract: both the original split-await form and the chainable form must typecheck.
+function assertRemoteResultTypes(app: PhotoshopApp): void {
+  const documentResult: import("@webview/uxp-api/remote/index.js").RemoteResult<PsDocument> = app.activeDocument;
+  const legacyDocument: Promise<PsDocument> = app.activeDocument;
+  const chainedName: Promise<string> = app.activeDocument.name;
+  const chainedClose: Promise<void> = app.activeDocument.close();
+  const calculationsResult: import("@webview/uxp-api/remote/index.js").RemoteResult<
+    PsDocument | PsChannel | undefined
+  > = documentResult.calculations({} as Parameters<PsDocument["calculations"]>[0]);
+  const calculationsName: Promise<string> = calculationsResult.name;
+  app.activeDocument.pixelAspectRatio = 2;
+
+  void [documentResult, legacyDocument, chainedName, chainedClose, calculationsResult, calculationsName];
+}
+
+void assertRemoteResultTypes;

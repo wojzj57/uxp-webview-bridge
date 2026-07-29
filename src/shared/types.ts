@@ -3,6 +3,10 @@ export type BridgeProtocolVersion = `${number}.${number}.${number}`;
 export interface BridgeCapabilities {
   readonly fs: boolean;
   readonly os: boolean;
+  readonly clipboard: boolean;
+  readonly localStorage: boolean;
+  readonly sessionStorage: boolean;
+  readonly fetch: boolean;
   readonly shell: boolean;
   readonly userInfo: boolean;
   readonly pluginManager: boolean;

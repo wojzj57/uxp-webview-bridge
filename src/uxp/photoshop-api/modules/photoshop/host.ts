@@ -39,9 +39,10 @@ import {
   type PhotoshopPreferenceCategoryType
 } from "@shared/photoshop-api/photoshop-preferences.js";
 import { isPhotoshopValueTransport, serializeValue } from "@shared/photoshop-api/value-objects.js";
+import { isBridgeCallbackReference, type BridgeCallbackReference } from "@shared/protocol.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 import { isUxpStorageEntryReference } from "@shared/uxp-api/uxp-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import type { UxpCallbackBridge, UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.js";
 import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
 import { resolveUxpStorageEntryReference } from "@uxp/uxp-api/modules/uxp/persistent-file-storage/host.js";
 import type {
@@ -146,6 +147,11 @@ const LAYER_WRITABLE_SCALARS = new Set([
 const DOCUMENT_WRITABLE_SCALARS = new Set(["pixelAspectRatio", "quickMaskMode", "bitsPerChannel", "colorProfileName", "colorProfileType"]);
 const DOCUMENT_WRITABLE_REFS = new Set(["activeHistoryState", "activeHistoryBrushSource"]);
 const DOCUMENT_WRITABLE_COLLECTIONS = new Set(["activeLayers", "activeChannels"]);
+const DOCUMENT_WRITABLE = new Set([
+  ...DOCUMENT_WRITABLE_SCALARS,
+  ...DOCUMENT_WRITABLE_COLLECTIONS,
+  ...DOCUMENT_WRITABLE_REFS
+]);
 
 /** Mutating Document methods (wrapped in executeAsModal). */
 const DOCUMENT_MUTATING_METHODS = new Set([
@@ -233,6 +239,7 @@ const CHANNEL_SCALARS = new Set(["name", "opacity", "visible", "kind", "histogra
  * value object, not a scalar, so it is handled separately in the propertySet branch.
  */
 const CHANNEL_WRITABLE_SCALARS = new Set(["name", "opacity", "visible", "kind"]);
+const CHANNEL_WRITABLE = new Set([...CHANNEL_WRITABLE_SCALARS, "color"]);
 
 /** Mutating Channel methods (all Channel methods here mutate). */
 const CHANNEL_MUTATING_METHODS = new Set(["duplicate", "merge", "remove"]);
@@ -275,7 +282,9 @@ const COUNT_ITEMS_METHODS = new Set([
 const LAYER_COMP_METHODS = new Set(["apply", "duplicate", "recapture", "remove", "resetLayerComp"]);
 const LAYER_COMPS_METHODS = new Set(["add", "getAllByName", "removeAll"]);
 const GUIDE_SCALARS = new Set(["typename", "id", "docId", "direction", "coordinate"]);
+const GUIDE_WRITABLE = new Set(["direction", "coordinate"]);
 const PATH_ITEM_SCALARS = new Set(["typename", "id", "docId", "kind", "name"]);
+const PATH_ITEM_WRITABLE = new Set(["kind", "name"]);
 const SUB_PATH_ITEM_SCALARS = new Set(["typename", "operation", "closed"]);
 const PATH_POINT_SCALARS = new Set(["typename", "anchor", "kind", "leftDirection", "rightDirection"]);
 const PATH_ITEM_METHODS = new Set(["deselect", "duplicate", "fillPath", "makeClippingPath", "makeSelection", "remove", "select", "strokePath"]);
@@ -289,15 +298,55 @@ const ACTION_SET_SCALARS = new Set(["typename", "index", "id", "name", "actions"
 const ACTION_SCALARS = new Set(["typename", "id", "index", "name", "parent"]);
 
 const photoshopRegistry = createRemoteHandleRegistry();
+// Dispatch selects its modal helper synchronously, so this scoped context reaches every existing
+// DOM mutation handler without widening their internal signatures. It is restored before dispatch
+// returns, while the selected native/direct execution promise continues independently.
+let activePhotoshopDispatchContext: UxpDispatchContext | undefined;
+const actionNotificationRegistrations = new WeakMap<UxpCallbackBridge, Map<string, ActionNotificationRegistration>>();
+const liveActionNotificationMaps = new Set<Map<string, ActionNotificationRegistration>>();
+const documentModalContexts = new WeakMap<UxpCallbackBridge, Map<string, Record<string, unknown>>>();
+
+interface ActionNotificationRegistration {
+  readonly subscriptionId: string;
+  readonly callbacks: UxpCallbackBridge;
+  readonly events: string[];
+  readonly reference: BridgeCallbackReference;
+  readonly nativeListener: (eventName: string, descriptor: Record<string, unknown>) => void;
+  readonly added: Promise<void>;
+  removing?: Promise<void>;
+}
 
 export const photoshopModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_MODULE_ID,
   capability: "photoshop",
-  dispatch: (method, args) => dispatchPhotoshopCall(method, args),
+  dispatch: (method, args, context) => dispatchPhotoshopCall(method, args, context),
   destroy: destroyPhotoshopHandles
 };
 
-export function dispatchPhotoshopCall(method: string, args: readonly unknown[]): unknown | Promise<unknown> {
+export function dispatchPhotoshopCall(
+  method: string,
+  args: readonly unknown[],
+  context?: UxpDispatchContext
+): unknown {
+  if (context && isBatchPlayMethod(method) && !context.capabilities.batchPlay) {
+    throw new Error("batchPlay capability is disabled.");
+  }
+  const previousContext = activePhotoshopDispatchContext;
+  activePhotoshopDispatchContext = context;
+  try {
+    return dispatchPhotoshopCallInContext(method, args);
+  } finally {
+    activePhotoshopDispatchContext = previousContext;
+  }
+}
+
+function isBatchPlayMethod(method: string): boolean {
+  return method === "app.batchPlay" ||
+    method === "action.batchPlay" ||
+    method === "action.batchPlaySync";
+}
+
+function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]): unknown {
   assertPhotoshopProtocolMethodName(method);
   photoshopRegistry.prune();
 
@@ -375,13 +424,24 @@ export function dispatchPhotoshopCall(method: string, args: readonly unknown[]):
   throw new Error(`Unsupported photoshop method: ${method}`);
 }
 
-export function destroyPhotoshopHandles(): void {
+export function destroyPhotoshopHandles(): void | Promise<void> {
   photoshopRegistry.clear();
+  const pending: Promise<void>[] = [];
+  for (const registrations of liveActionNotificationMaps) {
+    for (const registration of registrations.values()) {
+      pending.push(
+        registration.added
+          .then(() => registration.callbacks.unregisterSubscription(registration.subscriptionId))
+          .catch(() => undefined)
+      );
+    }
+  }
+  return pending.length === 0 ? undefined : Promise.all(pending).then(() => undefined);
 }
 
 // ---------------------------------------------------------------------------- app.*
 
-function dispatchAppCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchAppCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "app.activeDocument") { expectArgs(args, 0, 0, method); return serializeDocument(getPhotoshop().app.activeDocument); }
   if (method === "app.documents") {
     expectArgs(args, 0, 0, method);
@@ -415,8 +475,9 @@ function dispatchAppCall(method: PhotoshopProtocolMethodName, args: readonly unk
   }
   if (method === "app.batchGet") {
     const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
-    const names = assertStringArray(propertyNames, method);
-    for (const name of names) if (!APP_READABLE.has(name)) throw new Error(`Unknown Photoshop property: ${name}`);
+    const names = normalizeBatchPropertyNames(propertyNames, method, (name) => {
+      if (!APP_READABLE.has(name)) throw new Error(`Unknown Photoshop property: ${name}`);
+    });
     const app = getPhotoshopApp(reference);
     return Object.fromEntries(names.map((name) => [name, serializeAppProperty(reference, name, app[name])]));
   }
@@ -425,11 +486,17 @@ function dispatchAppCall(method: PhotoshopProtocolMethodName, args: readonly unk
     const props = assertPropertyMap(values, method);
     for (const name of Object.keys(props)) if (!APP_WRITABLE.has(name)) throw new Error(`Photoshop property is not writable: ${name}`);
     const app = getPhotoshopApp(reference);
-    return executeAsModal("app.batchSet", () => {
-      for (const [name, value] of Object.entries(props)) {
-        app[name] = name === "foregroundColor" || name === "backgroundColor" ? buildSolidColor(decodeValue(value)) : decodeValue(value);
-      }
-    });
+    const decoded = [...APP_WRITABLE]
+      .filter((name) => Object.prototype.hasOwnProperty.call(props, name))
+      .map((name) => [name, name === "foregroundColor" || name === "backgroundColor"
+        ? buildSolidColor(decodeValue(props[name]))
+        : decodeValue(props[name])] as const);
+    const apply = () => {
+      assignBatchPropertyEntries(app, decoded);
+    };
+    return decoded.some(([name]) => name !== "displayDialogs")
+      ? executeAsModal("app.batchSet", apply)
+      : apply();
   }
 
   const methodName = method.slice("app.".length);
@@ -505,7 +572,7 @@ function decodeDocumentCreateOptions(value: unknown): unknown {
 
 // ---------------------------------------------------------------------------- app-owned collections and objects
 
-function dispatchDocumentsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchDocumentsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const [reference, value] = expectReferenceArgs(args, 1, 2, method);
   const app = getPhotoshopApp(reference);
   if (method === "documents.getByName") {
@@ -536,7 +603,7 @@ function dispatchTextFontCall(method: PhotoshopProtocolMethodName, args: readonl
   return dispatchSimpleObjectCall(PHOTOSHOP_REMOTE_TYPE.TextFont, method, args, TEXT_FONT_SCALARS, new Set());
 }
 
-function dispatchToolCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchToolCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   return dispatchSimpleObjectCall(PHOTOSHOP_REMOTE_TYPE.Tool, method, args, TOOL_SCALARS, new Set(["id"]));
 }
 
@@ -544,7 +611,7 @@ function dispatchActionObjectCall(
   type: typeof PHOTOSHOP_REMOTE_TYPE.ActionSet | typeof PHOTOSHOP_REMOTE_TYPE.Action,
   method: PhotoshopProtocolMethodName,
   args: readonly unknown[]
-): unknown | Promise<unknown> {
+): unknown {
   const prefix = type === PHOTOSHOP_REMOTE_TYPE.ActionSet ? "actionSet" : "actionObject";
   const scalars = type === PHOTOSHOP_REMOTE_TYPE.ActionSet ? ACTION_SET_SCALARS : ACTION_SCALARS;
   if (method === `${prefix}.dispose`) {
@@ -564,7 +631,7 @@ function dispatchActionObjectCall(
   return resolveMaybePromise(run, (value) => serializeResult(photoshopMethodResultKind(type, methodName), reference, value));
 }
 
-function dispatchPreferencesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchPreferencesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const reference = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method)[0];
   if (!isPhotoshopPreferenceType(reference.type)) throw new Error(`Expected a Preferences reference, received ${reference.type}.`);
   const readable = preferenceReadableProperties(reference.type);
@@ -586,7 +653,7 @@ function dispatchSimpleObjectCall(
   readable: ReadonlySet<string>,
   writable: ReadonlySet<string>,
   modalWrites = false
-): unknown | Promise<unknown> {
+): unknown {
   const suffix = method.slice(method.lastIndexOf(".") + 1);
   if (suffix === "dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method); photoshopRegistry.dispose(reference); return undefined;
@@ -606,17 +673,23 @@ function dispatchSimpleObjectCall(
     return modalWrites ? executeAsModal(method, assign) : assign();
   }
   if (suffix === "batchGet") {
-    const names = assertStringArray(value, method);
-    return Object.fromEntries(names.map((name) => {
+    const names = normalizeBatchPropertyNames(value, method, (name) => {
       if (!readable.has(name)) throw new Error(`Unknown ${type} property: ${name}`);
+    });
+    return Object.fromEntries(names.map((name) => {
       const propertyValue = name === "typename" && object[name] === undefined ? type : object[name];
       return [name, serializeResult(photoshopPropertyResultKind(type, name), reference, propertyValue)];
     }));
   }
   if (suffix === "batchSet") {
     const props = assertPropertyMap(value, method);
-    for (const name of Object.keys(props)) if (!writable.has(name)) throw new Error(`${type} property is not writable: ${name}`);
-    const assign = () => { for (const [name, entry] of Object.entries(props)) object[name] = decodeValue(entry); };
+    const decoded = decodeBatchPropertyEntries(
+      props,
+      writable,
+      (_name, entry) => decodeValue(entry),
+      (name) => new Error(`${type} property is not writable: ${name}`)
+    );
+    const assign = () => assignBatchPropertyEntries(object, decoded);
     return modalWrites ? executeAsModal(method, assign) : assign();
   }
   return unsupported(method);
@@ -624,7 +697,17 @@ function dispatchSimpleObjectCall(
 
 // ---------------------------------------------------------------------------- document.*
 
-function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
+  if (method === "document.suspendHistory") {
+    return dispatchDocumentSuspendHistory(args, method, activePhotoshopDispatchContext);
+  }
+  if (method.startsWith("document.modal.")) {
+    return dispatchDocumentModalControl(
+      args,
+      method as Extract<PhotoshopProtocolMethodName, `document.modal.${string}`>,
+      activePhotoshopDispatchContext
+    );
+  }
   if (method.startsWith("document.saveAs.")) {
     const [reference, entry, options, asCopy] = expectReferenceArgs(args, 2, 4, method);
     if (!isUxpStorageEntryReference(entry)) throw new Error(`${method} entry must be a UXP storage File reference.`);
@@ -676,7 +759,9 @@ function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonl
   if (method === "document.batchGet") {
     const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
     const document = getDocument(reference);
-    const names = assertStringArray(propertyNames, method);
+    const names = normalizeBatchPropertyNames(propertyNames, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.Document, name, DOCUMENT_SCALARS, "document");
+    });
     const result: Record<string, unknown> = {};
     for (const name of names) {
       result[name] = serializeDocumentProperty(reference, name, document[name]);
@@ -688,18 +773,17 @@ function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonl
     const [reference, values] = expectReferenceArgs(args, 2, 2, method);
     const document = getDocument(reference);
     const props = assertPropertyMap(values, method);
-    for (const name of Object.keys(props)) {
-      if (!DOCUMENT_WRITABLE_SCALARS.has(name) && !DOCUMENT_WRITABLE_REFS.has(name) && !DOCUMENT_WRITABLE_COLLECTIONS.has(name)) {
-        throw new Error(`Document property is not writable: ${name}`);
-      }
-    }
+    const decoded = decodeBatchPropertyEntries(
+      props,
+      DOCUMENT_WRITABLE,
+      (name, value) => decodeDocumentPropertyValue(name, value, method),
+      (name) => new Error(`Document property is not writable: ${name}`)
+    );
     const apply = () => {
-      for (const name of Object.keys(props)) {
-        document[name] = decodeDocumentPropertyValue(name, props[name], method);
-      }
+      assignBatchPropertyEntries(document, decoded);
       return undefined;
     };
-    return Object.keys(props).some((name) => name !== "pixelAspectRatio")
+    return decoded.some(([name]) => name !== "pixelAspectRatio")
       ? executeAsModal("document.batchSet", apply)
       : apply();
   }
@@ -776,7 +860,7 @@ function decodeDocumentPropertyValue(name: string, value: unknown, method: strin
 
 // ---------------------------------------------------------------------------- layer.*
 
-function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "layer.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -807,7 +891,9 @@ function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly u
   if (method === "layer.batchGet") {
     const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
     const layer = getLayer(reference);
-    const names = assertStringArray(propertyNames, method);
+    const names = normalizeBatchPropertyNames(propertyNames, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.Layer, name, LAYER_SCALARS, "layer");
+    });
     const result: Record<string, unknown> = {};
     for (const name of names) {
       result[name] = serializeLayerProperty(reference, name, layer[name]);
@@ -819,16 +905,15 @@ function dispatchLayerCall(method: PhotoshopProtocolMethodName, args: readonly u
     const [reference, values] = expectReferenceArgs(args, 2, 2, method);
     const layer = getLayer(reference);
     const props = assertPropertyMap(values, method);
-    for (const name of Object.keys(props)) {
-      if (!LAYER_WRITABLE_SCALARS.has(name)) {
-        throw new Error(`Layer property is not writable: ${name}`);
-      }
-    }
+    const decoded = decodeBatchPropertyEntries(
+      props,
+      LAYER_WRITABLE_SCALARS,
+      (_name, value) => decodeValue(value),
+      (name) => new Error(`Layer property is not writable: ${name}`)
+    );
     // All writable layer scalars mutate: apply the whole batch under a single modal scope.
     return executeAsModal("layer.batchSet", () => {
-      for (const name of Object.keys(props)) {
-        layer[name] = decodeValue(props[name]);
-      }
+      assignBatchPropertyEntries(layer, decoded);
       return undefined;
     });
   }
@@ -851,7 +936,7 @@ function serializeLayerProperty(ownerReference: RemoteReference, name: string, v
     throw new Error(`Unknown layer property: ${name}`);
   }
   if (name === "textItem" && value && typeof value === "object") {
-    textItemOwners.set(value as object, getLayer(ownerReference));
+    textItemOwners.set(value, getLayer(ownerReference));
   }
   return serializeResult(resultKind, ownerReference, value);
 }
@@ -876,7 +961,7 @@ function decodeLayerMethodArgs(methodName: string, values: readonly unknown[], m
 
 // ---------------------------------------------------------------------------- text item and styles
 
-function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "textItem.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -896,15 +981,23 @@ function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonl
   if (method === "textItem.batchGet") {
     const [reference, names] = expectReferenceArgs(args, 2, 2, method);
     const item = getTextItem(reference);
-    return Object.fromEntries(assertStringArray(names, method).map((name) => [name, serializeTextItemProperty(reference, name, item[name])]));
+    const propertyNames = normalizeBatchPropertyNames(names, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.TextItem, name, TEXT_ITEM_SCALARS, "TextItem");
+    });
+    return Object.fromEntries(propertyNames.map((name) => [name, serializeTextItemProperty(reference, name, item[name])]));
   }
   if (method === "textItem.batchSet") {
     const [reference, values] = expectReferenceArgs(args, 2, 2, method);
     const props = assertPropertyMap(values, method);
-    for (const name of Object.keys(props)) if (!TEXT_ITEM_WRITABLE.has(name)) throw new Error(`TextItem property is not writable: ${name}`);
+    const decoded = decodeBatchPropertyEntries(
+      props,
+      TEXT_ITEM_WRITABLE,
+      (_name, value) => decodeValue(value),
+      (name) => new Error(`TextItem property is not writable: ${name}`)
+    );
     return executeAsModal("textItem.batchSet", () => {
       const item = getTextItem(reference);
-      for (const [name, value] of Object.entries(props)) item[name] = decodeValue(value);
+      assignBatchPropertyEntries(item, decoded);
     });
   }
   const name = method.slice("textItem.".length);
@@ -913,8 +1006,8 @@ function dispatchTextItemCall(method: PhotoshopProtocolMethodName, args: readonl
   const run = executeAsModal(name, () => callMethod(getTextItem(reference), name, decodeArgs(rest)));
   return resolveMaybePromise(run, (value) => {
     if (value && typeof value === "object") {
-      const owner = textItemOwners.get(getTextItem(reference) as object);
-      if (owner) textItemOwners.set(value as object, owner);
+      const owner = textItemOwners.get(getTextItem(reference));
+      if (owner) textItemOwners.set(value, owner);
     }
     return serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.TextItem, name), reference, value);
   });
@@ -924,10 +1017,10 @@ function serializeTextItemProperty(reference: RemoteReference, name: string, val
   const kind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.TextItem, name);
   if (kind.kind === "scalar" && !TEXT_ITEM_SCALARS.has(name)) throw new Error(`Unknown TextItem property: ${name}`);
   if (value && typeof value === "object") {
-    const owner = textItemOwners.get(getTextItem(reference) as object);
-    if (owner && name === "characterStyle") characterStyleOwners.set(value as object, owner);
-    if (owner && name === "paragraphStyle") paragraphStyleOwners.set(value as object, owner);
-    if (owner && name === "warpStyle") textWarpStyleOwners.set(value as object, owner);
+    const owner = textItemOwners.get(getTextItem(reference));
+    if (owner && name === "characterStyle") characterStyleOwners.set(value, owner);
+    if (owner && name === "paragraphStyle") paragraphStyleOwners.set(value, owner);
+    if (owner && name === "warpStyle") textWarpStyleOwners.set(value, owner);
   }
   return serializeResult(kind, reference, value);
 }
@@ -938,7 +1031,7 @@ function dispatchTextStyleCall(
   properties: ReadonlySet<string>,
   method: PhotoshopProtocolMethodName,
   args: readonly unknown[]
-): unknown | Promise<unknown> {
+): unknown {
   if (method === `${prefix}.dispose`) {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -962,22 +1055,27 @@ function dispatchTextStyleCall(
   if (method === `${prefix}.batchGet`) {
     const [reference, names] = expectReferenceArgs(args, 2, 2, method);
     const target = getTextStyle(type, reference);
-    return Object.fromEntries(assertStringArray(names, method).map((name) => {
+    const propertyNames = normalizeBatchPropertyNames(names, method, (name) => {
       if (!properties.has(name)) throw new Error(`Unknown ${type} property: ${name}`);
+    });
+    return Object.fromEntries(propertyNames.map((name) => {
       return [name, serializeResult(photoshopPropertyResultKind(type, name), reference, target[name])];
     }));
   }
   if (method === `${prefix}.batchSet`) {
     const [reference, values] = expectReferenceArgs(args, 2, 2, method);
     const props = assertPropertyMap(values, method);
-    for (const name of Object.keys(props)) if (!properties.has(name)) throw new Error(`Unknown ${type} property: ${name}`);
+    const decoded = decodeBatchPropertyEntries(
+      props,
+      properties,
+      (name, value) => type === PHOTOSHOP_REMOTE_TYPE.CharacterStyle && name === "color"
+        ? buildSolidColor(decodeValue(value))
+        : decodeValue(value),
+      (name) => new Error(`Unknown ${type} property: ${name}`)
+    );
     return executeAsModal(`${prefix}.batchSet`, () => {
       const target = getTextStyle(type, reference);
-      for (const [name, value] of Object.entries(props)) {
-        target[name] = type === PHOTOSHOP_REMOTE_TYPE.CharacterStyle && name === "color"
-          ? buildSolidColor(decodeValue(value))
-          : decodeValue(value);
-      }
+      assignBatchPropertyEntries(target, decoded);
     });
   }
   if (method === `${prefix}.reset`) {
@@ -989,7 +1087,7 @@ function dispatchTextStyleCall(
 
 // ---------------------------------------------------------------------------- layers.*
 
-function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "layers.snapshot") {
     const [reference, collectionKey] = expectReferenceArgs(args, 1, 2, method);
     const owner = resolveOwner(reference);
@@ -1025,7 +1123,7 @@ function dispatchLayersCall(method: PhotoshopProtocolMethodName, args: readonly 
 
 // ---------------------------------------------------------------------------- channel.*
 
-function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "channel.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -1043,8 +1141,9 @@ function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly
     const [reference, key, value] = expectReferenceArgs(args, 3, 3, method);
     const name = assertString(key, `${method} property`);
     const channel = getChannel(reference);
+    const decoded = decodeChannelPropertyValue(name, value);
     return executeAsModal(`channel.set.${name}`, () => {
-      assignChannelProperty(channel, name, value);
+      channel[name] = decoded;
       return undefined;
     });
   }
@@ -1052,7 +1151,9 @@ function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly
   if (method === "channel.batchGet") {
     const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
     const channel = getChannel(reference);
-    const names = assertStringArray(propertyNames, method);
+    const names = normalizeBatchPropertyNames(propertyNames, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.Channel, name, CHANNEL_SCALARS, "channel");
+    });
     const result: Record<string, unknown> = {};
     for (const name of names) {
       result[name] = serializeChannelProperty(reference, name, channel[name]);
@@ -1064,11 +1165,15 @@ function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly
     const [reference, values] = expectReferenceArgs(args, 2, 2, method);
     const channel = getChannel(reference);
     const props = assertPropertyMap(values, method);
+    const decoded = decodeBatchPropertyEntries(
+      props,
+      CHANNEL_WRITABLE,
+      (name, value) => decodeChannelPropertyValue(name, value),
+      (name) => new Error(`Channel property is not writable: ${name}`)
+    );
     // All writable channel members mutate: apply the whole batch under a single modal scope.
     return executeAsModal("channel.batchSet", () => {
-      for (const name of Object.keys(props)) {
-        assignChannelProperty(channel, name, props[name]);
-      }
+      assignBatchPropertyEntries(channel, decoded);
       return undefined;
     });
   }
@@ -1091,15 +1196,14 @@ function dispatchChannelCall(method: PhotoshopProtocolMethodName, args: readonly
  * `PsSolidColor`) — never a value envelope, since the WebView write path does not value-encode
  * (ADR 0003 write queue + RemoteClass `#setProperty`). The host builds a live `SolidColor` from it.
  */
-function assignChannelProperty(channel: PhotoshopChannelLike, name: string, value: unknown): void {
+function decodeChannelPropertyValue(name: string, value: unknown): unknown {
   if (name === "color") {
-    channel.color = buildSolidColor(decodeValue(value));
-    return;
+    return buildSolidColor(decodeValue(value));
   }
   if (!CHANNEL_WRITABLE_SCALARS.has(name)) {
     throw new Error(`Channel property is not writable: ${name}`);
   }
-  channel[name] = decodeValue(value);
+  return decodeValue(value);
 }
 
 function serializeChannelProperty(ownerReference: RemoteReference, name: string, value: unknown): unknown {
@@ -1146,7 +1250,7 @@ function buildSolidColor(input: unknown): unknown {
 
 // ---------------------------------------------------------------------------- channels.*
 
-function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "channels.snapshot") {
     const [reference, collectionKey] = expectReferenceArgs(args, 1, 2, method);
     const document = getDocument(reference);
@@ -1183,7 +1287,7 @@ function dispatchChannelsCall(method: PhotoshopProtocolMethodName, args: readonl
 
 // ---------------------------------------------------------------------------- ColorSampler(s), CountItem(s), LayerComp(s)
 
-function dispatchColorSamplerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchColorSamplerCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "colorSampler.dispose") {
     const [ref] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(ref);
@@ -1196,8 +1300,11 @@ function dispatchColorSamplerCall(method: PhotoshopProtocolMethodName, args: rea
     return serializeColorSamplerProperty(ref, name, colorSamplerPropertyValue(sampler, name));
   }
   if (method === "colorSampler.batchGet") {
+    const names = normalizeBatchPropertyNames(value, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.ColorSampler, name, COLOR_SAMPLER_SCALARS, "color sampler");
+    });
     return Object.fromEntries(
-      assertStringArray(value, method).map((name) => [
+      names.map((name) => [
         name,
         serializeColorSamplerProperty(ref, name, colorSamplerPropertyValue(sampler, name))
       ])
@@ -1205,8 +1312,7 @@ function dispatchColorSamplerCall(method: PhotoshopProtocolMethodName, args: rea
   }
   if (method === "colorSampler.batchSet") {
     const props = assertPropertyMap(value, method);
-    const first = Object.keys(props)[0];
-    throw new Error(first ? `ColorSampler property is not writable: ${first}` : "ColorSampler has no writable properties.");
+    return rejectReadonlyBatch(props, "ColorSampler");
   }
   const name = method.slice("colorSampler.".length);
   if (name !== "move" && name !== "remove") return unsupported(method);
@@ -1228,14 +1334,14 @@ function serializeColorSamplerProperty(ref: RemoteReference, name: string, value
 }
 
 function colorSamplerPropertyValue(sampler: PhotoshopColorSamplerLike, name: string): unknown {
-  const owner = colorSamplerOwners.get(sampler as object);
+  const owner = colorSamplerOwners.get(sampler);
   if (name === "parent") return owner ?? sampler.parent;
   if (name === "docId") return sampler.docId ?? owner?.id;
   if (name === "typename") return sampler.typename ?? "ColorSampler";
   return sampler[name];
 }
 
-function dispatchColorSamplersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchColorSamplersCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const expectedLength = method === "colorSamplers.add" ? 2 : 1;
   const [ref, ...rest] = expectReferenceArgs(args, expectedLength, expectedLength, method);
   const document = getDocument(ref);
@@ -1257,7 +1363,7 @@ function dispatchColorSamplersCall(method: PhotoshopProtocolMethodName, args: re
   return unsupported(method);
 }
 
-function dispatchCountItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchCountItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "countItem.dispose") {
     const [ref] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(ref);
@@ -1270,8 +1376,11 @@ function dispatchCountItemCall(method: PhotoshopProtocolMethodName, args: readon
     return serializeCountItemProperty(ref, name, countItemPropertyValue(item, name));
   }
   if (method === "countItem.batchGet") {
+    const names = normalizeBatchPropertyNames(value, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.CountItem, name, COUNT_ITEM_SCALARS, "count item");
+    });
     return Object.fromEntries(
-      assertStringArray(value, method).map((name) => [
+      names.map((name) => [
         name,
         serializeCountItemProperty(ref, name, countItemPropertyValue(item, name))
       ])
@@ -1279,8 +1388,7 @@ function dispatchCountItemCall(method: PhotoshopProtocolMethodName, args: readon
   }
   if (method === "countItem.batchSet") {
     const props = assertPropertyMap(value, method);
-    const first = Object.keys(props)[0];
-    throw new Error(first ? `CountItem property is not writable: ${first}` : "CountItem has no writable properties.");
+    return rejectReadonlyBatch(props, "CountItem");
   }
   const name = method.slice("countItem.".length);
   if (name !== "move" && name !== "remove") return unsupported(method);
@@ -1305,13 +1413,13 @@ function serializeCountItemProperty(ref: RemoteReference, name: string, value: u
 function countItemPropertyValue(item: PhotoshopCountItemLike, name: string): unknown {
   if (name === "typename") return item.typename ?? "CountItem";
   if (name !== "parent") return item[name];
-  const document = countItemOwners.get(item as object);
+  const document = countItemOwners.get(item);
   if (!document) throw new Error("CountItem parent document is unavailable.");
   const owner = serializeDocument(document);
   return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.CountItem, owner, document.countItems);
 }
 
-function dispatchCountItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchCountItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const name = method.slice("countItems.".length);
   if (!COUNT_ITEMS_METHODS.has(name)) return unsupported(method);
   const takesArgument = name !== "removeAllFromActiveGroup" && name !== "getAll";
@@ -1344,7 +1452,7 @@ function dispatchCountItemsCall(method: PhotoshopProtocolMethodName, args: reado
   });
 }
 
-function dispatchLayerCompCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayerCompCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "layerComp.dispose") {
     const [ref] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(ref);
@@ -1363,20 +1471,23 @@ function dispatchLayerCompCall(method: PhotoshopProtocolMethodName, args: readon
     return executeAsModal(method, () => { comp[name] = decoded; });
   }
   if (method === "layerComp.batchGet") {
+    const names = normalizeBatchPropertyNames(value, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.LayerComp, name, LAYER_COMP_SCALARS, "layer comp");
+    });
     return Object.fromEntries(
-      assertStringArray(value, method).map((name) => [name, serializeLayerCompProperty(ref, name, comp[name])])
+      names.map((name) => [name, serializeLayerCompProperty(ref, name, comp[name])])
     );
   }
   if (method === "layerComp.batchSet") {
     const props = assertPropertyMap(value, method);
-    for (const name of Object.keys(props)) {
-      if (!LAYER_COMP_WRITABLE.has(name)) throw new Error(`LayerComp property is not writable: ${name}`);
-    }
-    const decoded = Object.fromEntries(
-      Object.entries(props).map(([name, entry]) => [name, decodeLayerCompPropertyValue(name, entry, method)])
+    const decoded = decodeBatchPropertyEntries(
+      props,
+      LAYER_COMP_WRITABLE,
+      (name, value) => decodeLayerCompPropertyValue(name, value, method),
+      (name) => new Error(`LayerComp property is not writable: ${name}`)
     );
     return executeAsModal(method, () => {
-      for (const [name, entry] of Object.entries(decoded)) comp[name] = entry;
+      assignBatchPropertyEntries(comp, decoded);
     });
   }
   const name = method.slice("layerComp.".length);
@@ -1411,7 +1522,7 @@ function decodeLayerCompPropertyValue(name: string, value: unknown, method: stri
   return value;
 }
 
-function dispatchLayerCompsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchLayerCompsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const name = method.slice("layerComps.".length);
   if (!LAYER_COMPS_METHODS.has(name)) return unsupported(method);
   const minLength = name === "getAllByName" ? 2 : 1;
@@ -1431,7 +1542,7 @@ function dispatchLayerCompsCall(method: PhotoshopProtocolMethodName, args: reado
 
 // ---------------------------------------------------------------------------- selection.*
 
-function dispatchSelectionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchSelectionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "selection.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
     photoshopRegistry.dispose(reference);
@@ -1448,7 +1559,10 @@ function dispatchSelectionCall(method: PhotoshopProtocolMethodName, args: readon
     const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
     const selection = getSelection(reference);
     const result: Record<string, unknown> = {};
-    for (const name of assertStringArray(propertyNames, method)) {
+    const names = normalizeBatchPropertyNames(propertyNames, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.Selection, name, SELECTION_SCALARS, "selection");
+    });
+    for (const name of names) {
       result[name] = serializeSelectionProperty(reference, name, selection[name]);
     }
     return result;
@@ -1457,8 +1571,7 @@ function dispatchSelectionCall(method: PhotoshopProtocolMethodName, args: readon
   if (method === "selection.batchSet") {
     const [, values] = expectReferenceArgs(args, 2, 2, method);
     const props = assertPropertyMap(values, method);
-    const first = Object.keys(props)[0];
-    throw new Error(first ? `Selection property is not writable: ${first}` : "Selection has no writable properties.");
+    return rejectReadonlyBatch(props, "Selection");
   }
 
   const methodName = method.slice("selection.".length);
@@ -1504,7 +1617,10 @@ function dispatchHistoryStateCall(method: PhotoshopProtocolMethodName, args: rea
     const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
     const historyState = getHistoryState(reference);
     const result: Record<string, unknown> = {};
-    for (const name of assertStringArray(propertyNames, method)) {
+    const names = normalizeBatchPropertyNames(propertyNames, method, (name) => {
+      assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.HistoryState, name, HISTORY_STATE_SCALARS, "history state");
+    });
+    for (const name of names) {
       result[name] = serializeHistoryStateProperty(reference, name, historyState[name]);
     }
     return result;
@@ -1513,8 +1629,7 @@ function dispatchHistoryStateCall(method: PhotoshopProtocolMethodName, args: rea
   if (method === "historyState.batchSet") {
     const [, values] = expectReferenceArgs(args, 2, 2, method);
     const props = assertPropertyMap(values, method);
-    const first = Object.keys(props)[0];
-    throw new Error(first ? `HistoryState property is not writable: ${first}` : "HistoryState has no writable properties.");
+    return rejectReadonlyBatch(props, "HistoryState");
   }
 
   return unsupported(method);
@@ -1551,19 +1666,19 @@ function dispatchHistoryStatesCall(method: PhotoshopProtocolMethodName, args: re
 
 // ---------------------------------------------------------------------------- guide/path geometry
 
-function dispatchGuideCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchGuideCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "guide.dispose") { const [ref] = expectReferenceArgs(args, 1, 1, method); photoshopRegistry.dispose(ref); return undefined; }
   if (method === "guide.propertyGet") { const [ref, key] = expectReferenceArgs(args, 2, 2, method); const name = assertString(key, `${method} property`); return serializeGuideProperty(ref, name, getGuide(ref)[name]); }
   if (method === "guide.propertySet") { const [ref, key, value] = expectReferenceArgs(args, 3, 3, method); const name = assertString(key, `${method} property`); if (name !== "direction" && name !== "coordinate") throw new Error(`Guide property is not writable: ${name}`); return executeAsModal(`guide.set.${name}`, () => { getGuide(ref)[name] = decodeValue(value); }); }
-  if (method === "guide.batchGet") { const [ref, names] = expectReferenceArgs(args, 2, 2, method); const guide = getGuide(ref); return Object.fromEntries(assertStringArray(names, method).map((name) => [name, serializeGuideProperty(ref, name, guide[name])])); }
-  if (method === "guide.batchSet") { const [ref, values] = expectReferenceArgs(args, 2, 2, method); const props = assertPropertyMap(values, method); for (const name of Object.keys(props)) if (name !== "direction" && name !== "coordinate") throw new Error(`Guide property is not writable: ${name}`); return executeAsModal("guide.batchSet", () => { const guide = getGuide(ref); for (const [name, value] of Object.entries(props)) guide[name] = decodeValue(value); }); }
+  if (method === "guide.batchGet") { const [ref, names] = expectReferenceArgs(args, 2, 2, method); const guide = getGuide(ref); const propertyNames = normalizeBatchPropertyNames(names, method, (name) => assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.Guide, name, GUIDE_SCALARS, "guide")); return Object.fromEntries(propertyNames.map((name) => [name, serializeGuideProperty(ref, name, guide[name])])); }
+  if (method === "guide.batchSet") { const [ref, values] = expectReferenceArgs(args, 2, 2, method); const props = assertPropertyMap(values, method); const decoded = decodeBatchPropertyEntries(props, GUIDE_WRITABLE, (_name, value) => decodeValue(value), (name) => new Error(`Guide property is not writable: ${name}`)); return executeAsModal("guide.batchSet", () => assignBatchPropertyEntries(getGuide(ref), decoded)); }
   if (method === "guide.delete") { const [ref] = expectReferenceArgs(args, 1, 1, method); return executeAsModal("guide.delete", () => callMethod(getGuide(ref), "delete", [])); }
   return unsupported(method);
 }
 
 function serializeGuideProperty(ref: RemoteReference, name: string, value: unknown): unknown { const kind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.Guide, name); if (kind.kind === "scalar" && !GUIDE_SCALARS.has(name)) throw new Error(`Unknown guide property: ${name}`); return serializeResult(kind, ref, value); }
 
-function dispatchGuidesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchGuidesCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const [ref, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method); const guides = (getDocument(ref) as Record<string, unknown>).guides;
   if (method === "guides.snapshot") return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.Guide, ref, guides);
   if (method === "guides.add") return resolveMaybePromise(executeAsModal("guides.add", () => callMethod(guides, "add", decodeArgs(rest))), (value) => serializeGuide(value as PhotoshopGuideLike));
@@ -1571,21 +1686,21 @@ function dispatchGuidesCall(method: PhotoshopProtocolMethodName, args: readonly 
   return unsupported(method);
 }
 
-function dispatchPathItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchPathItemsCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   const [ref, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method); const paths = (getDocument(ref) as Record<string, unknown>).pathItems;
   if (method === "pathItems.snapshot") return serializeSnapshot(PHOTOSHOP_REMOTE_TYPE.PathItem, ref, paths);
-  if (method === "pathItems.getByName") { const name = assertString(rest[0], `${method} name`); const found = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (found == null) return null; pathItemOwners.set(found as object, getDocument(ref)); return serializePathItem(found as PhotoshopPathItemLike); }
-  if (method === "pathItems.add") { const name = assertString(rest[0], `${method} name`); const infos = buildSubPathInfos(rest[1]); return resolveMaybePromise(executeAsModal("pathItems.add", () => callMethod(paths, "add", [name, infos])), () => { const value = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (!value) throw new Error(`pathItems.add did not create ${name}.`); pathItemOwners.set(value as object, getDocument(ref)); rememberPathGeometry(value as PhotoshopPathItemLike, rest[1]); return serializePathItem(value as PhotoshopPathItemLike); }); }
+  if (method === "pathItems.getByName") { const name = assertString(rest[0], `${method} name`); const found = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (found == null) return null; pathItemOwners.set(found, getDocument(ref)); return serializePathItem(found as PhotoshopPathItemLike); }
+  if (method === "pathItems.add") { const name = assertString(rest[0], `${method} name`); const infos = buildSubPathInfos(rest[1]); return resolveMaybePromise(executeAsModal("pathItems.add", () => callMethod(paths, "add", [name, infos])), () => { const value = getMemberArray(paths).find((item) => (item as PhotoshopPathItemLike).name === name); if (!value) throw new Error(`pathItems.add did not create ${name}.`); pathItemOwners.set(value, getDocument(ref)); rememberPathGeometry(value as PhotoshopPathItemLike, rest[1]); return serializePathItem(value as PhotoshopPathItemLike); }); }
   if (method === "pathItems.removeAll") return executeAsModal("pathItems.removeAll", () => callMethod(paths, "removeAll", []));
   return unsupported(method);
 }
 
-function dispatchPathItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchPathItemCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "pathItem.dispose") { const [ref] = expectReferenceArgs(args, 1, 1, method); photoshopRegistry.dispose(ref); return undefined; }
   if (method === "pathItem.propertyGet") { const [ref, key] = expectReferenceArgs(args, 2, 2, method); const name = assertString(key, `${method} property`); const item = getPathItem(ref); return serializePathItemProperty(ref, name, pathItemPropertyValue(item, name)); }
   if (method === "pathItem.propertySet") { const [ref, key, value] = expectReferenceArgs(args, 3, 3, method); const name = assertString(key, `${method} property`); if (name !== "kind" && name !== "name") throw new Error(`PathItem property is not writable: ${name}`); return executeAsModal(`pathItem.set.${name}`, () => { getPathItem(ref)[name] = decodeValue(value); }); }
-  if (method === "pathItem.batchGet") { const [ref, names] = expectReferenceArgs(args, 2, 2, method); const item = getPathItem(ref); return Object.fromEntries(assertStringArray(names, method).map((name) => [name, serializePathItemProperty(ref, name, pathItemPropertyValue(item, name))])); }
-  if (method === "pathItem.batchSet") { const [ref, values] = expectReferenceArgs(args, 2, 2, method); const props = assertPropertyMap(values, method); for (const name of Object.keys(props)) if (name !== "kind" && name !== "name") throw new Error(`PathItem property is not writable: ${name}`); return executeAsModal("pathItem.batchSet", () => { const item = getPathItem(ref); for (const [name, value] of Object.entries(props)) item[name] = decodeValue(value); }); }
+  if (method === "pathItem.batchGet") { const [ref, names] = expectReferenceArgs(args, 2, 2, method); const item = getPathItem(ref); const propertyNames = normalizeBatchPropertyNames(names, method, (name) => assertKnownProperty(PHOTOSHOP_REMOTE_TYPE.PathItem, name, PATH_ITEM_SCALARS, "path item")); return Object.fromEntries(propertyNames.map((name) => [name, serializePathItemProperty(ref, name, pathItemPropertyValue(item, name))])); }
+  if (method === "pathItem.batchSet") { const [ref, values] = expectReferenceArgs(args, 2, 2, method); const props = assertPropertyMap(values, method); const decoded = decodeBatchPropertyEntries(props, PATH_ITEM_WRITABLE, (_name, value) => decodeValue(value), (name) => new Error(`PathItem property is not writable: ${name}`)); return executeAsModal("pathItem.batchSet", () => assignBatchPropertyEntries(getPathItem(ref), decoded)); }
   const name = method.slice("pathItem.".length); if (!PATH_ITEM_METHODS.has(name)) return unsupported(method); const [ref, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method); const decoded = decodeArgs(rest); if (name === "fillPath" && decoded[0] != null) decoded[0] = buildSolidColor(decoded[0]);
   const run = executeAsModal(name, () => callMethod(getPathItem(ref), name, decoded)); return resolveMaybePromise(run, (value) => serializeResult(photoshopMethodResultKind(PHOTOSHOP_REMOTE_TYPE.PathItem, name), ref, value));
 }
@@ -1593,9 +1708,9 @@ function dispatchPathItemCall(method: PhotoshopProtocolMethodName, args: readonl
 function serializePathItemProperty(ref: RemoteReference, name: string, value: unknown): unknown { const kind = photoshopPropertyResultKind(PHOTOSHOP_REMOTE_TYPE.PathItem, name); if (kind.kind === "scalar" && !PATH_ITEM_SCALARS.has(name)) throw new Error(`Unknown path item property: ${name}`); return serializeResult(kind, ref, value); }
 
 function pathItemPropertyValue(item: PhotoshopPathItemLike, name: string): unknown {
-  if (name === "subPathItems" && item[name] === undefined) return pathItemGeometry.get(item as object);
+  if (name === "subPathItems" && item[name] === undefined) return pathItemGeometry.get(item);
   if (name !== "parent") return item[name];
-  const knownOwner = pathItemOwners.get(item as object);
+  const knownOwner = pathItemOwners.get(item);
   if (knownOwner) return knownOwner;
   const documents = getPhotoshop().app.documents;
   for (let index = 0; index < documents.length; index += 1) {
@@ -1609,8 +1724,8 @@ function dispatchReadonlyPathObjectCall(type: "SubPathItem" | "PathPoint", metho
   const prefix = type === PHOTOSHOP_REMOTE_TYPE.SubPathItem ? "subPathItem" : "pathPoint"; const scalars = type === PHOTOSHOP_REMOTE_TYPE.SubPathItem ? SUB_PATH_ITEM_SCALARS : PATH_POINT_SCALARS;
   if (method === `${prefix}.dispose`) { const [ref] = expectReferenceArgs(args, 1, 1, method); photoshopRegistry.dispose(ref); return undefined; }
   const [ref, value] = expectReferenceArgs(args, 2, 2, method); const object = photoshopRegistry.resolve(ref, type) as Record<string, unknown>;
-  if (method === `${prefix}.batchSet`) { const props = assertPropertyMap(value, method); const first = Object.keys(props)[0]; throw new Error(first ? `${type} property is not writable: ${first}` : `${type} has no writable properties.`); }
-  const names = method === `${prefix}.propertyGet` ? [assertString(value, `${method} property`)] : assertStringArray(value, method); const result = Object.fromEntries(names.map((name) => { const kind = photoshopPropertyResultKind(type, name); if (kind.kind === "scalar" && !scalars.has(name)) throw new Error(`Unknown ${prefix} property: ${name}`); return [name, serializeResult(kind, ref, object[name])]; })); return method.endsWith("propertyGet") ? result[names[0]!] : result;
+  if (method === `${prefix}.batchSet`) { return rejectReadonlyBatch(assertPropertyMap(value, method), type); }
+  const names = method === `${prefix}.propertyGet` ? [assertString(value, `${method} property`)] : normalizeBatchPropertyNames(value, method, (name) => assertKnownProperty(type, name, scalars, prefix)); const result = Object.fromEntries(names.map((name) => { const kind = photoshopPropertyResultKind(type, name); if (kind.kind === "scalar" && !scalars.has(name)) throw new Error(`Unknown ${prefix} property: ${name}`); return [name, serializeResult(kind, ref, object[name])]; })); return method.endsWith("propertyGet") ? result[names[0]!] : result;
 }
 
 function buildSubPathInfos(value: unknown): unknown[] { if (!Array.isArray(value)) throw new Error("pathItems.add entirePath must be an array."); const app = getPhotoshop().app as Record<string, unknown>; const SubPathInfo = app.SubPathInfo as { new(): Record<string, unknown> } | undefined; const PathPointInfo = app.PathPointInfo as { new(): Record<string, unknown> } | undefined; return value.map((raw) => { const source = assertObjectRecord(raw, "SubPathInfo"); const info = SubPathInfo ? new SubPathInfo() : {}; info.closed = source.closed; info.operation = source.operation; if (!Array.isArray(source.entireSubPath)) throw new Error("SubPathInfo.entireSubPath must be an array."); info.entireSubPath = source.entireSubPath.map((point) => { const pointSource = assertObjectRecord(point, "PathPointInfo"); const result = PathPointInfo ? new PathPointInfo() : {}; Object.assign(result, pointSource); return result; }); return info; }); }
@@ -1636,7 +1751,7 @@ function rememberPathGeometry(pathItem: PhotoshopPathItemLike, value: unknown): 
     subPath.pathPoints = points;
     return subPath;
   });
-  pathItemGeometry.set(pathItem as object, subPaths);
+  pathItemGeometry.set(pathItem, subPaths);
 }
 
 // ---------------------------------------------------------------------------- action.*
@@ -1647,7 +1762,13 @@ function rememberPathGeometry(pathItem: PhotoshopPathItemLike, value: unknown): 
  * would corrupt `_ref`/`_id` values in Photoshop's own id space). Batch execution enters a modal
  * scope; id/reference helpers and action-recording metadata calls execute directly.
  */
-function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown | Promise<unknown> {
+function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
+  if (method === "action.addNotificationListener") {
+    return dispatchActionAddNotificationListener(args, method, activePhotoshopDispatchContext);
+  }
+  if (method === "action.removeNotificationListener") {
+    return dispatchActionRemoveNotificationListener(args, method, activePhotoshopDispatchContext);
+  }
   if (method === "action.getIDFromString") {
     expectArgs(args, 1, 1, method);
     const value = assertString(args[0], `${method} value`);
@@ -1725,7 +1846,7 @@ function getActionCompatibilityTarget(methodName: "batchPlaySync" | "validateRef
 
 function getOptionalActionCompatibilityTarget(
   methodName: "batchPlaySync" | "validateReference"
-): unknown | undefined {
+): unknown {
   const photoshop = getPhotoshop();
   if (typeof photoshop.action[methodName] === "function") {
     return photoshop.action;
@@ -1828,15 +1949,15 @@ function serializeColorSampler(value: PhotoshopColorSamplerLike): RemoteReferenc
 }
 
 function serializeCountItem(value: PhotoshopCountItemLike, owner?: PhotoshopDocumentLike): RemoteReference {
-  const document = owner ?? countItemOwners.get(value as object);
-  if (document) countItemOwners.set(value as object, document);
+  const document = owner ?? countItemOwners.get(value);
+  if (document) countItemOwners.set(value, document);
   const key = `${PHOTOSHOP_REMOTE_TYPE.CountItem}:${document?.id ?? "unknown"}:${value.groupIndex}:${value.itemIndex}`;
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.CountItem, key, () => value);
 }
 
 function serializeLayerComp(value: PhotoshopLayerCompLike, owner?: PhotoshopDocumentLike): RemoteReference {
-  const document = owner ?? layerCompOwners.get(value as object);
-  if (document) layerCompOwners.set(value as object, document);
+  const document = owner ?? layerCompOwners.get(value);
+  if (document) layerCompOwners.set(value, document);
   const docId = value.docId ?? document?.id;
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.LayerComp, `LayerComp:${docId}:${value.id}`, () => value);
 }
@@ -1852,9 +1973,9 @@ function serializeTextFont(font: PhotoshopTextFontLike): RemoteReference {
 }
 
 function serializeTextItem(value: PhotoshopTextItemLike, owner?: PhotoshopLayerLike): RemoteReference {
-  const layer = owner ?? textItemOwners.get(value as object) ?? value.parent as PhotoshopLayerLike | undefined;
+  const layer = owner ?? textItemOwners.get(value) ?? value.parent as PhotoshopLayerLike | undefined;
   if (!layer || typeof layer.id !== "number") throw new Error("TextItem owner Layer is unavailable.");
-  textItemOwners.set(value as object, layer);
+  textItemOwners.set(value, layer);
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.TextItem, `TextItem:${layerIdentityKey(layer)}`, () => value);
 }
 
@@ -1865,7 +1986,7 @@ function serializeTextStyle(
   const owners = type === PHOTOSHOP_REMOTE_TYPE.CharacterStyle
     ? characterStyleOwners
     : type === PHOTOSHOP_REMOTE_TYPE.ParagraphStyle ? paragraphStyleOwners : textWarpStyleOwners;
-  const layer = owners.get(value as object);
+  const layer = owners.get(value);
   if (!layer) throw new Error(`${type} owner Layer is unavailable.`);
   return photoshopRegistry.getOrCreate(type, `${type}:${layerIdentityKey(layer)}`, () => value);
 }
@@ -1902,7 +2023,7 @@ function serializeGuide(guide: PhotoshopGuideLike): RemoteReference {
 }
 
 function serializePathItem(pathItem: PhotoshopPathItemLike): RemoteReference {
-  const owner = pathItemOwners.get(pathItem as object);
+  const owner = pathItemOwners.get(pathItem);
   const record = pathItem as Record<string, unknown>;
   const documentId = pathItem.docId ?? record._docId ?? owner?.id;
   const pathId = pathItem.id ?? record._id ?? record.name ?? geometryKey("PathItem", pathItem);
@@ -2008,8 +2129,9 @@ function serializeSnapshot(memberKind: string, ownerReference: RemoteReference, 
   try {
     members = getMemberArray(collection);
   } catch (error) {
-    const shape = collection == null ? String(collection) : `${typeof collection}:${Object.keys(collection as object).join(",")}`;
-    throw new Error(`Expected a ${memberKind} member collection for ${ownerReference.type}; received ${shape}: ${String(error)}`);
+    const shape = collection == null ? String(collection) : `${typeof collection}:${Object.keys(collection).join(",")}`;
+    const message = `Expected a ${memberKind} member collection for ${ownerReference.type}; received ${shape}: ${String(error)}`;
+    throw Object.assign(new Error(message), { cause: error });
   }
   if (memberKind === PHOTOSHOP_REMOTE_TYPE.PathItem && ownerReference.type === PHOTOSHOP_REMOTE_TYPE.Document) {
     const document = getDocument(ownerReference);
@@ -2039,7 +2161,230 @@ function getMemberArray(collection: unknown): readonly unknown[] {
 // ---------------------------------------------------------------------------- modal execution
 
 function executeAsModal<T>(commandName: string, fn: () => T | Promise<T>): Promise<T> {
+  const context = activePhotoshopDispatchContext;
+  if (
+    context?.modalSessionId !== undefined &&
+    context.modalSessionId === context.callbacks.activeModalSessionId
+  ) {
+    return Promise.resolve().then(fn);
+  }
   return getPhotoshop().core.executeAsModal(async () => fn(), { commandName });
+}
+
+function dispatchActionAddNotificationListener(
+  args: readonly unknown[],
+  method: "action.addNotificationListener",
+  context?: UxpDispatchContext
+): Promise<void> {
+  expectArgs(args, 2, 2, method);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  const events = normalizeActionNotificationEvents(args[0], method);
+  const reference = assertStrictCallbackReference(args[1], `${method} notifier`);
+  const key = JSON.stringify([events, reference.callbackId]);
+  let registrations = actionNotificationRegistrations.get(callbacks);
+  if (!registrations) {
+    registrations = new Map();
+    actionNotificationRegistrations.set(callbacks, registrations);
+    liveActionNotificationMaps.add(registrations);
+  }
+  const existing = registrations.get(key);
+  if (existing) {
+    if (existing.removing) {
+      return existing.removing.then(() =>
+        dispatchActionAddNotificationListener([events, reference], method, context)
+      );
+    }
+    return existing.added;
+  }
+
+  const action = getPhotoshop().action;
+  const subscriptionId = `photoshop.action.notification:${key}`;
+  const nativeListener = (eventName: string, descriptor: Record<string, unknown>): void => {
+    void Promise.resolve().then(() => callbacks.invoke(reference, [eventName, descriptor ?? {}], {
+      mode: "listener",
+      subscriptionId,
+      ...(context?.operationId === undefined ? {} : { parentOperationId: context.operationId })
+    })).catch(() => undefined);
+  };
+  let registration: ActionNotificationRegistration;
+  const added = Promise.resolve().then(() => action.addNotificationListener(events, nativeListener)).then(async () => {
+    try {
+      callbacks.registerSubscription(subscriptionId, async () => {
+        await action.removeNotificationListener(events, nativeListener);
+        registrations?.delete(key);
+        if (registrations?.size === 0) liveActionNotificationMaps.delete(registrations);
+      });
+    } catch (error) {
+      registrations?.delete(key);
+      if (registrations?.size === 0) liveActionNotificationMaps.delete(registrations);
+      await action.removeNotificationListener(events, nativeListener);
+      throw error;
+    }
+    if (context?.signal?.aborted) {
+      await callbacks.unregisterSubscription(subscriptionId);
+      throw new Error(`${method} was aborted after registration; the native listener was removed.`);
+    }
+  }).catch((error) => {
+    if (registrations?.get(key) === registration) registrations.delete(key);
+    if (registrations?.size === 0) liveActionNotificationMaps.delete(registrations);
+    throw error;
+  });
+  registration = { subscriptionId, callbacks, events, reference, nativeListener, added };
+  registrations.set(key, registration);
+  return added;
+}
+
+function dispatchActionRemoveNotificationListener(
+  args: readonly unknown[],
+  method: "action.removeNotificationListener",
+  context?: UxpDispatchContext
+): Promise<void> {
+  expectArgs(args, 2, 2, method);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  const events = normalizeActionNotificationEvents(args[0], method);
+  const reference = assertStrictCallbackReference(args[1], `${method} notifier`);
+  const key = JSON.stringify([events, reference.callbackId]);
+  const registration = actionNotificationRegistrations.get(callbacks)?.get(key);
+  if (!registration) return Promise.resolve();
+  if (registration.removing) return registration.removing;
+  const removing = registration.added.then(() => callbacks.unregisterSubscription(registration.subscriptionId));
+  registration.removing = removing;
+  return removing.finally(() => {
+    if (actionNotificationRegistrations.get(callbacks)?.get(key) === registration) {
+      delete registration.removing;
+    }
+  });
+}
+
+function dispatchDocumentSuspendHistory(
+  args: readonly unknown[],
+  method: "document.suspendHistory",
+  context?: UxpDispatchContext
+): Promise<void> {
+  const [documentReference, targetValue, cancelValue, historyStateNameValue] = expectReferenceArgs(args, 4, 4, method);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  if (callbacks.activeModalSessionId !== undefined) {
+    throw new Error("Document.suspendHistory cannot be nested inside an active modal callback.");
+  }
+  const targetReference = assertStrictCallbackReference(targetValue, `${method} callback`);
+  const cancelReference = assertStrictCallbackReference(cancelValue, `${method} cancel callback`);
+  const historyStateName = assertString(historyStateNameValue, `${method} historyStateName`);
+  const document = getDocument(documentReference);
+  const session = callbacks.openModalSession(context?.operationId);
+  const suspendHistory = document.suspendHistory;
+  if (typeof suspendHistory !== "function") {
+    void session.close();
+    throw new Error("Photoshop Document does not implement suspendHistory.");
+  }
+
+  const result = Promise.resolve().then(() => callMethod(document, "suspendHistory", [
+    async (nativeContextValue: unknown) => {
+      const nativeContext = assertObjectRecord(nativeContextValue, `${method} executionContext`);
+      let contexts = documentModalContexts.get(callbacks);
+      if (!contexts) {
+        contexts = new Map();
+        documentModalContexts.set(callbacks, contexts);
+      }
+      contexts.set(session.sessionId, nativeContext);
+      const cancelSubscriptionId = `photoshop.document.suspend-history.cancel:${session.sessionId}`;
+      callbacks.registerSubscription(cancelSubscriptionId, () => {
+        nativeContext.onCancel = undefined;
+      });
+      nativeContext.onCancel = (event?: unknown) => {
+        const nativeEvent = event && typeof event === "object"
+          && typeof (event as { readonly reason?: unknown }).reason === "string"
+          ? [{ reason: (event as { readonly reason: string }).reason }]
+          : [];
+        void Promise.resolve().then(() => callbacks.invoke(cancelReference, nativeEvent, {
+          mode: "listener",
+          subscriptionId: cancelSubscriptionId,
+          sessionId: session.sessionId,
+          ...(context?.operationId === undefined ? {} : { parentOperationId: context.operationId })
+        })).catch(() => undefined);
+      };
+      try {
+        await session.invoke(targetReference, [{ isCancelled: Boolean(nativeContext.isCancelled) }]);
+      } finally {
+        await callbacks.unregisterSubscription(cancelSubscriptionId);
+        contexts.delete(session.sessionId);
+      }
+    },
+    historyStateName
+  ]));
+  const modalSubscriptionId = `photoshop.document.suspend-history:${session.sessionId}`;
+  let settled = false;
+  let modalPromise = Promise.resolve<unknown>(undefined);
+  callbacks.registerSubscription(modalSubscriptionId, async () => {
+    if (settled) return;
+    try {
+      await modalPromise;
+    } catch {
+      // release-all waits for native finally; the original request owns the modal error.
+    }
+  });
+  modalPromise = Promise.resolve(result).finally(async () => {
+    settled = true;
+    await callbacks.unregisterSubscription(modalSubscriptionId);
+    await session.close();
+  });
+  return modalPromise.then(() => undefined);
+}
+
+function dispatchDocumentModalControl(
+  args: readonly unknown[],
+  method: Extract<PhotoshopProtocolMethodName, `document.modal.${string}`>,
+  context?: UxpDispatchContext
+): unknown {
+  const [documentReference, ...rest] = expectReferenceArgs(args, 1, Number.POSITIVE_INFINITY, method);
+  getDocument(documentReference);
+  const callbacks = requirePhotoshopCallbackContext(context, method);
+  const sessionId = context?.modalSessionId;
+  const native = sessionId === undefined ? undefined : documentModalContexts.get(callbacks)?.get(sessionId);
+  if (!native || callbacks.activeModalSessionId !== sessionId) {
+    throw new Error(`${method} is only available from the active Document.suspendHistory callback.`);
+  }
+
+  if (method === "document.modal.reportProgress") {
+    expectArgs(rest, 1, 1, method);
+    const options = assertObjectRecord(rest[0], `${method} options`);
+    assertKnownObjectKeys(options, ["value", "commandName"], `${method} options`);
+    if (options.value !== undefined) assertNumberInRange(options.value, 0, 1, `${method} options.value`);
+    if (options.commandName !== undefined) assertString(options.commandName, `${method} options.commandName`);
+    return resolveMaybePromise(callMethod(native, "reportProgress", [options]), () => undefined);
+  }
+
+  const hostControl = assertObjectRecord(native.hostControl, `${method} hostControl`);
+  if (method === "document.modal.suspendHistory") {
+    expectArgs(rest, 1, 1, method);
+    const options = assertObjectRecord(rest[0], `${method} options`);
+    assertKnownObjectKeys(options, ["documentID", "name"], `${method} options`);
+    assertPositiveInteger(options.documentID, `${method} options.documentID`);
+    assertString(options.name, `${method} options.name`);
+    return resolveMaybePromise(callMethod(hostControl, "suspendHistory", [options]), (value) => {
+      const result = assertObjectRecord(value, `${method} result`);
+      assertKnownObjectKeys(result, ["historySuspensionID"], `${method} result`);
+      return { historySuspensionID: assertNonNegativeNumber(result.historySuspensionID, `${method} result.historySuspensionID`) };
+    });
+  }
+  if (method === "document.modal.resumeHistory") {
+    expectArgs(rest, 1, 2, method);
+    const suspension = assertObjectRecord(rest[0], `${method} suspension`);
+    assertKnownObjectKeys(suspension, ["historySuspensionID", "finalName"], `${method} suspension`);
+    assertNonNegativeNumber(suspension.historySuspensionID, `${method} suspension.historySuspensionID`);
+    if (suspension.finalName !== undefined) assertString(suspension.finalName, `${method} suspension.finalName`);
+    if (rest[1] !== undefined && typeof rest[1] !== "boolean") throw new Error(`${method} commit must be a boolean.`);
+    return resolveMaybePromise(callMethod(hostControl, "resumeHistory", [suspension, rest[1]]), () => undefined);
+  }
+  if (
+    method === "document.modal.registerAutoCloseDocument" ||
+    method === "document.modal.unregisterAutoCloseDocument"
+  ) {
+    expectArgs(rest, 1, 1, method);
+    const documentID = assertPositiveInteger(rest[0], `${method} documentID`);
+    const nativeMethod = method.slice("document.modal.".length);
+    return resolveMaybePromise(callMethod(hostControl, nativeMethod, [documentID]), () => undefined);
+  }
+  return unsupported(method);
 }
 
 // ---------------------------------------------------------------------------- handles & args
@@ -2140,7 +2485,7 @@ function callMethod(target: unknown, methodName: string, args: readonly unknown[
   return (method as (...callArgs: unknown[]) => unknown).apply(target, [...args]);
 }
 
-function resolveMaybePromise(value: unknown, serialize: (resolved: unknown) => unknown): unknown | Promise<unknown> {
+function resolveMaybePromise(value: unknown, serialize: (resolved: unknown) => unknown): unknown {
   if (value && typeof (value as Promise<unknown>).then === "function") {
     return (value as Promise<unknown>).then(serialize);
   }
@@ -2182,6 +2527,52 @@ function assertFiniteNumber(value: unknown, label: string): number {
   return value;
 }
 
+function assertNonNegativeNumber(value: unknown, label: string): number {
+  const number = assertFiniteNumber(value, label);
+  if (number < 0) throw new Error(`${label} must be non-negative.`);
+  return number;
+}
+
+function assertPositiveInteger(value: unknown, label: string): number {
+  const number = assertFiniteNumber(value, label);
+  if (!Number.isInteger(number) || number <= 0) throw new Error(`${label} must be a positive integer.`);
+  return number;
+}
+
+function assertKnownObjectKeys(
+  value: Record<string, unknown>,
+  knownKeys: readonly string[],
+  label: string
+): void {
+  const known = new Set(knownKeys);
+  const unknown = Object.keys(value).find((key) => !known.has(key));
+  if (unknown !== undefined) throw new Error(`${label} contains unknown property: ${unknown}.`);
+}
+
+function requirePhotoshopCallbackContext(
+  context: UxpDispatchContext | undefined,
+  method: string
+): UxpCallbackBridge {
+  if (!context) throw new Error(`${method} requires an active bridge callback context.`);
+  return context.callbacks;
+}
+
+function assertStrictCallbackReference(value: unknown, label: string): BridgeCallbackReference {
+  if (!isBridgeCallbackReference(value) || value.callbackId.length === 0) {
+    throw new Error(`${label} must be a bridge callback reference.`);
+  }
+  assertKnownObjectKeys(value as unknown as Record<string, unknown>, ["kind", "callbackId"], label);
+  return value;
+}
+
+function normalizeActionNotificationEvents(value: unknown, method: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${method} events must be a non-empty array.`);
+  }
+  const events = value.map((event, index) => assertString(event, `${method} events[${index}]`));
+  return [...new Set(events)].sort();
+}
+
 function assertNumberInRange(value: unknown, minimum: number, maximum: number, label: string): number {
   const number = assertFiniteNumber(value, label);
   if (number < minimum || number > maximum) {
@@ -2203,11 +2594,75 @@ function assertStringArray(value: unknown, method: string): readonly string[] {
   return value.map((name) => assertString(name, `${method} property`));
 }
 
+function normalizeBatchPropertyNames(
+  value: unknown,
+  method: string,
+  validate: (name: string) => void
+): readonly string[] {
+  const names = assertStringArray(value, method);
+  for (const name of names) validate(name);
+  return [...new Set(names)];
+}
+
+function assertKnownProperty(
+  type: string,
+  name: string,
+  scalarProperties: ReadonlySet<string>,
+  label: string
+): void {
+  const kind = photoshopPropertyResultKind(type, name);
+  if (kind.kind === "scalar" && !scalarProperties.has(name)) {
+    throw new Error(`Unknown ${label} property: ${name}`);
+  }
+}
+
 function assertPropertyMap(value: unknown, method: string): Record<string, unknown> {
   if (!value || typeof value !== "object") {
     throw new Error(`${method} requires a property map.`);
   }
+  const prototype = Reflect.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error(`${method} requires a plain property map.`);
+  }
   return value as Record<string, unknown>;
+}
+
+function decodeBatchPropertyEntries(
+  props: Readonly<Record<string, unknown>>,
+  writable: ReadonlySet<string>,
+  decode: (name: string, value: unknown) => unknown,
+  notWritable: (name: string) => Error
+): readonly (readonly [string, unknown])[] {
+  for (const name of Object.keys(props)) {
+    if (!writable.has(name)) throw notWritable(name);
+  }
+  return [...writable]
+    .filter((name) => Object.prototype.hasOwnProperty.call(props, name))
+    .map((name) => [name, decode(name, props[name])] as const);
+}
+
+function assignBatchPropertyEntries(
+  target: Record<string, unknown>,
+  entries: readonly (readonly [string, unknown])[]
+): void {
+  for (const [name, value] of entries) {
+    try {
+      target[name] = value;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const contextualError = new Error(`Failed to assign remote property ${name}: ${message}`) as Error & {
+        cause?: unknown;
+      };
+      contextualError.cause = error;
+      throw contextualError;
+    }
+  }
+}
+
+function rejectReadonlyBatch(props: Readonly<Record<string, unknown>>, type: string): undefined {
+  const first = Object.keys(props)[0];
+  if (first) throw new Error(`${type} property is not writable: ${first}`);
+  return undefined;
 }
 
 function unsupported(method: string): never {

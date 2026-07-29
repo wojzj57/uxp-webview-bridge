@@ -3,6 +3,7 @@ import type {
   UxpStorageSerializedEntryMetadata
 } from "@shared/uxp-api/uxp-protocol.js";
 import type { storage as nativeStorage } from "@shared/types/uxp/internal/storage.js";
+import type { RemoteResult } from "@webview/uxp-api/remote/index.js";
 
 export type UxpStorageSymbol = symbol;
 
@@ -76,7 +77,7 @@ export interface UxpStorageEntry {
   readonly url?: string | undefined;
   readonly nativePath?: string | undefined;
   toString(): Promise<string>;
-  copyTo(folder: UxpStorageFolder, options?: UxpStorageEntryCopyOptions): Promise<UxpStorageEntry>;
+  copyTo(folder: UxpStorageFolder, options?: UxpStorageEntryCopyOptions): RemoteResult<UxpStorageEntry>;
   moveTo(folder: UxpStorageFolder, options?: UxpStorageEntryMoveOptions): Promise<void>;
   delete(): Promise<number>;
   getMetadata(): Promise<UxpStorageEntryMetadata>;
@@ -95,10 +96,10 @@ export interface UxpStorageFolder extends UxpStorageEntry {
   readonly isFile: false;
   readonly isFolder: true;
   getEntries(): Promise<UxpStorageEntry[]>;
-  createEntry(name: string, options?: UxpStorageFolderCreateEntryOptions): Promise<UxpStorageEntry>;
-  createFile(name: string, options?: UxpStorageFolderCreateFileOptions): Promise<UxpStorageFile>;
-  createFolder(name: string): Promise<UxpStorageFolder>;
-  getEntry(filePath: string): Promise<UxpStorageEntry>;
+  createEntry(name: string, options?: UxpStorageFolderCreateEntryOptions): RemoteResult<UxpStorageEntry>;
+  createFile(name: string, options?: UxpStorageFolderCreateFileOptions): RemoteResult<UxpStorageFile>;
+  createFolder(name: string): RemoteResult<UxpStorageFolder>;
+  getEntry(filePath: string): RemoteResult<UxpStorageEntry>;
   renameEntry(
     entry: UxpStorageEntry,
     newName: string,
@@ -139,22 +140,22 @@ export interface UxpLocalFileSystemProvider extends UxpFileSystemProvider {
   getFileForSaving(
     suggestedName?: string,
     options?: UxpStorageSaveFilePickerOptions
-  ): Promise<UxpStorageFile | null>;
-  getFolder(options?: UxpStorageFolderPickerOptions): Promise<UxpStorageFolder | null>;
-  getTemporaryFolder(): Promise<UxpStorageFolder>;
-  getDataFolder(): Promise<UxpStorageFolder>;
-  getPluginFolder(): Promise<UxpStorageFolder>;
+  ): RemoteResult<UxpStorageFile | null>;
+  getFolder(options?: UxpStorageFolderPickerOptions): RemoteResult<UxpStorageFolder | null>;
+  getTemporaryFolder(): RemoteResult<UxpStorageFolder>;
+  getDataFolder(): RemoteResult<UxpStorageFolder>;
+  getPluginFolder(): RemoteResult<UxpStorageFolder>;
   createEntryWithUrl(
     url: string,
     options?: UxpStorageCreateEntryWithUrlOptions
-  ): Promise<UxpStorageEntry>;
-  getEntryWithUrl(url: string): Promise<UxpStorageEntry>;
+  ): RemoteResult<UxpStorageEntry>;
+  getEntryWithUrl(url: string): RemoteResult<UxpStorageEntry>;
   getFsUrl(entry: UxpStorageEntry): Promise<string>;
   getNativePath(entry: UxpStorageEntry): Promise<string>;
   createSessionToken(entry: UxpStorageEntry): Promise<string>;
-  getEntryForSessionToken(token: string): Promise<UxpStorageEntry>;
+  getEntryForSessionToken(token: string): RemoteResult<UxpStorageEntry>;
   createPersistentToken(entry: UxpStorageEntry): Promise<string>;
-  getEntryForPersistentToken(token: string): Promise<UxpStorageEntry>;
+  getEntryForPersistentToken(token: string): RemoteResult<UxpStorageEntry>;
 }
 
 export type UxpStorageFileTypes = typeof nativeStorage.fileTypes;

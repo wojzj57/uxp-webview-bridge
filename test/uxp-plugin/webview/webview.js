@@ -10,7 +10,7 @@ import {
   sessionStorage,
   uxp
 } from "../dist/webview/index.js";
-import { cases } from "./generated/case-registry.js";
+import { cases, caseTimeouts } from "./generated/case-registry.js";
 
 const READY_TYPE = "uxp-webview-bridge:webview-ready";
 const RUN_TYPE = "uxp-webview-bridge:test-run";
@@ -34,7 +34,8 @@ window.addEventListener("message", (event) => {
 postToHost({
   type: READY_TYPE,
   href: window.location.href,
-  caseNames: Object.keys(cases)
+  caseNames: Object.keys(cases),
+  caseTimeouts
 });
 
 async function runCase(request) {

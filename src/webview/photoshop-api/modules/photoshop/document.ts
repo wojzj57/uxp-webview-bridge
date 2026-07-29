@@ -24,10 +24,17 @@ import {
   type RemotePropertyDescriptor,
   type RemoteReference
 } from "@webview/uxp-api/remote/index.js";
-import type { PhotoshopContext } from "./context.js";
+import { requirePhotoshopCallbackOwner, type PhotoshopContext } from "./context.js";
+import type {
+  CoreCancellationEvent,
+  ExecutionHostControl,
+  ReportProgressOptions,
+  ResumeHistoryOptions
+} from "../core/types.js";
 import type {
   DocumentSaveAs,
   PsDocument,
+  SuspendHistoryContext,
 } from "./types.js";
 
 /** Read-only scalar Document properties (keyed shared get, no set). */
@@ -136,7 +143,8 @@ export function createDocumentMethods(): Record<string, RemoteMethodDescriptor> 
     generativeUpscale: { mutating: true },
     sampleColor: { mutating: true, valueKind: SAMPLED_COLOR_VALUE_KIND },
     splitChannels: { mutating: true, collectionOf: Document },
-    trap: { mutating: true }
+    trap: { mutating: true },
+    suspendHistory: { mutating: true }
   };
 }
 
@@ -182,7 +190,8 @@ export function createDocumentClass(context: PhotoshopContext): {
       generativeUpscale: "document.generativeUpscale",
       sampleColor: "document.sampleColor",
       splitChannels: "document.splitChannels",
-      trap: "document.trap"
+      trap: "document.trap",
+      suspendHistory: "document.suspendHistory"
     },
     batchGet: "document.batchGet",
     batchSet: "document.batchSet",
@@ -218,7 +227,109 @@ export function createDocumentClass(context: PhotoshopContext): {
     constructor(source: RemoteReference | RemoteConstructionRequest) {
       super(config, source);
     }
+
+    async suspendHistory(
+      callback: (callbackContext: SuspendHistoryContext) => void | Promise<void>,
+      historyStateName: string
+    ): Promise<void> {
+      if (typeof callback !== "function") {
+        throw new TypeError("Document.suspendHistory callback must be a function.");
+      }
+      if (typeof historyStateName !== "string" || historyStateName.length === 0) {
+        throw new TypeError("Document.suspendHistory historyStateName must be a non-empty string.");
+      }
+      const callbackOwner = requirePhotoshopCallbackOwner(rpc);
+      let callbackContext: MutableSuspendHistoryContext | undefined;
+      const cancelReference = callbackOwner.retainCallback(async (...args: readonly unknown[]) => {
+        if (!callbackContext) return;
+        callbackContext.cancelled = true;
+        await callbackContext.onCancel?.(normalizeCancellationEvent(args[0]));
+      });
+      const targetReference = callbackOwner.retainCallback(async (...args: readonly unknown[]) => {
+        const state = (args[0] ?? {}) as { readonly isCancelled?: unknown };
+        callbackContext = createSuspendHistoryContext(
+          this as unknown as PsDocument,
+          Boolean(state.isCancelled),
+          (method, methodArgs) => this[REMOTE_INVOKE]<unknown>(method, methodArgs)
+        );
+        try {
+          await callback(callbackContext.facade);
+          await callbackContext.flushProgress();
+        } catch (error) {
+          try {
+            await callbackContext.flushProgress();
+          } catch {
+            // The callback error is authoritative when callback and queued progress both fail.
+          }
+          throw error;
+        }
+      });
+      try {
+        await this[REMOTE_INVOKE]<void>("document.suspendHistory", [
+          targetReference,
+          cancelReference,
+          historyStateName
+        ]);
+      } finally {
+        callbackOwner.releaseCallback(targetReference);
+        callbackOwner.releaseCallback(cancelReference);
+        callbackContext = undefined;
+      }
+    }
   }
 
   return WebviewPsDocument as unknown as { new (reference: RemoteReference): PsDocument };
+}
+
+interface MutableSuspendHistoryContext {
+  cancelled: boolean;
+  onCancel: ((event?: CoreCancellationEvent) => void | Promise<void>) | undefined;
+  facade: SuspendHistoryContext;
+  flushProgress(): Promise<void>;
+}
+
+function normalizeCancellationEvent(value: unknown): CoreCancellationEvent | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const reason = (value as { readonly reason?: unknown }).reason;
+  return typeof reason === "string" ? { reason } : undefined;
+}
+
+function createSuspendHistoryContext(
+  document: PsDocument,
+  initiallyCancelled: boolean,
+  call: (method: string, args?: readonly unknown[]) => Promise<unknown>
+): MutableSuspendHistoryContext {
+  let progressQueue: Promise<void> = Promise.resolve();
+  const state: MutableSuspendHistoryContext = {
+    cancelled: initiallyCancelled,
+    onCancel: undefined,
+    facade: undefined as unknown as SuspendHistoryContext,
+    flushProgress: () => progressQueue
+  };
+  const hostControl: ExecutionHostControl = {
+    suspendHistory: (options) => call("document.modal.suspendHistory", [options]) as ReturnType<ExecutionHostControl["suspendHistory"]>,
+    resumeHistory: (suspension: ResumeHistoryOptions, commit?: boolean) =>
+      call("document.modal.resumeHistory", [suspension, commit]) as Promise<void>,
+    registerAutoCloseDocument: (documentID) =>
+      call("document.modal.registerAutoCloseDocument", [documentID]) as Promise<void>,
+    unregisterAutoCloseDocument: (documentID) =>
+      call("document.modal.unregisterAutoCloseDocument", [documentID]) as Promise<void>
+  };
+  state.facade = {
+    document,
+    get isCancelled() {
+      return state.cancelled;
+    },
+    get onCancel() {
+      return state.onCancel;
+    },
+    set onCancel(value) {
+      state.onCancel = value;
+    },
+    reportProgress(options: ReportProgressOptions): void {
+      progressQueue = progressQueue.then(() => call("document.modal.reportProgress", [options]) as Promise<void>);
+    },
+    hostControl
+  };
+  return state;
 }

@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const baseCapabilities = {
-  fs: false,
+  fs: true,
   os: true,
+  clipboard: true,
+  localStorage: true,
+  sessionStorage: true,
+  fetch: true,
   shell: true,
   userInfo: true,
   pluginManager: true,
@@ -62,7 +66,8 @@ test("WebView RPC client posts a bridge.cancel envelope", async () => {
     const { RpcClient } = await import("../../dist/webview/rpc-client.js");
     const posted = [];
     const client = new RpcClient({
-      target: { postMessage: (message) => posted.push(message) }
+      target: { postMessage: (message) => posted.push(message) },
+      timeoutMs: 1
     });
 
     try {
@@ -70,7 +75,7 @@ test("WebView RPC client posts a bridge.cancel envelope", async () => {
       assert.equal(posted.length, 1);
       assert.deepEqual(posted[0], { type: "bridge.cancel", operationId: "op-123" });
     } finally {
-      client.destroy();
+      await client.destroy().catch(() => {});
     }
   } finally {
     restoreWindow();
@@ -83,7 +88,8 @@ test("WebView RPC client callCancelable exposes the operation id", async () => {
     const { RpcClient } = await import("../../dist/webview/rpc-client.js");
     const posted = [];
     const client = new RpcClient({
-      target: { postMessage: (message) => posted.push(message) }
+      target: { postMessage: (message) => posted.push(message) },
+      timeoutMs: 1
     });
 
     try {
@@ -93,7 +99,7 @@ test("WebView RPC client callCancelable exposes the operation id", async () => {
       assert.equal(posted[0].type, "bridge.call");
       promise.catch(() => {});
     } finally {
-      client.destroy();
+      await client.destroy().catch(() => {});
     }
   } finally {
     restoreWindow();

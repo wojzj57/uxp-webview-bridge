@@ -1,8 +1,10 @@
 import {
   assertBoolean,
+  assertFiniteNumber,
   assertInteger,
   assertObject,
   assertPositiveNumber,
+  assertPositiveInteger,
   assertString
 } from "./validation.js";
 
@@ -17,13 +19,38 @@ export function normalizeActiveTool(value: unknown, method: string): Record<stri
 }
 
 export function normalizeMenuState(value: unknown, method: string): boolean {
-  const state = Array.isArray(value) && value.length === 1 ? value[0] : value;
+  const state: unknown = Array.isArray(value) && value.length === 1 ? value[0] : value;
   return assertBoolean(state, `${method} result`);
 }
 
 export function normalizeMenuTitle(value: unknown, method: string): string {
-  const title = Array.isArray(value) && value.length === 1 ? value[0] : value;
+  const title: unknown = Array.isArray(value) && value.length === 1 ? value[0] : value;
   return assertString(title, `${method} result`);
+}
+
+export function normalizeMenuCommandResult(value: unknown, method: string): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  const result = assertObject(value, `${method} result`);
+  const available = assertBoolean(result.available, `${method} result.available`);
+  assertBoolean(result.userCancelled, `${method} result.userCancelled`);
+  return available;
+}
+
+export function normalizePoint(value: unknown, method: string): Record<string, number> {
+  const point = assertObject(value, `${method} result`);
+  return {
+    x: assertFiniteNumber(point.x, `${method} result.x`),
+    y: assertFiniteNumber(point.y, `${method} result.y`)
+  };
+}
+
+export function normalizeTemporaryDocument(value: unknown, method: string): Record<string, number> {
+  const result = assertObject(value, `${method} result`);
+  return {
+    documentID: assertPositiveInteger(result.documentID, `${method} result.documentID`)
+  };
 }
 
 export function normalizeLayerTreeList(value: unknown, method: string): Record<string, unknown> {

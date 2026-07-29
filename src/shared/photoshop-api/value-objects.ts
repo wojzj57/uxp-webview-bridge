@@ -51,7 +51,7 @@ export function registerValueObject<T>(spec: ValueObjectSpec<T>): void {
   if (VALUE_SPECS.has(spec.valueKind)) {
     throw new Error(`Duplicate photoshop value kind: ${spec.valueKind}`);
   }
-  VALUE_SPECS.set(spec.valueKind, spec as ValueObjectSpec);
+  VALUE_SPECS.set(spec.valueKind, spec);
 }
 
 /** Look up a registered spec, or throw if the `valueKind` is unknown. */
@@ -200,7 +200,7 @@ function readColorView(source: unknown, fields: readonly string[]): Record<strin
 }
 
 function readString(value: unknown): string {
-  return typeof value === "string" ? value : String(value ?? "");
+  return typeof value === "string" ? value : "";
 }
 
 registerValueObject<SolidColorTransport>({

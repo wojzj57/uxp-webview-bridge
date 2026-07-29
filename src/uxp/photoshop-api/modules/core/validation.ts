@@ -8,7 +8,7 @@ export function expectDocumentOptions(
   method: string
 ): Record<string, unknown> {
   const options = expectOptions(args, method);
-  assertInteger(options.documentID, `${method} options.documentID`);
+  assertPositiveInteger(options.documentID, `${method} options.documentID`);
   return options;
 }
 
@@ -43,6 +43,14 @@ export function assertFiniteNumber(value: unknown, label: string): number {
   return value;
 }
 
+export function assertNonNegativeNumber(value: unknown, label: string): number {
+  const number = assertFiniteNumber(value, label);
+  if (number < 0) {
+    throw new Error(`${label} must be zero or greater.`);
+  }
+  return number;
+}
+
 export function assertPositiveNumber(value: unknown, label: string): number {
   const number = assertFiniteNumber(value, label);
   if (number <= 0) {
@@ -65,6 +73,14 @@ export function assertInteger(value: unknown, label: string): number {
   return value;
 }
 
+export function assertPositiveInteger(value: unknown, label: string): number {
+  const integer = assertInteger(value, label);
+  if (integer <= 0) {
+    throw new Error(`${label} must be greater than zero.`);
+  }
+  return integer;
+}
+
 export function assertBoolean(value: unknown, label: string): boolean {
   if (typeof value !== "boolean") {
     throw new Error(`${label} must be a boolean.`);
@@ -77,6 +93,39 @@ export function assertString(value: unknown, label: string): string {
     throw new Error(`${label} must be a non-empty string.`);
   }
   return value;
+}
+
+export function assertKnownKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  label: string
+): void {
+  const allowed = new Set(allowedKeys);
+  const unknownKey = Object.keys(value).find((key) => !allowed.has(key));
+  if (unknownKey !== undefined) {
+    throw new Error(`${label} contains unsupported property ${unknownKey}.`);
+  }
+}
+
+export function assertPoint(value: unknown, label: string): Record<string, unknown> {
+  const point = assertObject(value, label);
+  assertKnownKeys(point, ["x", "y"], label);
+  assertFiniteNumber(point.x, `${label}.x`);
+  assertFiniteNumber(point.y, `${label}.y`);
+  return point;
+}
+
+export function assertOptionalScheduling(value: unknown, label: string): void {
+  if (value === undefined) {
+    return;
+  }
+  const scheduling = assertObject(value, label);
+  assertKnownKeys(scheduling, ["playLevel", "eventLevel", "timeOut"], label);
+  for (const key of ["playLevel", "eventLevel", "timeOut"] as const) {
+    if (scheduling[key] !== undefined) {
+      assertNonNegativeNumber(scheduling[key], `${label}.${key}`);
+    }
+  }
 }
 
 export function assertSize(value: unknown, label: string): void {
