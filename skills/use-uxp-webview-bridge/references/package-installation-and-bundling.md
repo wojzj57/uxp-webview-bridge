@@ -1,6 +1,12 @@
 # Package installation and bundling
 
-The reviewed package is private and currently version `0.0.1`; it is not published to the public npm registry. This skill does not contain or install the package. Obtain the repository or a private package artifact from the library owner, then build the checked-out package with `pnpm install` and `pnpm build`, or add it inside a pnpm workspace:
+Install the package from the public npm registry:
+
+```bash
+pnpm add uxp-webview-bridge
+```
+
+For local package development, build the checked-out repository with `pnpm install` and `pnpm build`, or add it inside a pnpm workspace:
 
 ```json
 {

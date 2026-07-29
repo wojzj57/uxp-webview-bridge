@@ -6,14 +6,20 @@
 
 ## 前置条件与包可用性
 
-你需要一个包含 WebView 的 Adobe UXP 插件、彼此独立的 UXP 宿主和 WebView bundle，并且能控制边界两侧。此仓库将该包标记为私有，也没有提供受支持的注册表安装方式。仓库贡献者使用以下命令构建：
+你需要一个包含 WebView 的 Adobe UXP 插件、彼此独立的 UXP 宿主和 WebView bundle，并且能控制边界两侧。从公共 npm registry 安装该包：
+
+```powershell
+pnpm add uxp-webview-bridge
+```
+
+仓库贡献者使用以下命令在本地构建：
 
 ```powershell
 pnpm install
 pnpm build
 ```
 
-使用者必须通过自己的工作区或本地分发方式，让两个 bundle 都能获得该私有包或构建输出。不要替换为未经验证的公共注册表命令。
+请将该包的 `/uxp` 和 `/webview` 入口分别打包到对应的运行时。在本地 pnpm workspace 中，也可以使用 `workspace:*` 协议链接该包。
 
 ## 1. 添加本地 WebView
 

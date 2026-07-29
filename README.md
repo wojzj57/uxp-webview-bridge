@@ -5,7 +5,7 @@
 `uxp-webview-bridge` exposes selected Adobe UXP and Photoshop APIs to a WebView while keeping every real host operation in the UXP plugin runtime. The WebView imports asynchronous remote namespaces; the UXP side validates message origins and capabilities, dispatches calls, and owns native resources.
 
 > [!IMPORTANT]
-> This repository is an early-development, private package (`0.0.1`). It is not currently published to the public npm registry. The supported surface is the API documented below, not every member in Adobe's UXP or Photoshop type declarations.
+> This package is in early development. The supported surface is the API documented below, not every member in Adobe's UXP or Photoshop type declarations.
 
 ## Contents
 
@@ -34,7 +34,13 @@ The runtime boundary is deliberate: import `uxp-webview-bridge/webview` only in 
 
 ## Installation and build
 
-The package is private and is not available from the public npm registry. Clone and build it locally:
+Install the package from the public npm registry:
+
+```bash
+pnpm add uxp-webview-bridge
+```
+
+To contribute to the package, clone the repository and build it locally:
 
 ```bash
 pnpm install

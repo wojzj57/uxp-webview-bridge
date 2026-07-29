@@ -46,4 +46,4 @@ WebView namespace -> WebView RPC client -> window.uxpHost message bridge
 4. [Photoshop](./photoshop.md) 解释远程对象、排队写入、模态执行和 imaging 句柄。
 5. [转发 fetch](./fetch.md) 介绍直接和全局用法、中止、安全性、缓冲及限制。
 
-`package.json` 将该包标记为私有，且仓库没有提供受支持的注册表安装方式。请参阅快速开始，了解仓库构建流程和已验证的本地 `plugin:/` fixture 形式。
+使用 `pnpm add uxp-webview-bridge` 从公共 npm registry 安装该包。请参阅快速开始，了解安装方式、仓库构建流程和已验证的本地 `plugin:/` fixture 形式。

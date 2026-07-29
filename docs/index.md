@@ -46,4 +46,4 @@ Support means the implemented subset described by the public exports, TypeScript
 4. [Photoshop](./photoshop.md) explains remote objects, queued writes, modal execution, and imaging handles.
 5. [Forwarded fetch](./fetch.md) covers direct and global use, aborts, security, buffering, and limitations.
 
-`package.json` marks the package private, and the repository supplies no supported registry installation path. See getting started for the repository build workflow and the verified local `plugin:/` fixture shape.
+Install the package from the public npm registry with `pnpm add uxp-webview-bridge`. See getting started for installation, the repository build workflow, and the verified local `plugin:/` fixture shape.

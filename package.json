@@ -3,12 +3,25 @@
   "version": "0.0.1",
   "description": "Bridge library for Adobe UXP plugin hosts and WebView clients.",
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wojzj57/uxp-webview-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wojzj57/uxp-webview-bridge/issues"
+  },
+  "homepage": "https://github.com/wojzj57/uxp-webview-bridge#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "packageManager": "pnpm@11.5.0",
   "sideEffects": false,
   "files": [
     "dist",
     "README.md",
+    "README_zh.md",
     "CONTEXT.md"
   ],
   "exports": {

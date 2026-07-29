@@ -6,14 +6,20 @@
 
 ## Prerequisites and package availability
 
-You need an Adobe UXP plugin with a WebView, separate UXP-host and WebView bundles, and control of both sides. The repository marks this package private and provides no supported registry installation path. Repository contributors build it with:
+You need an Adobe UXP plugin with a WebView, separate UXP-host and WebView bundles, and control of both sides. Install the package from the public npm registry:
+
+```powershell
+pnpm add uxp-webview-bridge
+```
+
+Repository contributors build it locally with:
 
 ```powershell
 pnpm install
 pnpm build
 ```
 
-Consumers must make that private package or build output available to both bundles through their own workspace or local distribution. Do not substitute an unverified public registry command.
+Bundle the package's `/uxp` and `/webview` entrypoints into their respective runtimes. In a local pnpm workspace, the package can instead be linked with the `workspace:*` protocol.
 
 ## 1. Add a local WebView
 

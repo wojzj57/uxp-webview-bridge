@@ -5,7 +5,7 @@
 `uxp-webview-bridge` 将经过选择的 Adobe UXP 与 Photoshop API 暴露给 WebView，同时确保所有真实的宿主操作仍在 UXP 插件运行时执行。WebView 导入异步远程命名空间；UXP 端负责校验消息来源与能力、分发调用并管理原生资源。
 
 > [!IMPORTANT]
-> 当前仓库是处于早期开发阶段的私有包（`0.0.1`），尚未发布到公共 npm registry。支持范围以下文记录的 API 为准，而不是 Adobe UXP 或 Photoshop 类型声明中的全部成员。
+> 该包目前处于早期开发阶段。支持范围以下文记录的 API 为准，而不是 Adobe UXP 或 Photoshop 类型声明中的全部成员。
 
 ## 目录
 
@@ -34,7 +34,13 @@ UXP WebView 无法直接调用 `require("uxp")`、`require("photoshop")`、`fs` 
 
 ## 安装与构建
 
-该包是私有包，无法从公共 npm registry 安装。请克隆仓库并在本地构建：
+从公共 npm registry 安装该包：
+
+```bash
+pnpm add uxp-webview-bridge
+```
+
+如需参与开发，请克隆仓库并在本地构建：
 
 ```bash
 pnpm install
