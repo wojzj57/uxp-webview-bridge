@@ -84,6 +84,22 @@ jobs:
           GITHUB_TOKEN: ${{ steps.release-app-token.outputs.token }}
           NPM_TOKEN: ""
 
+      - name: Enable auto-merge for release pull request
+        if: steps.changesets.outputs.pullRequestNumber != ''
+        env:
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+        run: |
+          base_branch="$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')"
+          head_branch="$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')"
+
+          if [[ "$base_branch" != "main" || "$head_branch" != "changeset-release/main" ]]; then
+            echo "Refusing to enable auto-merge for $head_branch -> $base_branch" >&2
+            exit 1
+          fi
+
+          gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
+
       - name: Resolve release version
         id: release-version
         if: >-
