@@ -10,6 +10,7 @@
 ## Contents
 
 - [Why use it?](#why-use-it)
+- [Architecture and communication](#architecture-and-communication)
 - [Installation and build](#installation-and-build)
 - [Quick start](#quick-start)
 - [Capability overview](#capability-overview)
@@ -31,6 +32,32 @@ A UXP WebView cannot directly call host-only modules such as `require("uxp")`, `
 - capability and origin checks on the UXP side.
 
 The runtime boundary is deliberate: import `uxp-webview-bridge/webview` only in the WebView bundle and `uxp-webview-bridge/uxp` only in the UXP host bundle.
+
+## Architecture and communication
+
+![UXP WebView Bridge architecture and RPC communication flow](./docs/assets/bridge-architecture.svg)
+
+A normal request follows this path:
+
+1. A WebView namespace or `RemoteClass` turns an asynchronous property read or
+   method call into a bridge operation. Queued property writes flush before the
+   next read or call.
+2. `RpcClient` assigns an `operationId`, records the pending Promise, and sends a
+   transport-safe request envelope through `window.uxpHost.postMessage`.
+3. `RpcHost` accepts messages only from a trusted source and origin. The module
+   registry then validates the module and method and checks its leaf capability
+   before selecting a host adapter.
+4. The adapter invokes the real UXP, Photoshop, operating system, filesystem,
+   or network API. Native objects remain on this side and cross the bridge only
+   as values, binary envelopes, or stable remote references.
+5. The host posts a `bridge.success` or `bridge.error` envelope back to the
+   WebView. `RpcClient` matches the `operationId`, settles the original Promise,
+   and converts a remote failure into `BridgeRemoteError`.
+
+Cancellation and host-to-WebView callbacks use the same channel. Cancel
+envelopes target an in-flight `operationId`; callback envelopes add a
+`callbackId` and, for nested modal work, a `sessionId`. Destroying either runtime
+releases pending operations and host-owned bridge resources.
 
 ## Installation and build
 

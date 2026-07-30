@@ -10,6 +10,7 @@
 ## 目录
 
 - [为什么使用它？](#为什么使用它)
+- [架构与通信流程](#架构与通信流程)
 - [安装与构建](#安装与构建)
 - [快速开始](#快速开始)
 - [能力总览](#能力总览)
@@ -31,6 +32,20 @@ UXP WebView 无法直接调用 `require("uxp")`、`require("photoshop")`、`fs` 
 - UXP 端的能力和来源校验。
 
 运行时边界是有意设计的：WebView bundle 只能导入 `uxp-webview-bridge/webview`，UXP 宿主 bundle 只能导入 `uxp-webview-bridge/uxp`。
+
+## 架构与通信流程
+
+![UXP WebView Bridge 架构与 RPC 通信流程](./docs/assets/bridge-architecture.svg)
+
+一次常规请求按以下路径执行：
+
+1. WebView 命名空间或 `RemoteClass` 将异步属性读取或方法调用转换为桥接操作。排队的属性写入会在下一次读取或调用之前刷新。
+2. `RpcClient` 分配 `operationId`、记录待处理的 Promise，并通过 `window.uxpHost.postMessage` 发送传输安全的请求 envelope。
+3. `RpcHost` 只接受来自可信 source 和 origin 的消息。模块 registry 随后校验 module 和 method、检查对应的叶子 capability，再选择宿主 adapter。
+4. Adapter 调用真实的 UXP、Photoshop、操作系统、文件系统或网络 API。原生对象始终留在 UXP 端，只以普通值、二进制 envelope 或稳定远程引用的形式跨越桥接。
+5. 宿主向 WebView 返回 `bridge.success` 或 `bridge.error` envelope。`RpcClient` 根据 `operationId` 匹配并结束原始 Promise，并将远端失败转换为 `BridgeRemoteError`。
+
+取消和宿主到 WebView 的回调也使用同一条通道。取消 envelope 指向正在执行的 `operationId`；回调 envelope 还包含 `callbackId`，嵌套模态工作则会附带 `sessionId`。销毁任一端的 runtime 时，桥接会释放待处理操作和宿主持有的桥接资源。
 
 ## 安装与构建
 
