@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="500" viewBox="0 0 1120 500" role="img" aria-labelledby="title desc">
+  <title id="title">UXP WebView Bridge architecture</title>
+  <desc id="desc">WebView remote APIs communicate through a bidirectional postMessage bridge with a UXP plugin host, which validates and dispatches calls to native UXP, Photoshop, filesystem, operating system, and network APIs.</desc>
+
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="blue-fill"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="green-fill"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.1"/>
+    </filter>
+    <style>
+      .background { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .webview-box { fill: #eff6ff; stroke: #93c5fd; stroke-width: 1.5; }
+      .host-box { fill: #f0fdf4; stroke: #86efac; stroke-width: 1.5; }
+      .native-box { fill: #fefce8; stroke: #fde047; stroke-width: 1.5; }
+      .bridge-box { fill: #f8fafc; stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 6 4; }
+      .title { fill: #0f172a; font: 600 27px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .subtitle { fill: #475569; font: 400 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .panel-title { fill: #0f172a; font: 600 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .box-title { fill: #0f172a; font: 600 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .body { fill: #475569; font: 400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .code { fill: #334155; font: 500 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .small { fill: #64748b; font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .request { fill: none; stroke: #2563eb; stroke-width: 2.5; marker-end: url(#arrow-blue); }
+      .response { fill: none; stroke: #16a34a; stroke-width: 2.5; marker-end: url(#arrow-green); }
+      .blue-fill { fill: #2563eb; }
+      .green-fill { fill: #16a34a; }
+      .request-label { fill: #1d4ed8; font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .response-label { fill: #15803d; font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+      @media (prefers-color-scheme: dark) {
+        .background { fill: #0d1117; }
+        .panel { fill: #161b22; stroke: #30363d; }
+        .webview-box { fill: #0d2742; stroke: #1f6feb; }
+        .host-box { fill: #12261b; stroke: #238636; }
+        .native-box { fill: #2a2411; stroke: #9e6a03; }
+        .bridge-box { fill: #21262d; stroke: #6e7681; }
+        .title, .panel-title, .box-title { fill: #f0f6fc; }
+        .subtitle, .body { fill: #b1bac4; }
+        .code { fill: #c9d1d9; }
+        .small { fill: #8b949e; }
+        .request-label { fill: #58a6ff; }
+        .response-label { fill: #3fb950; }
+      }
+    </style>
+  </defs>
+
+  <rect width="1120" height="500" rx="18" class="background"/>
+
+  <text x="40" y="48" class="title">UXP WebView Bridge architecture</text>
+  <text x="40" y="75" class="subtitle">The WebView exposes remote APIs; all real host operations run in the UXP plugin.</text>
+
+  <!-- WebView runtime -->
+  <rect x="40" y="110" width="320" height="330" rx="16" class="panel" filter="url(#shadow)"/>
+  <text x="65" y="145" class="panel-title">WebView runtime</text>
+
+  <rect x="65" y="170" width="270" height="100" rx="12" class="webview-box"/>
+  <text x="85" y="200" class="box-title">Remote API namespaces</text>
+  <text x="85" y="227" class="code">fs · os · path · uxp</text>
+  <text x="85" y="250" class="code">photoshop · fetch</text>
+
+  <rect x="65" y="295" width="270" height="115" rx="12" class="webview-box"/>
+  <text x="85" y="325" class="box-title">Bridge client</text>
+  <text x="85" y="352" class="body">Turns API access into asynchronous RPC</text>
+  <text x="85" y="376" class="body">Matches responses to pending requests</text>
+  <text x="85" y="398" class="small">Configured by configWebviewBridge()</text>
+
+  <!-- Message bridge -->
+  <rect x="410" y="170" width="300" height="240" rx="16" class="bridge-box"/>
+  <text x="560" y="205" class="panel-title" text-anchor="middle">UXP message bridge</text>
+  <text x="560" y="235" class="code" text-anchor="middle">postMessage</text>
+
+  <path d="M 360 280 L 760 280" class="request"/>
+  <text x="560" y="266" class="request-label" text-anchor="middle">Request</text>
+
+  <path d="M 760 330 L 360 330" class="response"/>
+  <text x="560" y="354" class="response-label" text-anchor="middle">Response</text>
+
+  <text x="560" y="390" class="small" text-anchor="middle">Transport-safe values and remote references</text>
+
+  <!-- UXP plugin host -->
+  <rect x="760" y="110" width="320" height="330" rx="16" class="panel" filter="url(#shadow)"/>
+  <text x="785" y="145" class="panel-title">UXP plugin host</text>
+
+  <rect x="785" y="170" width="270" height="100" rx="12" class="host-box"/>
+  <text x="805" y="200" class="box-title">Bridge host</text>
+  <text x="805" y="227" class="body">Validates origin and capabilities</text>
+  <text x="805" y="250" class="body">Dispatches calls to module adapters</text>
+
+  <rect x="785" y="295" width="270" height="115" rx="12" class="native-box"/>
+  <text x="805" y="325" class="box-title">Native host APIs</text>
+  <text x="805" y="352" class="code">UXP · Photoshop · fs · os</text>
+  <text x="805" y="376" class="body">Filesystem, storage, and network</text>
+  <text x="805" y="398" class="small">Configured by configUxpBridge()</text>
+</svg>
