@@ -1,15 +1,12 @@
-import type { BridgeCallPayload, BridgeCapabilities } from "../shared/types.js";
+import type { BridgeCapabilityName } from "../shared/capabilities.js";
+import { BridgeRemoteError } from "../shared/errors.js";
+import type { BridgeCallPayload } from "../shared/types.js";
 import type {
   BridgeCallbackInvocationMode,
   BridgeCallbackReference
 } from "../shared/protocol.js";
 
-export type CapabilityName = {
-  readonly [K in keyof BridgeCapabilities]: BridgeCapabilities[K] extends boolean ? K : never;
-}[keyof BridgeCapabilities];
-
 export interface UxpDispatchContext {
-  readonly capabilities: BridgeCapabilities;
   readonly signal?: AbortSignal;
   readonly operationId: string;
   readonly modalSessionId?: string;
@@ -46,7 +43,7 @@ export interface UxpCallbackBridge {
 
 export interface UxpModuleAdapter {
   readonly moduleId: string;
-  readonly capability?: CapabilityName;
+  readonly resolveCapability: (method: string) => BridgeCapabilityName;
   dispatch(
     method: string,
     args: readonly unknown[],
@@ -79,7 +76,7 @@ export interface UxpModuleRegistry {
 }
 
 export function createUxpModuleRegistry(
-  capabilities: BridgeCapabilities,
+  capabilities: ReadonlySet<BridgeCapabilityName>,
   adapters: readonly UxpModuleAdapter[]
 ): UxpModuleRegistry {
   const adapterByModuleId = new Map(adapters.map((adapter) => [adapter.moduleId, adapter]));
@@ -91,12 +88,21 @@ export function createUxpModuleRegistry(
         throw new Error(`Unsupported bridge module: ${payload.module}`);
       }
 
-      if (adapter.capability && !capabilities[adapter.capability]) {
-        throw new Error(`${adapter.capability} capability is disabled.`);
+      const capability = adapter.resolveCapability(payload.method);
+      if (!capabilities.has(capability)) {
+        const operationId = options?.operationId ?? "bridge.direct-dispatch";
+        throw new BridgeRemoteError({
+          operationId,
+          remoteName: "BridgeCapabilityError",
+          remoteMessage: `Bridge capability ${capability} denied operation ${operationId}.`,
+          code: "ERR_BRIDGE_CAPABILITY_DISABLED",
+          capability,
+          module: payload.module,
+          method: payload.method
+        });
       }
 
       const context: UxpDispatchContext = {
-        capabilities,
         operationId: options?.operationId ?? "bridge.direct-dispatch",
         callbacks: options?.callbacks ?? unavailableCallbacks,
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
@@ -104,5 +110,15 @@ export function createUxpModuleRegistry(
       };
       return adapter.dispatch(payload.method, payload.args, context);
     }
+  };
+}
+
+export function fixedCapability(
+  capability: BridgeCapabilityName,
+  assertMethod: (method: string) => void
+): (method: string) => BridgeCapabilityName {
+  return (method) => {
+    assertMethod(method);
+    return capability;
   };
 }

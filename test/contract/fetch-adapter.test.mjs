@@ -91,7 +91,7 @@ test("UXP fetch adapter passes the abort signal to the global fetch", async () =
     const pending = dispatchFetchCall(
       "fetch",
       [{ url: "https://example.com", method: "GET", headers: [] }],
-      { capabilities: {}, signal: controller.signal }
+      { signal: controller.signal }
     );
     controller.abort();
     await assert.rejects(pending, /aborted/);

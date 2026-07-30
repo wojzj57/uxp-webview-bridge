@@ -3,13 +3,13 @@ import {
   assertOsProtocolMethodName,
   OS_MODULE_ID
 } from "@shared/uxp-api/os-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import { fixedCapability, type UxpModuleAdapter } from "@uxp/module-registry.js";
 
 declare const require: (moduleName: "os") => typeof nativeOs;
 
 export const osModuleAdapter: UxpModuleAdapter = {
   moduleId: OS_MODULE_ID,
-  capability: "os",
+  resolveCapability: fixedCapability("os", assertOsProtocolMethodName),
   dispatch: dispatchOsCall
 };
 

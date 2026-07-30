@@ -4,7 +4,16 @@
 
 [Overview](./index.md) | [Getting started](./getting-started.md) | [Security and permissions](./security-and-permissions.md) | [UXP](./uxp.md) | [Photoshop](./photoshop.md) | [Forwarded fetch](./fetch.md)
 
-The `photoshop` WebView namespace exposes implemented Photoshop DOM, Action, Core, Imaging, helper, and constant-table surfaces. All native work executes in the UXP host. The `photoshop` capability is the parent gate for DOM, Action, Core, and Imaging calls. Imaging additionally requires `imaging`; the three public `photoshop.action.batchPlay`, `batchPlaySync`, and `photoshop.app.batchPlay` RPC methods additionally require `batchPlay`.
+The `photoshop` WebView namespace exposes implemented Photoshop DOM, Action, Core, Imaging, helper, and constant-table surfaces. All native work executes in the UXP host. Four independent leaves authorize the remote surfaces:
+
+| Leaf capability | Surface |
+| --- | --- |
+| `photoshop.dom` | Main Photoshop adapter methods other than the three public batchPlay methods, including DOM remote objects |
+| `photoshop.core` | `photoshop.core`, including modal-session Core RPC methods |
+| `photoshop.imaging` | `photoshop.imaging` and image-data handle methods |
+| `photoshop.batchPlay` | `photoshop.action.batchPlay`, `photoshop.action.batchPlaySync`, and `photoshop.app.batchPlay` |
+
+All four default to denied, and enabling one does not enable another. `photoshop.all` expands to the four leaves known to the installed package version and may grow when an upgrade adds another Photoshop leaf. Synchronous constants and WebView-local constructors do not cross the bridge and need no capability.
 
 Use the exported TypeScript types under [`src/webview/photoshop-api`](../src/webview/photoshop-api) as the exhaustive current interface. This guide describes the remote-object model and safe representative flows, not every Adobe member.
 
@@ -42,7 +51,7 @@ if (!document) {
 | Constant/helper | Synchronous WebView-local table or builder such as `photoshop.constants`, color helpers, or path builders. |
 | Resource handle | Transient host resource such as `PsImageData`; call `dispose()` in `finally`. |
 
-Remote failures surface as `BridgeRemoteError` with remote metadata and an `operationId`. Action/batchPlay descriptors remain caller-owned opaque Photoshop JSON; native ids inside them are Photoshop ids, not bridge remote-reference ids.
+Remote failures surface as `BridgeRemoteError` with remote metadata and an `operationId`. A capability denial has code `ERR_BRIDGE_CAPABILITY_DISABLED`, remote name `BridgeCapabilityError`, and exact `capability`, `module`, and `method` fields. Action/batchPlay descriptors remain caller-owned opaque Photoshop JSON; native ids inside them are Photoshop ids, not bridge remote-reference ids.
 
 ## Queued writes and modal execution
 

@@ -10,11 +10,12 @@ import {
   isBinaryTransportData,
   transportToBytes
 } from "@shared/uxp-api/binary-transport.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import { fixedCapability, type UxpModuleAdapter } from "@uxp/module-registry.js";
 import type { CryptoHost, CryptoIntegerTypedArray } from "./types.js";
 
 export const cryptoModuleAdapter: UxpModuleAdapter = {
   moduleId: CRYPTO_MODULE_ID,
+  resolveCapability: fixedCapability("crypto", assertCryptoProtocolMethodName),
   dispatch: dispatchCryptoCall
 };
 

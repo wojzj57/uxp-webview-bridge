@@ -10,9 +10,9 @@
 
 1. **UXP 清单权限**决定原生宿主是否允许某类操作，例如网络或文件系统访问。
 2. **消息 source/origin 验证**决定宿主是否接受来自已配置 WebView 上下文和来源的桥接消息。
-3. **桥接能力**决定是否分发受能力控制的适配器或 UXP 方法族。
+3. **桥接能力**决定是否分发某个已知 Business RPC。
 
-能力不会授予清单权限；清单权限不会授权任意 WebView 来源；接受某个来源也不会为未受控制的命名空间增加能力门禁。
+能力不会授予清单权限；清单权限不会授权任意 WebView 来源；接受某个来源也不会启用 Bridge capability。
 
 ## Source 与 origin 验证
 
@@ -27,29 +27,45 @@
 
 ## 实际桥接能力
 
-全部 15 个可配置能力都默认启用。下表说明当前分发门禁。
+省略 `capabilities` 等价于传入 `[]`，并拒绝全部 Business RPC。Allowlist 只包含以下 20 个叶子：
 
-| 配置键 | 默认值 | 当前实际门禁 |
-| --- | ---: | --- |
-| `fs` | 开启 | `fs` 命名空间 |
-| `os` | 开启 | `os` 命名空间 |
-| `clipboard` | 开启 | `clipboard` 命名空间 |
-| `localStorage` | 开启 | 异步 `localStorage` 命名空间 |
-| `sessionStorage` | 开启 | 异步 `sessionStorage` 命名空间 |
-| `fetch` | 开启 | 宿主转发 `fetch` 和 `installFetch()` 替换 |
-| `shell` | 开启 | `uxp.shell` |
-| `userInfo` | 开启 | `uxp.userInfo` |
-| `pluginManager` | 开启 | `uxp.pluginManager` |
-| `keyValueStorage` | 开启 | `uxp.storage.secureStorage` |
-| `persistentFileStorage` | 开启 | `uxp.storage.localFileSystem` 及相关存储代理 |
-| `xmp` | 开启 | `uxp.xmp` |
-| `photoshop` | 开启 | Photoshop DOM、Action、Core 和 Imaging 适配器的父门禁 |
-| `imaging` | 开启 | Photoshop Imaging；同时需要 `photoshop` |
-| `batchPlay` | 开启 | 三个公开 batchPlay RPC；同时需要 `photoshop` |
+| 功能族 | 叶子 Bridge capability |
+| --- | --- |
+| 顶层命名空间 | `clipboard`、`crypto`、`fetch`、`fs`、`localStorage`、`os`、`path`、`sessionStorage` |
+| Photoshop | `photoshop.dom`、`photoshop.core`、`photoshop.imaging`、`photoshop.batchPlay` |
+| UXP | `uxp.host`、`uxp.versions`、`uxp.shell`、`uxp.userInfo`、`uxp.pluginManager`、`uxp.storage.secureStorage`、`uxp.storage.localFileSystem`、`uxp.xmp` |
 
-`crypto`、`path`、`uxp.host` 和 `uxp.versions` 没有可配置能力，对每个已接受来源保持可用。
+仅用于配置的分组为 `photoshop.all`、`uxp.all` 和 `uxp.storage.all`。顶层 `capabilities: "all"` 会启用全部已知叶子；`"all"` 不能作为数组成员。分组会展开为已安装包版本中所有匹配叶子，因此 `"all"` 和 `*.all` 都可能在升级新增后代叶子时扩大权限。生产策略需要在升级后保持稳定时，应逐一列出叶子。
 
-为了最小权限，远程或其他不受信任的 WebView 应指定全部 15 个键，并禁用所有未使用接口。禁用 `imaging` 会阻止 Imaging，而不关闭其他 Photoshop API；禁用 `batchPlay` 会阻止三个公开 batchPlay RPC，同时保留 DOM 内部实现调用。关闭 `photoshop` 可控制全部已实现的 Photoshop DOM、Action、Core 和 Imaging 接口。
+Selector 可以重叠，结果会自动去重。未知名称、错误大小写、`uxp.*` 这类通配符、裸功能族名称、`["all"]` 以及旧布尔对象都会在设置监听器或适配器前抛出 `TypeError`。运行时通过 `runtime.capabilities` 公开按 catalog 排序并冻结的叶子快照；策略不可变，更改策略必须销毁并重新创建运行时。
+
+四个 Photoshop 叶子相互独立，`photoshop.dom`、`photoshop.core`、`photoshop.imaging` 和 `photoshop.batchPlay` 不会互相隐含。同步 Photoshop 常量和 WebView 本地构造器不会跨桥，因此不需要 capability。
+
+### 从布尔 override 迁移
+
+迁移前：
+
+```ts
+configUxpBridge({
+  webview,
+  capabilities: {
+    fs: true,
+    shell: true,
+    photoshop: true
+  }
+});
+```
+
+迁移后：
+
+```ts
+configUxpBridge({
+  webview,
+  capabilities: ["fs", "uxp.shell", "photoshop.dom"]
+});
+```
+
+只有在明确接受当前及未来范围时才使用 `capabilities: "all"`。这里没有 capability 排除语法、`permissions` 选项或旧布尔兼容模式。
 
 ## UXP 清单权限映射
 
@@ -81,7 +97,9 @@
 | WebView 策略 | 页面或桥不可用 | 修正目标宿主/版本清单，不要扩大无关权限。 |
 | Source 检查 | 不同且为真值的 source 被忽略 | 通过已配置 WebView 发送；不要把 null source 当作授权。 |
 | Origin 检查 | 已接受的 WebView 没有发生分发 | 用最窄的 `allowedOrigins` 条目匹配真实 origin。 |
-| 能力检查 | 能力已禁用的桥接错误 | 评审 WebView 需求后，仅启用实际有效的键。 |
+| 能力检查 | `BridgeRemoteError` 的 code 为 `ERR_BRIDGE_CAPABILITY_DISABLED`、远程 name 为 `BridgeCapabilityError` | 检查 `operationId`、`capability`、`module` 和 `method`；只添加报告的叶子并重新创建运行时。 |
 | 原生权限/API | 来自 UXP/Photoshop 的 `BridgeRemoteError` | 只添加所需清单权限，或处理宿主/API 限制。 |
+
+能力拒绝消息只是诊断文本，不是程序化契约。消息不会包含请求参数、路径、URL、存储键、Photoshop descriptor 或参数摘要。
 
 请查看[UXP](./uxp.md)、[Photoshop](./photoshop.md)和[转发 fetch](./fetch.md)中的功能前置条件。

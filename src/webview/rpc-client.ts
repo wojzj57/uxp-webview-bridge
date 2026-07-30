@@ -390,7 +390,10 @@ function serializeError(
         remoteName: error.remoteName,
         remoteMessage: error.remoteMessage,
         remoteStack: error.remoteStack,
-        code: error.code
+        code: error.code,
+        capability: error.capability,
+        module: error.module,
+        method: error.method
       }
     : error instanceof Error
       ? {
@@ -413,6 +416,9 @@ function toRemoteError(operationId: string, error: BridgeSerializedError): Bridg
     remoteStack: error.remoteStack,
     code: error.code,
     parentOperationId: error.parentOperationId,
-    callbackId: error.callbackId
+    callbackId: error.callbackId,
+    capability: error.capability,
+    module: error.module,
+    method: error.method
   });
 }

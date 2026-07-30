@@ -1,3 +1,5 @@
+import type { BridgeCapabilityName } from "./capabilities.js";
+
 export const BRIDGE_PROTOCOL_VERSION = "0.2.0" as const;
 
 export type BridgeRequestType =
@@ -41,6 +43,9 @@ export interface BridgeSerializedError {
   readonly code?: string | undefined;
   readonly parentOperationId?: string | undefined;
   readonly callbackId?: string | undefined;
+  readonly capability?: BridgeCapabilityName | undefined;
+  readonly module?: string | undefined;
+  readonly method?: string | undefined;
 }
 
 export interface BridgeErrorEnvelope {

@@ -4,12 +4,12 @@ import {
   isClipboardTextData,
   type ClipboardTextData
 } from "@shared/uxp-api/clipboard-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import { fixedCapability, type UxpModuleAdapter } from "@uxp/module-registry.js";
 import type { ClipboardHost } from "./types.js";
 
 export const clipboardModuleAdapter: UxpModuleAdapter = {
   moduleId: CLIPBOARD_MODULE_ID,
-  capability: "clipboard",
+  resolveCapability: fixedCapability("clipboard", assertClipboardProtocolMethodName),
   dispatch: dispatchClipboardCall
 };
 

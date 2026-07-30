@@ -1,23 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const baseCapabilities = {
-  fs: false,
-  os: true,
-  clipboard: true,
-  localStorage: true,
-  sessionStorage: true,
-  fetch: true,
-  shell: true,
-  userInfo: true,
-  pluginManager: true,
-  keyValueStorage: true,
-  persistentFileStorage: true,
-  xmp: true,
-  photoshop: true,
-  imaging: true,
-  batchPlay: true
-};
+const baseCapabilities = new Set();
 
 test("UXP fs adapter rejects unsupported methods before requiring fs", async () => {
   const { dispatchFsCall } = await import("../../dist/uxp/uxp-api/modules/fs/index.js");
@@ -200,8 +184,12 @@ test("UXP module registry gates fs before requiring fs", async () => {
 
   try {
     assert.throws(
+      () => registry.dispatch({ module: FS_MODULE_ID, method: "missing", args: ["private"] }),
+      /Unsupported fs method: missing/
+    );
+    assert.throws(
       () => registry.dispatch({ module: FS_MODULE_ID, method: "readFile", args: ["plugin-temp:/x"] }),
-      /fs capability is disabled/
+      /Bridge capability fs denied operation/
     );
     assert.equal(required, false);
   } finally {

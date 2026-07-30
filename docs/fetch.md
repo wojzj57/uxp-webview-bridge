@@ -6,7 +6,7 @@
 
 **Forwarded fetch** accepts the familiar WebView `fetch(input, init)` shape, serializes the request, performs the real request with the UXP host's global fetch, and reconstructs a native `Response` in the WebView. Because the host performs the request, WebView CORS enforcement does not apply; UXP manifest network permission and bridge trust still do.
 
-Forwarded fetch is controlled by the `fetch` bridge capability, which defaults to enabled. Disable it explicitly when the WebView does not need host-forwarded network access, and do not expose it to untrusted WebView origins.
+Forwarded fetch is controlled by the `fetch` Bridge capability, which defaults to denied. The UXP host must include `capabilities: ["fetch"]` (or a broader intentional selection) before a WebView can use it. Do not enable it for an untrusted WebView origin.
 
 ## Direct use
 
@@ -107,14 +107,14 @@ The bridge reconstructs a native WebView `Response` with transported status, sta
 
 > **Buffering warning:** supported request bodies and response bodies are fully buffered in memory, and streaming responses are not supported. Size payloads for the UXP process and WebView memory budget.
 
-Transport or remote request failures are mapped to `TypeError` with the remote failure attached as `cause`. Abort failures retain abort semantics where the environment supports them. Inspect `cause` for diagnostics without exposing secrets.
+Transport or remote request failures are mapped to `TypeError` with the remote failure attached as `cause`. Abort failures retain abort semantics where the environment supports them. A policy denial in `cause` has code `ERR_BRIDGE_CAPABILITY_DISABLED`, remote name `BridgeCapabilityError`, and `operationId`, `capability`, `module`, and `method` fields. Inspect structured fields for diagnostics without exposing secrets.
 
 Forwarded fetch does **not** claim full Fetch Standard parity. In particular, do not assume streaming, browser cookie/credential equivalence, browser cache behavior, or response URL/type/redirect metadata that the transport does not carry.
 
 ## Security checklist
 
 - Allow only required domains in `requiredPermissions.network`; the broad `"all"` value in the repository fixture is test-only.
-- Keep `allowedOrigins` and WebView domain policy narrow, and disable the `fetch` capability unless the WebView needs host-forwarded requests.
+- Keep `allowedOrigins` and WebView domain policy narrow, and enable the `fetch` capability only when the WebView needs host-forwarded requests.
 - Validate caller-controlled URLs, methods, headers, and bodies at the application boundary.
 - Avoid forwarding credentials for untrusted content and keep secrets out of URLs/logs.
 - Prefer direct `forwardedFetch` for application-owned code. Use global installation only when a dependency requires it and one component can own its complete lifecycle.

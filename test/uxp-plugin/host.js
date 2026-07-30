@@ -29,9 +29,27 @@
 
     bridgeRuntime = configUxpBridge({
       webview,
-      capabilities: {
-        fs: true
-      }
+      capabilities: [
+        "clipboard",
+        "crypto",
+        "fs",
+        "localStorage",
+        "os",
+        "path",
+        "sessionStorage",
+        "photoshop.dom",
+        "photoshop.core",
+        "photoshop.imaging",
+        "photoshop.batchPlay",
+        "uxp.host",
+        "uxp.versions",
+        "uxp.shell",
+        "uxp.userInfo",
+        "uxp.pluginManager",
+        "uxp.storage.secureStorage",
+        "uxp.storage.localFileSystem",
+        "uxp.xmp"
+      ]
     });
     window.__UXP_BRIDGE_TEST_DIAGNOSTICS__ = {
       ...window.__UXP_BRIDGE_TEST_DIAGNOSTICS__,

@@ -6,7 +6,6 @@ const imagingHostModule = "../../dist/uxp/photoshop-api/modules/imaging/host.js"
 
 function createDispatchContext(modalSessionId, activeModalSessionId) {
   return {
-    capabilities: { photoshop: true, imaging: true, batchPlay: true },
     operationId: "modal-session-contract",
     modalSessionId,
     callbacks: {

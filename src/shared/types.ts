@@ -1,22 +1,6 @@
-export type BridgeProtocolVersion = `${number}.${number}.${number}`;
+import type { BridgeCapabilityName } from "./capabilities.js";
 
-export interface BridgeCapabilities {
-  readonly fs: boolean;
-  readonly os: boolean;
-  readonly clipboard: boolean;
-  readonly localStorage: boolean;
-  readonly sessionStorage: boolean;
-  readonly fetch: boolean;
-  readonly shell: boolean;
-  readonly userInfo: boolean;
-  readonly pluginManager: boolean;
-  readonly keyValueStorage: boolean;
-  readonly persistentFileStorage: boolean;
-  readonly xmp: boolean;
-  readonly photoshop: boolean;
-  readonly imaging: boolean;
-  readonly batchPlay: boolean;
-}
+export type BridgeProtocolVersion = `${number}.${number}.${number}`;
 
 export interface BridgeHandshakeHello {
   readonly type: "bridge.hello";
@@ -28,7 +12,7 @@ export interface BridgeHandshakeReady {
   readonly type: "bridge.ready";
   readonly protocolVersion: BridgeProtocolVersion;
   readonly hostVersion: string;
-  readonly capabilities: BridgeCapabilities;
+  readonly capabilities: readonly BridgeCapabilityName[];
   readonly constantsHash?: string;
 }
 

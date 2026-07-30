@@ -7,23 +7,7 @@ const registryModule = "../../dist/uxp/module-registry.js";
 const protocolModule = "../../dist/shared/protocol.js";
 const runtimeModule = "../../dist/webview/runtime.js";
 
-const capabilities = {
-  fs: true,
-  os: true,
-  clipboard: true,
-  localStorage: true,
-  sessionStorage: true,
-  fetch: true,
-  shell: true,
-  userInfo: true,
-  pluginManager: true,
-  keyValueStorage: true,
-  persistentFileStorage: true,
-  xmp: true,
-  photoshop: true,
-  imaging: true,
-  batchPlay: true
-};
+const capabilities = new Set(["fs"]);
 
 test("callback references are stable and generic callback values reject non-transport data", async () => {
   const bus = installMessageBus();
@@ -136,9 +120,47 @@ test("callback errors preserve callback and parent operation metadata", async ()
         assert.equal(error.remoteMessage, "callback exploded");
         assert.equal(error.callbackId, callback.callbackId);
         assert.equal(typeof error.parentOperationId, "string");
+        assert.equal(error.capability, undefined);
+        assert.equal(error.module, undefined);
+        assert.equal(error.method, undefined);
         return true;
       }
     );
+  } finally {
+    await bridge.destroy();
+  }
+});
+
+test("callback forwarding preserves structured capability denial metadata", async () => {
+  const bridge = await createBridge({
+    async dispatch(_method, args, context) {
+      return context.callbacks.invoke(args[0], [], { parentOperationId: context.operationId });
+    }
+  });
+  try {
+    const { BridgeRemoteError } = await import("../../dist/shared/errors.js");
+    const callback = bridge.client.retainCallback(() => {
+      throw new BridgeRemoteError({
+        operationId: "callback-denial",
+        remoteName: "BridgeCapabilityError",
+        remoteMessage: "Bridge capability fs denied operation callback-denial.",
+        code: "ERR_BRIDGE_CAPABILITY_DISABLED",
+        capability: "fs",
+        module: "uxp-api/modules/fs",
+        method: "readFile"
+      });
+    });
+
+    await assert.rejects(bridge.client.call("test/module", "invoke", [callback]), (error) => {
+      assert.equal(error.remoteName, "BridgeCapabilityError");
+      assert.equal(error.code, "ERR_BRIDGE_CAPABILITY_DISABLED");
+      assert.equal(error.capability, "fs");
+      assert.equal(error.module, "uxp-api/modules/fs");
+      assert.equal(error.method, "readFile");
+      assert.equal(error.callbackId, callback.callbackId);
+      assert.equal(typeof error.parentOperationId, "string");
+      return true;
+    });
   } finally {
     await bridge.destroy();
   }
@@ -393,7 +415,11 @@ async function createBridge(adapter, options = {}) {
     import(hostModule),
     import(registryModule)
   ]);
-  const registry = createUxpModuleRegistry(capabilities, [{ moduleId: "test/module", ...adapter }]);
+  const registry = createUxpModuleRegistry(capabilities, [{
+    moduleId: "test/module",
+    resolveCapability: () => "fs",
+    ...adapter
+  }]);
   const host = new RpcHost({
     webview: bus.webview,
     allowedOrigins: ["plugin:"],

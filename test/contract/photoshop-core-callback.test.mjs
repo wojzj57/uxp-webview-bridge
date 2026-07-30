@@ -209,7 +209,7 @@ function createCallbackBridge(callbacksById = new Map()) {
 }
 
 function createContext(callbacks, operationId, extra = {}) {
-  return { capabilities: {}, callbacks, operationId, ...extra };
+  return { callbacks, operationId, ...extra };
 }
 
 test("UXP Core preserves native listener identity and forwards modal host control", async () => {

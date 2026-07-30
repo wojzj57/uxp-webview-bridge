@@ -123,7 +123,7 @@ test("Photoshop host serializes Action listener removal and re-addition", async 
     },
     app: { documents: [] }
   });
-  const context = { capabilities: { photoshop: true }, operationId: "action-race", callbacks };
+  const context = { operationId: "action-race", callbacks };
   const reference = callbackRef("action-race-listener");
   try {
     await dispatchPhotoshopCall("action.addNotificationListener", [["open"], reference], context);
@@ -209,7 +209,7 @@ test("Photoshop host listeners clean up natively and suspendHistory nested calls
       };
     }
   };
-  const context = { capabilities: { photoshop: true }, operationId: "outer", callbacks: callbacksBridge };
+  const context = { operationId: "outer", callbacks: callbacksBridge };
 
   try {
     const documentReference = await dispatchPhotoshopCall("app.activeDocument", [], context);

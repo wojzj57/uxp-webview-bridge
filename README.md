@@ -63,7 +63,7 @@ Bundle the two subpath entrypoints into their respective runtimes. Do not load t
 
 ### 1. Configure the UXP host
 
-Configure the bridge once for the `<webview>` element. Every configurable capability is enabled by default; this example explicitly disables clipboard access:
+Configure the bridge once for the `<webview>` element. Business RPCs are denied by default, so this example explicitly allows only the six leaves used below:
 
 ```ts
 import { configUxpBridge } from "uxp-webview-bridge/uxp";
@@ -78,9 +78,7 @@ if (!webview) {
 
 const bridge = configUxpBridge({
   webview,
-  capabilities: {
-    clipboard: false
-  }
+  capabilities: ["fetch", "fs", "os", "path", "photoshop.dom", "uxp.host"]
 });
 
 window.addEventListener("unload", () => {
@@ -93,7 +91,11 @@ For remotely hosted WebView content, configure the exact trusted origin on both 
 ```ts
 const allowedOrigins = ["https://app.example.com"];
 
-const bridge = configUxpBridge({ webview, allowedOrigins });
+const bridge = configUxpBridge({
+  webview,
+  allowedOrigins,
+  capabilities: ["fetch", "fs", "os", "path", "photoshop.dom", "uxp.host"]
+});
 ```
 
 Both bridge sides always allow the UXP-local `plugin:`, `plugin-data:`, and `plugin-temp:` schemes, plus HTTP and HTTPS loopback origins using `localhost` or `127.0.0.1` on any port. `allowedOrigins` only appends trusted origins; it never replaces these defaults. An added value ending in `:` matches that entire scheme prefix, while any other added value is an exact origin match.
@@ -135,56 +137,59 @@ Without an explicit `target`, the WebView client posts through `window.uxpHost`.
 
 ## Capability overview
 
-Legend:
+Every known Business RPC maps to exactly one leaf Bridge capability. Omitting `capabilities` is equivalent to `[]`, so every row below defaults to denied.
 
 - **Contract**: covered by the local static/type/Node contract gates.
 - **CDP case**: a real UXP/Photoshop test case exists; individual cases may skip when the host lacks an API or required permission.
-- **Always**: registered without a configurable bridge capability. UXP manifest permissions may still be required.
 
-| Area | WebView API | Default bridge access | Verification | Notes |
+| Leaf capability | WebView API | Default | Verification | Notes |
 | --- | --- | --- | --- | --- |
-| Bridge lifecycle | `configWebviewBridge` | Always | Contract + CDP case | One configured client per WebView runtime; default request timeout is 10 seconds. |
-| Clipboard | `clipboard` | Enabled (`clipboard: true`) | Contract + CDP case | Text and UXP clipboard data. Requires the matching manifest permission. |
-| Cryptography | `crypto` | Always | Contract + CDP case | `getRandomValues` and `randomUUID` execute in UXP. |
-| Forwarded network | `fetch`, `installFetch` | Enabled (`fetch: true`) | Contract | Request runs in UXP; network manifest permissions still apply. |
-| Node-style filesystem | `fs` | Enabled (`fs: true`) | Contract + CDP case | File descriptors are host-owned and idle-close after 60 seconds. |
-| OS information | `os` | Enabled (`os: true`) | Contract + CDP case | Read-only platform and memory/CPU information. |
-| Path utilities | `path` | Always | Contract + CDP case | Default, `posix`, and `win32` flavors; accepts strings and Entry-like objects where documented. |
-| Web Storage | `localStorage`, `sessionStorage` | Enabled (`localStorage: true`, `sessionStorage: true`) | Contract + CDP case | UXP-side storage, exposed asynchronously; each namespace can be disabled independently. |
-| UXP host metadata | `uxp.host`, `uxp.versions` | Always | Contract + CDP case | Host name/version/locale and UXP/plugin versions. |
-| Shell | `uxp.shell` | Enabled (`shell: true`) | Contract + CDP case | `openPath` and `openExternal`; manifest launch permissions still apply. |
-| User information | `uxp.userInfo` | Enabled (`userInfo: true`) | Contract + CDP case | `userId()`; requires `enableUserInfo` in the manifest. |
-| Plugin manager | `uxp.pluginManager` | Enabled (`pluginManager: true`) | Contract + CDP case | Plugin snapshots plus `showPanel` and `invokeCommand`. |
-| Secure storage | `uxp.storage.secureStorage` | Enabled (`keyValueStorage: true`) | Contract + CDP case | String/binary writes and binary reads. |
-| Persistent file storage | `uxp.storage.localFileSystem` and Entry proxies | Enabled (`persistentFileStorage: true`) | Contract + CDP case | Pickers, tokens, entries, files, folders, domains, formats, and modes. |
-| XMP | `uxp.xmp` | Enabled (`xmp: true`) | Contract + CDP case | `XMPMeta`, `XMPFile`, `XMPDateTime`, iterators, utilities, and constants. |
-| Photoshop DOM and Core | `photoshop.app`, `.action`, `.core` | Enabled (`photoshop: true`) | Contract + CDP case | Requires Photoshop and host support for each native API. |
-| Photoshop Imaging | `photoshop.imaging` | Enabled (`photoshop: true`, `imaging: true`) | Contract + CDP case | Both the parent Photoshop capability and the Imaging sub-capability are required. |
-| Photoshop batchPlay | `photoshop.action.batchPlay`, `.batchPlaySync`, `photoshop.app.batchPlay` | Enabled (`photoshop: true`, `batchPlay: true`) | Contract + CDP case | `batchPlay` controls the three public RPC methods without blocking internal DOM implementation calls. |
+| `clipboard` | `clipboard` | Denied | Contract + CDP case | Text and UXP clipboard data; manifest permission may also be required. |
+| `crypto` | `crypto` | Denied | Contract + CDP case | `getRandomValues` and `randomUUID` execute in UXP. |
+| `fetch` | `fetch`, `installFetch` | Denied | Contract | Request runs in UXP; network manifest permissions still apply. |
+| `fs` | `fs` | Denied | Contract + CDP case | File descriptors are host-owned and idle-close after 60 seconds. |
+| `localStorage` | `localStorage` | Denied | Contract + CDP case | Asynchronous UXP-side local storage. |
+| `os` | `os` | Denied | Contract + CDP case | Read-only platform and memory/CPU information. |
+| `path` | `path` | Denied | Contract + CDP case | Default, `posix`, and `win32` flavors. |
+| `sessionStorage` | `sessionStorage` | Denied | Contract + CDP case | Asynchronous UXP-side session storage. |
+| `photoshop.dom` | Photoshop DOM and Action methods other than the public batchPlay methods | Denied | Contract + CDP case | Includes remote objects and DOM implementation calls. |
+| `photoshop.core` | `photoshop.core` | Denied | Contract + CDP case | Independent of the DOM, Imaging, and batchPlay leaves. |
+| `photoshop.imaging` | `photoshop.imaging` | Denied | Contract + CDP case | Includes image-data handle methods. |
+| `photoshop.batchPlay` | `photoshop.action.batchPlay`, `.batchPlaySync`, `photoshop.app.batchPlay` | Denied | Contract + CDP case | Controls only the three public batchPlay RPC methods. |
+| `uxp.host` | `uxp.host` | Denied | Contract + CDP case | Host name, version, and UI locale. |
+| `uxp.versions` | `uxp.versions` | Denied | Contract + CDP case | UXP and plugin versions. |
+| `uxp.shell` | `uxp.shell` | Denied | Contract + CDP case | Manifest launch permissions still apply. |
+| `uxp.userInfo` | `uxp.userInfo` | Denied | Contract + CDP case | Requires `enableUserInfo` in the manifest. |
+| `uxp.pluginManager` | `uxp.pluginManager` | Denied | Contract + CDP case | Plugin snapshots, panels, and commands. |
+| `uxp.storage.secureStorage` | `uxp.storage.secureStorage` | Denied | Contract + CDP case | String/binary writes and binary reads. |
+| `uxp.storage.localFileSystem` | `uxp.storage.localFileSystem` and Entry proxies | Denied | Contract + CDP case | Pickers, tokens, entries, files, and folders. |
+| `uxp.xmp` | `uxp.xmp` | Denied | Contract + CDP case | XMP remote objects, utilities, and constants. |
 
-The capability defaults are defined by the current implementation:
+Arrays may also contain the configuration-only groups `photoshop.all`, `uxp.all`, and `uxp.storage.all`. A group expands to all of its descendant leaves known to the installed library version. Top-level `capabilities: "all"` expands to every known leaf; `["all"]` is invalid. Both `"all"` and `*.all` may authorize newly added leaves after a package upgrade, so production configurations that require stable least privilege should enumerate leaf names.
+
+The runtime copies and normalizes the input, deduplicates overlapping selectors, and exposes the frozen leaf snapshot in catalog order as `bridge.capabilities`. Unknown selectors, wildcards such as `uxp.*`, and the old boolean object throw `TypeError` before listener or adapter setup. To change policy, destroy the runtime and configure a new one.
+
+### Migrating from boolean capability overrides
+
+Before:
 
 ```ts
-{
-  fs: true,
-  os: true,
-  clipboard: true,
-  localStorage: true,
-  sessionStorage: true,
-  fetch: true,
-  shell: true,
-  userInfo: true,
-  pluginManager: true,
-  keyValueStorage: true,
-  persistentFileStorage: true,
-  xmp: true,
-  photoshop: true,
-  imaging: true,
-  batchPlay: true
-}
+configUxpBridge({
+  webview,
+  capabilities: { fs: true, shell: true, photoshop: true }
+});
 ```
 
-Capabilities restrict bridge dispatch; they do not add UXP manifest permissions or make an unavailable host API exist.
+After:
+
+```ts
+configUxpBridge({
+  webview,
+  capabilities: ["fs", "uxp.shell", "photoshop.dom"]
+});
+```
+
+Use `capabilities: "all"` only as an intentional permissive migration or development escape hatch. Capabilities restrict bridge dispatch; they do not add Adobe UXP manifest permissions, accept a WebView origin, or make an unavailable host API exist.
 
 ## Detailed supported API
 
@@ -278,11 +283,13 @@ The UXP host owns Photoshop modal policy. Declared mutating DOM and imaging call
 
 Host failures reject in the WebView as errors named `BridgeRemoteError`. They preserve remote `name`, `message`, `stack`, optional `code`, and the bridge `operationId`; callback errors may also carry parent operation and callback metadata.
 
+A capability denial has `code === "ERR_BRIDGE_CAPABILITY_DISABLED"`, `remoteName === "BridgeCapabilityError"`, and the exact `operationId`, leaf `capability`, protocol `module`, and validated `method`. These fields are the stable programmatic contract; the message is diagnostic text and never includes request arguments.
+
 Cancelable operations use a bridge cancel envelope. Forwarded `fetch` maps `AbortSignal` cancellation to it. Binary values are copied through transport-safe inline/base64 envelopes rather than relying on transferable `postMessage` objects.
 
 ## Host permissions and security
 
-Bridge capabilities and UXP manifest permissions are separate controls. Add only the permissions used by your plugin. Depending on the selected APIs, the manifest may need:
+Bridge capabilities, source/origin validation, and Adobe UXP manifest permissions are three independent controls. A capability only authorizes bridge dispatch; it does not trust an origin or grant a native permission. Add only the permissions used by your plugin. Depending on the selected APIs, the manifest may need:
 
 - WebView and message bridge access;
 - `network` domains for forwarded `fetch`;
@@ -291,7 +298,7 @@ Bridge capabilities and UXP manifest permissions are separate controls. Add only
 - `launchProcess` schemes/extensions for `uxp.shell`; and
 - `enableUserInfo` for `uxp.userInfo`.
 
-The UXP host validates both the message source and its origin before dispatch. Keep `allowedOrigins` narrow for remote content. Values such as `http:` and `https:` allow every origin using that scheme and should only be used when that broad trust is intentional. Disabling a capability rejects the corresponding call before the host module is accessed.
+The UXP host validates both the message source and its origin before dispatch. Keep `allowedOrigins` narrow for remote content. Values such as `http:` and `https:` allow every origin using that scheme and should only be used when that broad trust is intentional. A missing capability rejects the corresponding call before adapter dispatch or native module loading.
 
 ## Compatibility and limitations
 
@@ -301,7 +308,7 @@ The UXP host validates both the message source and its origin before dispatch. K
 - The bridge does not promise complete parity with all Adobe UXP or Photoshop APIs. Only the public surface in this README and the exported WebView types is supported.
 - Forwarded `fetch` buffers request and response bodies. It does not support `ReadableStream` request bodies and does not provide streaming responses.
 - Binary data is serialized and copied, so very large files or pixel buffers have more overhead than same-runtime native calls.
-- Photoshop Imaging requires both `photoshop` and `imaging`. The three public batchPlay methods require both `photoshop` and `batchPlay`.
+- The four Photoshop leaves are independent: enabling DOM, Core, Imaging, or public batchPlay does not enable any of the other three surfaces.
 - This package is ESM at its public boundary. UXP hosts commonly require a bundling step appropriate to the target runtime.
 
 ## Testing
