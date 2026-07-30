@@ -6,7 +6,7 @@
 
 **转发 fetch** 接受常见的 WebView `fetch(input, init)` 形式，序列化请求，使用 UXP 宿主的全局 fetch 发起真实请求，再在 WebView 中重建原生 `Response`。因为请求由宿主发起，所以不受 WebView CORS 执行限制；但仍受 UXP 清单网络权限和桥接信任边界限制。
 
-转发 fetch 由默认启用的 `fetch` 桥接能力控制。当 WebView 不需要宿主转发的网络访问时，应显式禁用它；也不要向不受信任的 WebView 来源开放它。
+转发 fetch 由默认拒绝的 `fetch` Bridge capability 控制。WebView 使用前，UXP 宿主必须加入 `capabilities: ["fetch"]`（或有意选择更宽的范围）。不要向不受信任的 WebView 来源启用它。
 
 ## 直接使用
 
@@ -107,14 +107,14 @@ try {
 
 > **缓冲警告：**支持的请求 body 和响应 body 都会完整缓冲到内存，也不支持流式响应。应根据 UXP 进程和 WebView 内存预算限制 payload 大小。
 
-传输或远程请求失败会映射为 `TypeError`，并将远程失败附加到 `cause`。在环境支持时，中止失败保留中止语义。可以检查 `cause` 进行诊断，但不要暴露秘密。
+传输或远程请求失败会映射为 `TypeError`，并将远程失败附加到 `cause`。在环境支持时，中止失败保留中止语义。`cause` 中的策略拒绝错误具有 code `ERR_BRIDGE_CAPABILITY_DISABLED`、远程 name `BridgeCapabilityError`，以及 `operationId`、`capability`、`module` 和 `method` 字段。应检查结构化字段进行诊断，但不要暴露秘密。
 
 转发 fetch **不**声明完整 Fetch Standard 一致性。尤其不能假设存在流式传输、浏览器 cookie/credential 等价行为、浏览器缓存语义，或传输未携带的 response URL/type/redirect 元数据。
 
 ## 安全检查清单
 
 - 在 `requiredPermissions.network` 中只允许所需域；仓库 fixture 中广泛的 `"all"` 值仅供测试。
-- 缩小 `allowedOrigins` 和 WebView 域策略；除非 WebView 需要宿主转发请求，否则禁用 `fetch` 能力。
+- 缩小 `allowedOrigins` 和 WebView 域策略；只有 WebView 需要宿主转发请求时才启用 `fetch` 能力。
 - 在应用边界验证调用者控制的 URL、method、headers 和 body。
 - 避免为不受信任内容转发凭据，并且不要在 URL/日志中放置秘密。
 - 应用自有代码优先直接使用 `forwardedFetch`。只有依赖确实要求、且某个组件能拥有完整生命周期时才使用全局安装。

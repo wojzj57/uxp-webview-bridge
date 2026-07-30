@@ -45,7 +45,7 @@ This is a fixture-shaped excerpt, not a universal production minimum. Complete t
 
 ## 2. Configure one UXP host runtime
 
-Configure the host before the WebView makes namespace calls. The example uses only the public UXP subpath and leaves capabilities at their enabled defaults because the walkthrough only reads `os` and the non-configurable UXP version properties. For remote or otherwise untrusted content, explicitly configure all capability keys and disable every unused surface.
+Configure the host before the WebView makes namespace calls. Business RPCs are denied by default, so the example explicitly allows only `os` and `uxp.versions`, the two leaves used by the walkthrough.
 
 ```ts
 import { configUxpBridge } from "uxp-webview-bridge/uxp";
@@ -65,13 +65,14 @@ if (!isPluginWebViewElement(webview)) {
 
 const hostRuntime = configUxpBridge({
   webview,
-  allowedOrigins: ["plugin:"]
+  allowedOrigins: ["plugin:"],
+  capabilities: ["os", "uxp.versions"]
 });
 
 window.addEventListener("unload", () => hostRuntime.destroy(), { once: true });
 ```
 
-Create exactly one host runtime for each WebView. A second `configUxpBridge()` call adds another message listener; it does not replace the first runtime. Destroy the old runtime before reconfiguration or before removing the WebView.
+Create exactly one host runtime for each WebView. `hostRuntime.capabilities` is a frozen, catalog-ordered snapshot of the effective leaf allowlist. A second `configUxpBridge()` call adds another message listener; it does not replace the first runtime. Destroy the old runtime before changing policy, reconfiguration, or removing the WebView.
 
 ## 3. Configure one WebView client and make a call
 
@@ -111,9 +112,9 @@ Destroy the WebView client before tearing down the page, and destroy the UXP hos
 | A request times out | Confirm the host runtime was configured first, the target is correct, and the operation can finish within `timeoutMs` (10 seconds by default). |
 | The host ignores a message | A different truthy `event.source` is rejected. A missing/null source proceeds to origin validation; it is not accepted without that check. |
 | Origin rejection | Match `allowedOrigins` to the normalized event origin. Scheme entries ending in `:` are prefix matches; other values are exact normalized origins. Built-in local and loopback origins do not need to be added. |
-| Capability error | Enable only the capability that gates the namespace. All configurable capabilities default to enabled, so disable unused surfaces explicitly. |
+| Capability error | Omitted or empty capabilities deny every Business RPC. Add only the leaf reported by `error.capability`, then recreate the host runtime. |
 | Native permission error | Add the relevant UXP manifest permission; bridge capabilities do not grant native permission. |
-| `BridgeRemoteError` | Inspect its remote name/message/stack/code and `operationId`; the native operation failed after crossing the bridge. |
+| `BridgeRemoteError` | Inspect its remote name/message/stack/code and `operationId`. A capability denial has code `ERR_BRIDGE_CAPABILITY_DISABLED`, remote name `BridgeCapabilityError`, and `capability`, `module`, and `method` fields. |
 | `Bridge request <operationId> was cancelled.` during setup | Another owner replaced the module-global WebView client while work was pending. |
 | Duplicate handling or responses | More than one host runtime may be listening for the same WebView. Destroy duplicates and establish one owner. |
 | Global fetch is restored unexpectedly | Multiple `installFetch()` owners overlapped. Use one owner and one `try/finally` cleanup boundary. |

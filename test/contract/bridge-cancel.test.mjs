@@ -1,23 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const baseCapabilities = {
-  fs: true,
-  os: true,
-  clipboard: true,
-  localStorage: true,
-  sessionStorage: true,
-  fetch: true,
-  shell: true,
-  userInfo: true,
-  pluginManager: true,
-  keyValueStorage: true,
-  persistentFileStorage: true,
-  xmp: true,
-  photoshop: true,
-  imaging: true,
-  batchPlay: true
-};
+const baseCapabilities = new Set(["fs"]);
 
 test("UXP module registry threads the abort signal into the dispatch context", async () => {
   const { createUxpModuleRegistry } = await import("../../dist/uxp/module-registry.js");
@@ -26,6 +10,7 @@ test("UXP module registry threads the abort signal into the dispatch context", a
 
   const adapter = {
     moduleId: "test/module",
+    resolveCapability: () => "fs",
     dispatch(_method, _args, context) {
       observedSignal = context.signal;
       return "ok";
@@ -48,6 +33,7 @@ test("UXP module registry omits the signal when none is supplied", async () => {
 
   const adapter = {
     moduleId: "test/module",
+    resolveCapability: () => "fs",
     dispatch(_method, _args, context) {
       observedContext = context;
       return "ok";

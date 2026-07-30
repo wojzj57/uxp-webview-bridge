@@ -31,7 +31,11 @@ import {
 } from "@shared/photoshop-api/imaging-protocol.js";
 import { serializeValue } from "@shared/photoshop-api/value-objects.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
-import type { UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.js";
+import {
+  fixedCapability,
+  type UxpDispatchContext,
+  type UxpModuleAdapter
+} from "@uxp/module-registry.js";
 import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
 import type {
   ImagingReadResultLike,
@@ -45,7 +49,7 @@ const imagingRegistry = createRemoteHandleRegistry();
 
 export const imagingModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_IMAGING_MODULE_ID,
-  capability: "photoshop",
+  resolveCapability: fixedCapability("photoshop.imaging", assertPhotoshopImagingMethodName),
   dispatch: (method, args, context) => dispatchImagingCall(method, args, context),
   destroy: destroyImagingHandles
 };
@@ -56,9 +60,6 @@ export function dispatchImagingCall(
   context?: UxpDispatchContext
 ): unknown {
   assertPhotoshopImagingMethodName(method);
-  if (context && !context.capabilities.imaging) {
-    throw new Error("imaging capability is disabled.");
-  }
   imagingRegistry.prune();
 
   switch (method) {

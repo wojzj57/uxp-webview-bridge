@@ -10,9 +10,9 @@ Security is the intersection of three independent controls. Enabling one does no
 
 1. **UXP manifest permission** decides whether the native host permits a class of operation, such as network or filesystem access.
 2. **Message source/origin validation** decides whether the host accepts a bridge message from the configured WebView context and origin.
-3. **Bridge capability** decides whether a capability-gated adapter or UXP method family is dispatched.
+3. **Bridge capability** decides whether a known Business RPC is dispatched.
 
-A capability does not grant a manifest permission. A manifest permission does not authorize an arbitrary WebView origin. Origin acceptance does not add a capability gate to an ungated namespace.
+A capability does not grant a manifest permission. A manifest permission does not authorize an arbitrary WebView origin. Origin acceptance does not enable a Bridge capability.
 
 ## Source and origin validation
 
@@ -27,29 +27,45 @@ Prefer the smallest explicit `allowedOrigins` list. In particular, adding `http:
 
 ## Effective bridge capabilities
 
-All 15 configurable capabilities default to enabled. The table reports the current dispatch gates.
+Omitting `capabilities` is equivalent to `[]` and denies every Business RPC. The allowlist contains these exact 20 leaves:
 
-| Config key | Default | Effective current gate |
-| --- | ---: | --- |
-| `fs` | on | `fs` namespace |
-| `os` | on | `os` namespace |
-| `clipboard` | on | `clipboard` namespace |
-| `localStorage` | on | asynchronous `localStorage` namespace |
-| `sessionStorage` | on | asynchronous `sessionStorage` namespace |
-| `fetch` | on | forwarded host `fetch` and `installFetch()` replacement |
-| `shell` | on | `uxp.shell` |
-| `userInfo` | on | `uxp.userInfo` |
-| `pluginManager` | on | `uxp.pluginManager` |
-| `keyValueStorage` | on | `uxp.storage.secureStorage` |
-| `persistentFileStorage` | on | `uxp.storage.localFileSystem` and related storage proxies |
-| `xmp` | on | `uxp.xmp` |
-| `photoshop` | on | Parent gate for Photoshop DOM, Action, Core, and Imaging adapters |
-| `imaging` | on | Photoshop Imaging; also requires `photoshop` |
-| `batchPlay` | on | Three public batchPlay RPC methods; also requires `photoshop` |
+| Family | Leaf Bridge capabilities |
+| --- | --- |
+| Top-level namespaces | `clipboard`, `crypto`, `fetch`, `fs`, `localStorage`, `os`, `path`, `sessionStorage` |
+| Photoshop | `photoshop.dom`, `photoshop.core`, `photoshop.imaging`, `photoshop.batchPlay` |
+| UXP | `uxp.host`, `uxp.versions`, `uxp.shell`, `uxp.userInfo`, `uxp.pluginManager`, `uxp.storage.secureStorage`, `uxp.storage.localFileSystem`, `uxp.xmp` |
 
-`crypto`, `path`, `uxp.host`, and `uxp.versions` have no configurable capability and remain available to every accepted origin.
+The configuration-only groups are `photoshop.all`, `uxp.all`, and `uxp.storage.all`. Top-level `capabilities: "all"` enables every known leaf; `"all"` is not an array member. Groups expand to all matching leaves known to the installed package version. That means both `"all"` and `*.all` can grow in authority when an upgrade adds a descendant leaf. Enumerate leaves when production policy must stay stable across upgrades.
 
-For least privilege, specify all 15 keys for a remote or otherwise untrusted WebView and disable every surface it does not use. Disabling `imaging` blocks Imaging without disabling other Photoshop APIs. Disabling `batchPlay` blocks the three public batchPlay RPC methods without blocking internal DOM implementation calls. Disable `photoshop` to gate the entire implemented Photoshop DOM, Action, Core, and Imaging surface.
+Selectors may overlap and are deduplicated. Unknown names, wrong casing, wildcards such as `uxp.*`, bare family names, `["all"]`, and the old boolean object throw `TypeError` before listeners or adapters are configured. The runtime exposes a frozen, catalog-ordered leaf snapshot as `runtime.capabilities`; policy is immutable, so changing it requires destroying and recreating the runtime.
+
+The four Photoshop leaves are independent. `photoshop.dom`, `photoshop.core`, `photoshop.imaging`, and `photoshop.batchPlay` do not imply one another. Synchronous Photoshop constants and WebView-local constructors do not cross the bridge and need no capability.
+
+### Migrate from boolean overrides
+
+Before:
+
+```ts
+configUxpBridge({
+  webview,
+  capabilities: {
+    fs: true,
+    shell: true,
+    photoshop: true
+  }
+});
+```
+
+After:
+
+```ts
+configUxpBridge({
+  webview,
+  capabilities: ["fs", "uxp.shell", "photoshop.dom"]
+});
+```
+
+Use `capabilities: "all"` only when deliberately accepting its current and future scope. There is no capability exclusion syntax, `permissions` option, or legacy boolean compatibility mode.
 
 ## UXP manifest permission mapping
 
@@ -81,7 +97,9 @@ Select exact production values from the Adobe manifest contract for the target h
 | WebView policy | Page or bridge unavailable | Correct the target host/version manifest without broadening unrelated permissions. |
 | Source check | A different truthy source is ignored | Send through the configured WebView; do not rely on null source as authorization. |
 | Origin check | Accepted WebView produces no dispatch | Match the real origin with the narrowest `allowedOrigins` entry. |
-| Capability check | Capability-disabled bridge error | Enable the effective key only after reviewing the WebView's need. |
+| Capability check | `BridgeRemoteError` with code `ERR_BRIDGE_CAPABILITY_DISABLED` and remote name `BridgeCapabilityError` | Review `operationId`, `capability`, `module`, and `method`; add only the reported leaf and recreate the runtime. |
 | Native permission/API | `BridgeRemoteError` from UXP/Photoshop | Add only the required manifest permission or handle host/API limitations. |
+
+Capability-denial messages are diagnostic text, not the programmatic contract. They do not contain request arguments, paths, URLs, storage keys, Photoshop descriptors, or argument summaries.
 
 Review the feature-specific prerequisites in [UXP](./uxp.md), [Photoshop](./photoshop.md), and [Forwarded fetch](./fetch.md).

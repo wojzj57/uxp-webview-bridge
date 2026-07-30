@@ -63,7 +63,7 @@ pnpm build
 
 ### 1. 配置 UXP 宿主
 
-针对 `<webview>` 元素配置一次桥接。所有可配置 capability 默认开启；以下示例显式关闭剪贴板访问：
+针对 `<webview>` 元素配置一次桥接。Business RPC 默认全部拒绝，因此以下示例只显式允许后文使用的六个叶子能力：
 
 ```ts
 import { configUxpBridge } from "uxp-webview-bridge/uxp";
@@ -78,9 +78,7 @@ if (!webview) {
 
 const bridge = configUxpBridge({
   webview,
-  capabilities: {
-    clipboard: false
-  }
+  capabilities: ["fetch", "fs", "os", "path", "photoshop.dom", "uxp.host"]
 });
 
 window.addEventListener("unload", () => {
@@ -93,7 +91,11 @@ window.addEventListener("unload", () => {
 ```ts
 const allowedOrigins = ["https://app.example.com"];
 
-const bridge = configUxpBridge({ webview, allowedOrigins });
+const bridge = configUxpBridge({
+  webview,
+  allowedOrigins,
+  capabilities: ["fetch", "fs", "os", "path", "photoshop.dom", "uxp.host"]
+});
 ```
 
 Bridge 两端始终允许 UXP 本地的 `plugin:`、`plugin-data:`、`plugin-temp:` scheme，以及使用任意端口的 HTTP/HTTPS `localhost` 和 `127.0.0.1` 回环来源。`allowedOrigins` 只负责追加可信来源，不会替换这些默认值。追加值如果以 `:` 结尾，会匹配整个 scheme；其他追加值执行精确来源匹配。
@@ -135,56 +137,59 @@ window.addEventListener("unload", () => {
 
 ## 能力总览
 
-图例：
+每个已知 Business RPC 都只映射到一个叶子 Bridge capability。省略 `capabilities` 等价于传入 `[]`，所以下表各项默认均被拒绝。
 
 - **契约**：已被本地静态检查、类型检查或 Node 契约测试覆盖。
 - **CDP 用例**：存在真实 UXP/Photoshop 测试用例；如果宿主缺少 API 或所需权限，具体用例可能跳过。
-- **始终可用**：注册时不受可配置 bridge capability 控制，但仍可能需要 UXP manifest 权限。
 
-| 能力区域 | WebView API | 默认桥接权限 | 验证 | 说明 |
+| 叶子能力 | WebView API | 默认值 | 验证 | 说明 |
 | --- | --- | --- | --- | --- |
-| 桥接生命周期 | `configWebviewBridge` | 始终可用 | 契约 + CDP 用例 | 每个 WebView 运行时只能配置一个客户端；默认请求超时为 10 秒。 |
-| 剪贴板 | `clipboard` | 开启（`clipboard: true`） | 契约 + CDP 用例 | 文本和 UXP 剪贴板数据；需要对应的 manifest 权限。 |
-| 加密随机数 | `crypto` | 始终可用 | 契约 + CDP 用例 | `getRandomValues` 和 `randomUUID` 在 UXP 中执行。 |
-| 转发网络请求 | `fetch`、`installFetch` | 开启（`fetch: true`） | 契约 | 请求在 UXP 中执行；仍受 manifest 网络权限限制。 |
-| Node 风格文件系统 | `fs` | 开启（`fs: true`） | 契约 + CDP 用例 | 文件描述符由宿主管理，空闲 60 秒后自动关闭。 |
-| 操作系统信息 | `os` | 开启（`os: true`） | 契约 + CDP 用例 | 只读的平台、内存和 CPU 信息。 |
-| 路径工具 | `path` | 始终可用 | 契约 + CDP 用例 | 默认、`posix` 和 `win32` 三种风格；在已说明的位置接受字符串和类 Entry 对象。 |
-| Web Storage | `localStorage`、`sessionStorage` | 开启（`localStorage: true`、`sessionStorage: true`） | 契约 + CDP 用例 | UXP 端存储，以异步方式暴露；两个命名空间可分别关闭。 |
-| UXP 宿主元数据 | `uxp.host`、`uxp.versions` | 始终可用 | 契约 + CDP 用例 | 宿主名称、版本、locale，以及 UXP/插件版本。 |
-| Shell | `uxp.shell` | 开启（`shell: true`） | 契约 + CDP 用例 | `openPath` 和 `openExternal`；仍受 manifest 启动权限限制。 |
-| 用户信息 | `uxp.userInfo` | 开启（`userInfo: true`） | 契约 + CDP 用例 | `userId()`；manifest 中需要 `enableUserInfo`。 |
-| 插件管理器 | `uxp.pluginManager` | 开启（`pluginManager: true`） | 契约 + CDP 用例 | 插件快照以及 `showPanel`、`invokeCommand`。 |
-| 安全存储 | `uxp.storage.secureStorage` | 开启（`keyValueStorage: true`） | 契约 + CDP 用例 | 支持字符串/二进制写入和二进制读取。 |
-| 持久文件存储 | `uxp.storage.localFileSystem` 和 Entry 远程对象 | 开启（`persistentFileStorage: true`） | 契约 + CDP 用例 | 选择器、token、条目、文件、文件夹、domain、format 和 mode。 |
-| XMP | `uxp.xmp` | 开启（`xmp: true`） | 契约 + CDP 用例 | `XMPMeta`、`XMPFile`、`XMPDateTime`、迭代器、工具和常量。 |
-| Photoshop DOM 和 Core | `photoshop.app`、`.action`、`.core` | 开启（`photoshop: true`） | 契约 + CDP 用例 | 需要 Photoshop，并要求宿主支持具体的原生 API。 |
-| Photoshop Imaging | `photoshop.imaging` | 开启（`photoshop: true`、`imaging: true`） | 契约 + CDP 用例 | 必须同时开启 Photoshop 父 capability 和 Imaging 子 capability。 |
-| Photoshop batchPlay | `photoshop.action.batchPlay`、`.batchPlaySync`、`photoshop.app.batchPlay` | 开启（`photoshop: true`、`batchPlay: true`） | 契约 + CDP 用例 | `batchPlay` 只控制三个公开 RPC，不阻断 DOM 内部实现调用。 |
+| `clipboard` | `clipboard` | 拒绝 | 契约 + CDP 用例 | 文本和 UXP 剪贴板数据；可能还需要 manifest 权限。 |
+| `crypto` | `crypto` | 拒绝 | 契约 + CDP 用例 | `getRandomValues` 和 `randomUUID` 在 UXP 中执行。 |
+| `fetch` | `fetch`、`installFetch` | 拒绝 | 契约 | 请求在 UXP 中执行；仍受 manifest 网络权限限制。 |
+| `fs` | `fs` | 拒绝 | 契约 + CDP 用例 | 文件描述符由宿主管理，空闲 60 秒后自动关闭。 |
+| `localStorage` | `localStorage` | 拒绝 | 契约 + CDP 用例 | 异步 UXP 本地存储。 |
+| `os` | `os` | 拒绝 | 契约 + CDP 用例 | 只读的平台、内存和 CPU 信息。 |
+| `path` | `path` | 拒绝 | 契约 + CDP 用例 | 默认、`posix` 和 `win32` 三种风格。 |
+| `sessionStorage` | `sessionStorage` | 拒绝 | 契约 + CDP 用例 | 异步 UXP 会话存储。 |
+| `photoshop.dom` | Photoshop DOM，以及三个公开 batchPlay 方法之外的 Action 方法 | 拒绝 | 契约 + CDP 用例 | 包含远程对象和 DOM 内部实现调用。 |
+| `photoshop.core` | `photoshop.core` | 拒绝 | 契约 + CDP 用例 | 与 DOM、Imaging 和 batchPlay 叶子相互独立。 |
+| `photoshop.imaging` | `photoshop.imaging` | 拒绝 | 契约 + CDP 用例 | 包含 image-data 句柄方法。 |
+| `photoshop.batchPlay` | `photoshop.action.batchPlay`、`.batchPlaySync`、`photoshop.app.batchPlay` | 拒绝 | 契约 + CDP 用例 | 只控制三个公开 batchPlay RPC。 |
+| `uxp.host` | `uxp.host` | 拒绝 | 契约 + CDP 用例 | 宿主名称、版本和 UI locale。 |
+| `uxp.versions` | `uxp.versions` | 拒绝 | 契约 + CDP 用例 | UXP 和插件版本。 |
+| `uxp.shell` | `uxp.shell` | 拒绝 | 契约 + CDP 用例 | 仍受 manifest 启动权限限制。 |
+| `uxp.userInfo` | `uxp.userInfo` | 拒绝 | 契约 + CDP 用例 | manifest 中需要 `enableUserInfo`。 |
+| `uxp.pluginManager` | `uxp.pluginManager` | 拒绝 | 契约 + CDP 用例 | 插件快照、面板和命令。 |
+| `uxp.storage.secureStorage` | `uxp.storage.secureStorage` | 拒绝 | 契约 + CDP 用例 | 支持字符串/二进制写入和二进制读取。 |
+| `uxp.storage.localFileSystem` | `uxp.storage.localFileSystem` 和 Entry 远程对象 | 拒绝 | 契约 + CDP 用例 | 选择器、token、条目、文件和文件夹。 |
+| `uxp.xmp` | `uxp.xmp` | 拒绝 | 契约 + CDP 用例 | XMP 远程对象、工具和常量。 |
 
-当前实现定义的 capability 默认值如下：
+能力数组还可以包含仅用于配置的分组 `photoshop.all`、`uxp.all` 和 `uxp.storage.all`。分组会展开为已安装库版本中已知的全部后代叶子。顶层 `capabilities: "all"` 会展开为全部已知叶子；`["all"]` 无效。`"all"` 和 `*.all` 都可能在升级后授权新增加的叶子，因此需要稳定最小权限的生产配置应逐一列出叶子名称。
+
+运行时会复制并规范化输入、去重重叠 selector，并通过 `bridge.capabilities` 以 catalog 顺序公开冻结的叶子快照。未知 selector、`uxp.*` 这类通配符以及旧布尔对象都会在监听器或适配器设置前抛出 `TypeError`。如需更改策略，应销毁当前运行时后重新配置。
+
+### 从布尔 capability override 迁移
+
+迁移前：
 
 ```ts
-{
-  fs: true,
-  os: true,
-  clipboard: true,
-  localStorage: true,
-  sessionStorage: true,
-  fetch: true,
-  shell: true,
-  userInfo: true,
-  pluginManager: true,
-  keyValueStorage: true,
-  persistentFileStorage: true,
-  xmp: true,
-  photoshop: true,
-  imaging: true,
-  batchPlay: true
-}
+configUxpBridge({
+  webview,
+  capabilities: { fs: true, shell: true, photoshop: true }
+});
 ```
 
-Capability 只限制桥接分发；它不会添加 UXP manifest 权限，也不会让宿主中不存在的 API 变为可用。
+迁移后：
+
+```ts
+configUxpBridge({
+  webview,
+  capabilities: ["fs", "uxp.shell", "photoshop.dom"]
+});
+```
+
+只应把 `capabilities: "all"` 用作有意为之的宽松迁移或开发逃生口。Capability 只限制桥接分发；它不会添加 Adobe UXP manifest 权限、接受某个 WebView 来源，也不会让宿主中不存在的 API 变为可用。
 
 ## 详细支持范围
 
@@ -276,11 +281,13 @@ UXP 宿主负责 Photoshop 模态策略。已声明的 DOM 和 imaging 修改调
 
 宿主失败会在 WebView 中以名为 `BridgeRemoteError` 的错误拒绝 Promise。错误保留远端 `name`、`message`、`stack`、可选的 `code` 和桥接 `operationId`；回调错误还可能包含父操作和回调元数据。
 
+能力拒绝错误的 `code === "ERR_BRIDGE_CAPABILITY_DISABLED"`、`remoteName === "BridgeCapabilityError"`，并包含精确的 `operationId`、叶子 `capability`、协议 `module` 和已验证 `method`。这些字段是稳定的程序化契约；消息仅用于诊断，并且绝不包含请求参数。
+
 可取消操作使用 bridge cancel envelope。转发 `fetch` 会将 `AbortSignal` 取消映射到该消息。二进制值通过传输安全的内联/base64 envelope 复制，而不依赖可转移的 `postMessage` 对象。
 
 ## 宿主权限与安全
 
-Bridge capability 与 UXP manifest 权限是两套独立控制。请只添加插件实际使用的权限。根据所选 API，manifest 可能需要：
+Bridge capability、source/origin 验证和 Adobe UXP manifest 权限是三套独立控制。Capability 只授权桥接分发，不会信任某个来源或授予原生权限。请只添加插件实际使用的权限。根据所选 API，manifest 可能需要：
 
 - WebView 和消息桥接权限；
 - 转发 `fetch` 所需的 `network` domain；
@@ -289,7 +296,7 @@ Bridge capability 与 UXP manifest 权限是两套独立控制。请只添加插
 - `uxp.shell` 所需的 `launchProcess` scheme/extension；以及
 - `uxp.userInfo` 所需的 `enableUserInfo`。
 
-UXP 宿主在分发前会同时校验消息来源对象及其 origin。对于远程内容，应严格限制 `allowedOrigins`。`http:`、`https:` 这类值会允许对应 scheme 下的所有来源，只应在明确需要如此宽泛的信任范围时使用。关闭 capability 后，对应调用会在访问宿主模块之前被拒绝。
+UXP 宿主在分发前会同时校验消息来源对象及其 origin。对于远程内容，应严格限制 `allowedOrigins`。`http:`、`https:` 这类值会允许对应 scheme 下的所有来源，只应在明确需要如此宽泛的信任范围时使用。缺少 capability 时，对应调用会在适配器分发或原生模块加载之前被拒绝。
 
 ## 兼容性与限制
 
@@ -299,7 +306,7 @@ UXP 宿主在分发前会同时校验消息来源对象及其 origin。对于远
 - 本桥接不承诺覆盖全部 Adobe UXP 或 Photoshop API。仅支持本 README 与已导出 WebView 类型中明确提供的公开接口。
 - 转发 `fetch` 会缓冲请求和响应 body，不支持 `ReadableStream` 请求 body，也不提供流式响应。
 - 二进制数据需要序列化和复制，因此超大文件或像素缓冲区的开销高于同一运行时内的原生调用。
-- Photoshop Imaging 必须同时开启 `photoshop` 和 `imaging`；三个公开 batchPlay 方法必须同时开启 `photoshop` 和 `batchPlay`。
+- 四个 Photoshop 叶子相互独立：启用 DOM、Core、Imaging 或公开 batchPlay 中的任一项，都不会启用另外三项。
 - 该包的公开边界是 ESM。UXP 宿主通常需要针对目标运行时执行适当的 bundle 步骤。
 
 ## 测试

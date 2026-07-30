@@ -2,12 +2,12 @@ import {
   assertStorageProtocolMethodName,
   LOCAL_STORAGE_MODULE_ID
 } from "@shared/uxp-api/storage-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import { fixedCapability, type UxpModuleAdapter } from "@uxp/module-registry.js";
 import type { StorageHost } from "./types.js";
 
 export const localStorageModuleAdapter: UxpModuleAdapter = {
   moduleId: LOCAL_STORAGE_MODULE_ID,
-  capability: "localStorage",
+  resolveCapability: fixedCapability("localStorage", assertStorageProtocolMethodName),
   dispatch: dispatchLocalStorageCall
 };
 

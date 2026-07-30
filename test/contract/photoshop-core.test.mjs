@@ -544,7 +544,6 @@ test("temporary document creation registers release-all cleanup and deletes an a
     }
   };
   const context = {
-    capabilities: {},
     operationId: "create-temp",
     callbacks,
     signal: controller.signal

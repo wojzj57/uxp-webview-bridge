@@ -4,7 +4,16 @@
 
 [概览](./index.md) | [快速开始](./getting-started.md) | [安全与权限](./security-and-permissions.md) | [UXP](./uxp.md) | [Photoshop](./photoshop.md) | [转发 fetch](./fetch.md)
 
-WebView 的 `photoshop` 命名空间导出已实现的 Photoshop DOM、Action、Core、Imaging、辅助函数和常量表接口。所有原生工作都在 UXP 宿主中执行。`photoshop` 能力是 DOM、Action、Core 和 Imaging 调用的父门禁。Imaging 还需要 `imaging`；三个公开 RPC `photoshop.action.batchPlay`、`batchPlaySync` 和 `photoshop.app.batchPlay` 还需要 `batchPlay`。
+WebView 的 `photoshop` 命名空间导出已实现的 Photoshop DOM、Action、Core、Imaging、辅助函数和常量表接口。所有原生工作都在 UXP 宿主中执行。四个相互独立的叶子负责授权远程接口：
+
+| 叶子能力 | 接口 |
+| --- | --- |
+| `photoshop.dom` | 三个公开 batchPlay 方法之外的 Photoshop 主适配器方法，包括 DOM 远程对象 |
+| `photoshop.core` | `photoshop.core`，包括模态会话 Core RPC 方法 |
+| `photoshop.imaging` | `photoshop.imaging` 和 image-data 句柄方法 |
+| `photoshop.batchPlay` | `photoshop.action.batchPlay`、`photoshop.action.batchPlaySync` 和 `photoshop.app.batchPlay` |
+
+四个叶子默认全部拒绝，启用其中一个不会启用其他叶子。`photoshop.all` 会展开为已安装包版本中已知的四个叶子，并可能在升级新增 Photoshop 叶子后扩大。同步常量和 WebView 本地构造器不会跨桥，因此不需要 capability。
 
 完整的当前接口请查看 [`src/webview/photoshop-api`](../../src/webview/photoshop-api) 下导出的 TypeScript 类型。本指南介绍远程对象模型和安全的代表性流程，不会逐一重复所有 Adobe 成员。
 
@@ -42,7 +51,7 @@ if (!document) {
 | 常量/辅助函数 | WebView 本地同步表或 builder，例如 `photoshop.constants`、颜色辅助函数或路径 builder。 |
 | 资源句柄 | `PsImageData` 等临时宿主资源；应在 `finally` 中调用 `dispose()`。 |
 
-远程失败表现为带远程元数据和 `operationId` 的 `BridgeRemoteError`。Action/batchPlay descriptor 是调用者所有的不透明 Photoshop JSON；其中的原生 id 是 Photoshop id，不是桥接 remote-reference id。
+远程失败表现为带远程元数据和 `operationId` 的 `BridgeRemoteError`。能力拒绝的 code 为 `ERR_BRIDGE_CAPABILITY_DISABLED`、远程 name 为 `BridgeCapabilityError`，并包含精确的 `capability`、`module` 和 `method` 字段。Action/batchPlay descriptor 是调用者所有的不透明 Photoshop JSON；其中的原生 id 是 Photoshop id，不是桥接 remote-reference id。
 
 ## 排队写入与模态执行
 

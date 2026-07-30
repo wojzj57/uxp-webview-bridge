@@ -1,6 +1,9 @@
-import { mergeCapabilities } from "../shared/capabilities.js";
+import {
+  normalizeBridgeCapabilities,
+  type BridgeCapabilityConfig,
+  type BridgeCapabilityName
+} from "../shared/capabilities.js";
 import { mergeAllowedOrigins } from "../shared/origins.js";
-import type { BridgeCapabilities } from "../shared/types.js";
 import { createUxpModuleRegistry } from "./module-registry.js";
 import { RpcHost, type UxpWebViewElement } from "./rpc-host.js";
 import { clipboardModuleAdapter } from "./uxp-api/global-members/clipboard/host.js";
@@ -23,7 +26,7 @@ export interface ConfigUxpBridgeOptions {
   readonly webview: UxpWebViewElement;
   /** Additional trusted origins appended to the bridge defaults. */
   readonly allowedOrigins?: readonly string[];
-  readonly capabilities?: Partial<BridgeCapabilities>;
+  readonly capabilities?: BridgeCapabilityConfig;
   /** Host-to-WebView callback timeout. Set to `0` to disable. Defaults to 60 seconds. */
   readonly callbackTimeoutMs?: number;
   /** Maximum lifetime of bridge-owned temporary documents. Defaults to 30 minutes. */
@@ -31,11 +34,12 @@ export interface ConfigUxpBridgeOptions {
 }
 
 export interface UxpBridgeRuntime {
+  readonly capabilities: readonly BridgeCapabilityName[];
   destroy(): Promise<void>;
 }
 
 export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRuntime {
-  const capabilities = mergeCapabilities(options.capabilities);
+  const capabilities = normalizeBridgeCapabilities(options.capabilities);
   configureCoreAdapter({
     ...(options.temporaryDocumentTimeoutMs === undefined
       ? {}
@@ -55,7 +59,7 @@ export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRunti
     sessionStorageModuleAdapter,
     uxpModuleAdapter
   ];
-  const registry = createUxpModuleRegistry(capabilities, adapters);
+  const registry = createUxpModuleRegistry(new Set(capabilities), adapters);
   const host = new RpcHost({
     webview: options.webview,
     allowedOrigins: mergeAllowedOrigins(options.allowedOrigins),
@@ -73,6 +77,7 @@ export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRunti
   console.log("[uxp-webview-bridge] UXP bridge configured.");
 
   return {
+    capabilities,
     destroy: async () => {
       const hostResult = await Promise.allSettled([host.destroy()]);
       const adapterResults = await Promise.allSettled(
@@ -87,3 +92,10 @@ export function configUxpBridge(options: ConfigUxpBridgeOptions): UxpBridgeRunti
     }
   };
 }
+
+export type {
+  BridgeCapabilityConfig,
+  BridgeCapabilityGroup,
+  BridgeCapabilityName,
+  BridgeCapabilitySelector
+} from "../shared/capabilities.js";

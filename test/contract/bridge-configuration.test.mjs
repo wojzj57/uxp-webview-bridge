@@ -52,6 +52,51 @@ test("configUxpBridge logs successful configuration", async () => {
   }
 });
 
+test("configUxpBridge exposes the immutable normalized capability snapshot", async () => {
+  const environment = installRuntimeEnvironment();
+  let runtime;
+
+  try {
+    const { configUxpBridge } = await import(uxpEntrypoint);
+    const input = ["uxp.storage.all", "fs"];
+    runtime = configUxpBridge({
+      webview: { postMessage() {} },
+      capabilities: input
+    });
+    input.push("os");
+
+    assert.deepEqual(runtime.capabilities, [
+      "fs",
+      "uxp.storage.secureStorage",
+      "uxp.storage.localFileSystem"
+    ]);
+    assert.equal(Object.isFrozen(runtime.capabilities), true);
+  } finally {
+    await runtime?.destroy();
+    environment.restore();
+  }
+});
+
+test("configUxpBridge rejects invalid capability input before listeners or success logging", async () => {
+  const environment = installRuntimeEnvironment();
+
+  try {
+    const { configUxpBridge } = await import(uxpEntrypoint);
+
+    assert.throws(
+      () => configUxpBridge({
+        webview: { postMessage() {} },
+        capabilities: { fs: true }
+      }),
+      TypeError
+    );
+    assert.equal(environment.listenerCount, 0);
+    assert.deepEqual(environment.logs, []);
+  } finally {
+    environment.restore();
+  }
+});
+
 test("WebView RPC namespaces require reconfiguration after destroy", async () => {
   const environment = installRuntimeEnvironment();
 
@@ -84,6 +129,9 @@ function installRuntimeEnvironment() {
 
   return {
     logs,
+    get listenerCount() {
+      return listeners.size;
+    },
     target: {
       postMessage(message) {
         if (message.type !== "bridge.release-all") return;

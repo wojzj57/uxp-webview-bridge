@@ -45,7 +45,7 @@ pnpm build
 
 ## 2. 配置唯一的 UXP 宿主运行时
 
-应在 WebView 调用命名空间前配置宿主。示例只使用公共 UXP 子路径并保留全部启用的默认能力，因为该流程仅读取 `os` 和不可配置门禁的 UXP 版本属性。对于远程或其他不受信任的内容，应显式配置全部 capability 键并禁用所有未使用接口。
+应在 WebView 调用命名空间前配置宿主。Business RPC 默认全部拒绝，因此示例只显式允许流程实际使用的 `os` 和 `uxp.versions` 两个叶子。
 
 ```ts
 import { configUxpBridge } from "uxp-webview-bridge/uxp";
@@ -65,13 +65,14 @@ if (!isPluginWebViewElement(webview)) {
 
 const hostRuntime = configUxpBridge({
   webview,
-  allowedOrigins: ["plugin:"]
+  allowedOrigins: ["plugin:"],
+  capabilities: ["os", "uxp.versions"]
 });
 
 window.addEventListener("unload", () => hostRuntime.destroy(), { once: true });
 ```
 
-每个 WebView 只能创建一个宿主运行时。再次调用 `configUxpBridge()` 会增加另一个消息监听器，而不会替换第一个运行时。重新配置或移除 WebView 前，应先销毁旧运行时。
+每个 WebView 只能创建一个宿主运行时。`hostRuntime.capabilities` 是按 catalog 排序并冻结的实际叶子 allowlist 快照。再次调用 `configUxpBridge()` 会增加另一个消息监听器，而不会替换第一个运行时。更改策略、重新配置或移除 WebView 前，应先销毁旧运行时。
 
 ## 3. 配置唯一的 WebView 客户端并发起调用
 
@@ -111,9 +112,9 @@ try {
 | 请求超时 | 确认先配置了宿主运行时、目标正确，并且操作能在 `timeoutMs` 内完成（默认 10 秒）。 |
 | 宿主忽略消息 | 不同且为真值的 `event.source` 会被拒绝。缺失/null source 会继续接受来源验证，而不是绕过验证直接接受。 |
 | 来源被拒绝 | 让 `allowedOrigins` 与规范化后的事件来源匹配。以 `:` 结尾的 scheme 条目按前缀匹配，其他值必须匹配精确的规范化 origin。内置本地和回环来源无需重复添加。 |
-| 能力错误 | 只启用实际控制该命名空间的能力。所有可配置能力默认启用，因此应显式禁用未使用接口。 |
+| 能力错误 | 省略 capability 或传入空列表会拒绝全部 Business RPC。只添加 `error.capability` 报告的叶子，然后重新创建宿主运行时。 |
 | 原生权限错误 | 添加相关 UXP 清单权限；桥接能力不会授予原生权限。 |
-| `BridgeRemoteError` | 检查远程 name/message/stack/code 和 `operationId`；原生操作在跨桥后失败。 |
+| `BridgeRemoteError` | 检查远程 name/message/stack/code 和 `operationId`。能力拒绝的 code 为 `ERR_BRIDGE_CAPABILITY_DISABLED`、远程 name 为 `BridgeCapabilityError`，并包含 `capability`、`module` 和 `method` 字段。 |
 | 设置期间出现 `Bridge request <operationId> was cancelled.` | 另一个所有者在有未完成操作时替换了模块全局 WebView 客户端。 |
 | 重复处理或响应 | 同一 WebView 可能有多个宿主运行时在监听。销毁重复实例并建立唯一所有者。 |
 | 全局 fetch 意外恢复 | 多个 `installFetch()` 所有者发生重叠。应使用单一所有者和一个 `try/finally` 清理边界。 |

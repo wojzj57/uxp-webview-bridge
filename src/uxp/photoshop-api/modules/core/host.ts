@@ -14,6 +14,7 @@ import type {
   UxpDispatchContext,
   UxpModuleAdapter
 } from "@uxp/module-registry.js";
+import { fixedCapability } from "@uxp/module-registry.js";
 import {
   normalizeActiveTool,
   normalizeLayerTreeList,
@@ -74,7 +75,7 @@ export function configureCoreAdapter(options: TemporaryDocumentOwnerOptions): vo
 
 export const coreModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_CORE_MODULE_ID,
-  capability: "photoshop",
+  resolveCapability: fixedCapability("photoshop.core", assertPhotoshopCoreRpcMethodName),
   dispatch: dispatchCoreCall,
   destroy: destroyCoreAdapter
 };

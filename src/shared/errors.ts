@@ -1,3 +1,5 @@
+import type { BridgeCapabilityName } from "./capabilities.js";
+
 export interface BridgeRemoteErrorDetails {
   readonly operationId: string;
   readonly remoteName?: string | undefined;
@@ -6,6 +8,9 @@ export interface BridgeRemoteErrorDetails {
   readonly code?: string | undefined;
   readonly parentOperationId?: string | undefined;
   readonly callbackId?: string | undefined;
+  readonly capability?: BridgeCapabilityName | undefined;
+  readonly module?: string | undefined;
+  readonly method?: string | undefined;
 }
 
 export class BridgeRemoteError extends Error {
@@ -16,6 +21,9 @@ export class BridgeRemoteError extends Error {
   readonly code: string | undefined;
   readonly parentOperationId: string | undefined;
   readonly callbackId: string | undefined;
+  readonly capability: BridgeCapabilityName | undefined;
+  readonly module: string | undefined;
+  readonly method: string | undefined;
 
   constructor(details: BridgeRemoteErrorDetails) {
     super(details.remoteMessage);
@@ -27,5 +35,8 @@ export class BridgeRemoteError extends Error {
     this.code = details.code;
     this.parentOperationId = details.parentOperationId;
     this.callbackId = details.callbackId;
+    this.capability = details.capability;
+    this.module = details.module;
+    this.method = details.method;
   }
 }

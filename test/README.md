@@ -93,4 +93,6 @@ The WebView is loaded from local plugin content:
 
 This requires UXP v8.0 or later and `requiredPermissions.webview.allowLocalRendering` set to `"yes"` in `test/uxp-plugin/manifest.json`.
 
-The fixture may state capability values explicitly when CDP cases depend on them, such as `fs: true` for real plugin-data filesystem tests. Keep fixture-specific overrides in `test/uxp-plugin/host.js`; production defaults must follow the public capability contract rather than CDP convenience.
+The fixture explicitly lists the leaf Bridge capabilities exercised by its generated CDP case registry in `test/uxp-plugin/host.js`. When a new real-host case crosses a previously unused namespace, add that leaf deliberately and review the authority increase with the case. Do not use `"all"` or a capability group for fixture convenience.
+
+Fixture capabilities and manifest permissions are test-only evidence, not production recommendations. A Bridge capability does not grant an Adobe UXP manifest permission or make an origin trustworthy; those controls remain independent.

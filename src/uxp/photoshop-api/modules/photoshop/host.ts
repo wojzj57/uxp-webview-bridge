@@ -318,7 +318,7 @@ interface ActionNotificationRegistration {
 
 export const photoshopModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_MODULE_ID,
-  capability: "photoshop",
+  resolveCapability: resolvePhotoshopCapability,
   dispatch: (method, args, context) => dispatchPhotoshopCall(method, args, context),
   destroy: destroyPhotoshopHandles
 };
@@ -328,9 +328,6 @@ export function dispatchPhotoshopCall(
   args: readonly unknown[],
   context?: UxpDispatchContext
 ): unknown {
-  if (context && isBatchPlayMethod(method) && !context.capabilities.batchPlay) {
-    throw new Error("batchPlay capability is disabled.");
-  }
   const previousContext = activePhotoshopDispatchContext;
   activePhotoshopDispatchContext = context;
   try {
@@ -344,6 +341,11 @@ function isBatchPlayMethod(method: string): boolean {
   return method === "app.batchPlay" ||
     method === "action.batchPlay" ||
     method === "action.batchPlaySync";
+}
+
+export function resolvePhotoshopCapability(method: string): "photoshop.batchPlay" | "photoshop.dom" {
+  assertPhotoshopProtocolMethodName(method);
+  return isBatchPlayMethod(method) ? "photoshop.batchPlay" : "photoshop.dom";
 }
 
 function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]): unknown {

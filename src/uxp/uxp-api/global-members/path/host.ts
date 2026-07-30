@@ -7,11 +7,12 @@ import {
   type PathParsedTransport,
   type PathProtocolFlavorName
 } from "@shared/uxp-api/path-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import { fixedCapability, type UxpModuleAdapter } from "@uxp/module-registry.js";
 import type { PathHost, PathHostFlavor } from "./types.js";
 
 export const pathModuleAdapter: UxpModuleAdapter = {
   moduleId: PATH_MODULE_ID,
+  resolveCapability: fixedCapability("path", assertPathProtocolMethodName),
   dispatch: dispatchPathCall
 };
 

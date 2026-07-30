@@ -1,8 +1,10 @@
+export type { BridgeCallPayload, BridgeProtocolVersion } from "./shared/types.js";
 export type {
-  BridgeCallPayload,
-  BridgeCapabilities,
-  BridgeProtocolVersion
-} from "./shared/types.js";
+  BridgeCapabilityConfig,
+  BridgeCapabilityGroup,
+  BridgeCapabilityName,
+  BridgeCapabilitySelector
+} from "./shared/capabilities.js";
 export type {
   FsMethodName,
   FsMkdirOptions,

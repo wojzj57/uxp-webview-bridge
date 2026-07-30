@@ -10,16 +10,18 @@
 
 | 功能族 | 代表接口 | 实际桥接能力 | 常见清单关注点 |
 | --- | --- | --- | --- |
-| `uxp.host` | name、version、UI locale | 除 UXP 模块分发外无额外能力 | 此仓库未发现额外要求 |
-| `uxp.versions` | UXP 和插件版本 | 除 UXP 模块分发外无额外能力 | 此仓库未发现额外要求 |
-| `uxp.pluginManager` | 已安装插件快照和命令 | `pluginManager` | 宿主/插件策略 |
-| `uxp.shell` | `openExternal`、`openPath` | `shell` | `requiredPermissions.launchProcess` |
-| `uxp.storage.secureStorage` | 秘密字节值 | `keyValueStorage` | 应作为秘密存储边界 |
-| `uxp.storage.localFileSystem` | 文件、文件夹、token、picker | `persistentFileStorage` | 按需使用 `requiredPermissions.localFileSystem` |
-| `uxp.userInfo` | 用户 id | `userInfo` | `requiredPermissions.enableUserInfo` |
-| `uxp.xmp` | XMP 构造器、常量、元数据方法 | `xmp` | 可用性取决于宿主 API |
+| `uxp.host` | name、version、UI locale | `uxp.host` | 此仓库未发现额外要求 |
+| `uxp.versions` | UXP 和插件版本 | `uxp.versions` | 此仓库未发现额外要求 |
+| `uxp.pluginManager` | 已安装插件快照和命令 | `uxp.pluginManager` | 宿主/插件策略 |
+| `uxp.shell` | `openExternal`、`openPath` | `uxp.shell` | `requiredPermissions.launchProcess` |
+| `uxp.storage.secureStorage` | 秘密字节值 | `uxp.storage.secureStorage` | 应作为秘密存储边界 |
+| `uxp.storage.localFileSystem` | 文件、文件夹、token、picker | `uxp.storage.localFileSystem` | 按需使用 `requiredPermissions.localFileSystem` |
+| `uxp.userInfo` | 用户 id | `uxp.userInfo` | `requiredPermissions.enableUserInfo` |
+| `uxp.xmp` | XMP 构造器、常量、元数据方法 | `uxp.xmp` | 可用性取决于宿主 API |
 
 完整的已实现接口请查看 [`src/webview/uxp-api/modules/uxp`](../../src/webview/uxp-api/modules/uxp) 下导出的 TypeScript 类型。
+
+八个叶子默认全部拒绝。`uxp.all` 会展开为全部八个叶子，`uxp.storage.all` 只展开为两个存储叶子。已安装包版本新增后代时，这些分组可能扩大；需要稳定最小权限时应逐一列出叶子。
 
 ## Promise 属性
 
@@ -139,4 +141,4 @@ try {
 
 ## 错误处理
 
-远程 UXP 失败会表现为带远程元数据和 `operationId` 的 `BridgeRemoteError`。能力失败表示桥接分发策略问题；原生权限失败表示清单/宿主边界问题。应分别处理，不能为了消除错误而同时扩大两种控制。
+远程 UXP 失败会表现为带远程元数据和 `operationId` 的 `BridgeRemoteError`。能力拒绝的 code 为 `ERR_BRIDGE_CAPABILITY_DISABLED`、远程 name 为 `BridgeCapabilityError`，并包含精确的 `capability`、`module` 和 `method` 字段。原生权限失败则表示清单/宿主边界问题。应分别处理，不能为了消除错误而同时扩大 capability、origin 和 manifest 控制。

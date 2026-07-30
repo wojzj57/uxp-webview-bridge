@@ -3,7 +3,8 @@ import {
   UXP_MODULE_ID,
   type UxpProtocolMethodName
 } from "@shared/uxp-api/uxp-protocol.js";
-import type { UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.js";
+import type { BridgeCapabilityName } from "@shared/capabilities.js";
+import type { UxpModuleAdapter } from "@uxp/module-registry.js";
 import { dispatchUxpHostCall } from "./host/host.js";
 import { dispatchUxpKeyValueStorageCall } from "./key-value-storage/host.js";
 import {
@@ -18,14 +19,14 @@ import { destroyUxpXmpHandles, dispatchUxpXmpCall } from "./xmp/host.js";
 
 export const uxpModuleAdapter: UxpModuleAdapter = {
   moduleId: UXP_MODULE_ID,
+  resolveCapability: resolveUxpCapability,
   dispatch: dispatchUxpCall,
   destroy: destroyUxpHandles
 };
 
 export function dispatchUxpCall(
   method: string,
-  args: readonly unknown[],
-  context?: UxpDispatchContext
+  args: readonly unknown[]
 ): unknown {
   assertUxpProtocolMethodName(method);
 
@@ -38,47 +39,42 @@ export function dispatchUxpCall(
   }
 
   if (isUxpShellMethod(method)) {
-    if (context && !context.capabilities.shell) {
-      throw new Error("shell capability is disabled.");
-    }
     return dispatchUxpShellCall(method, args);
   }
 
   if (isUxpUserInfoMethod(method)) {
-    if (context && !context.capabilities.userInfo) {
-      throw new Error("userInfo capability is disabled.");
-    }
     return dispatchUxpUserInfoCall(method, args);
   }
 
   if (isUxpPluginManagerMethod(method)) {
-    if (context && !context.capabilities.pluginManager) {
-      throw new Error("pluginManager capability is disabled.");
-    }
     return dispatchUxpPluginManagerCall(method, args);
   }
 
   if (isUxpKeyValueStorageMethod(method)) {
-    if (context && !context.capabilities.keyValueStorage) {
-      throw new Error("keyValueStorage capability is disabled.");
-    }
     return dispatchUxpKeyValueStorageCall(method, args);
   }
 
   if (isUxpPersistentFileStorageMethod(method)) {
-    if (context && !context.capabilities.persistentFileStorage) {
-      throw new Error("persistentFileStorage capability is disabled.");
-    }
     return dispatchUxpPersistentFileStorageCall(method, args);
   }
 
   if (isUxpXmpMethod(method)) {
-    if (context && !context.capabilities.xmp) {
-      throw new Error("xmp capability is disabled.");
-    }
     return dispatchUxpXmpCall(method, args);
   }
 
+  return assertNever(method);
+}
+
+export function resolveUxpCapability(method: string): BridgeCapabilityName {
+  assertUxpProtocolMethodName(method);
+  if (isUxpHostMethod(method)) return "uxp.host";
+  if (isUxpVersionsMethod(method)) return "uxp.versions";
+  if (isUxpShellMethod(method)) return "uxp.shell";
+  if (isUxpUserInfoMethod(method)) return "uxp.userInfo";
+  if (isUxpPluginManagerMethod(method)) return "uxp.pluginManager";
+  if (isUxpKeyValueStorageMethod(method)) return "uxp.storage.secureStorage";
+  if (isUxpPersistentFileStorageMethod(method)) return "uxp.storage.localFileSystem";
+  if (isUxpXmpMethod(method)) return "uxp.xmp";
   return assertNever(method);
 }
 

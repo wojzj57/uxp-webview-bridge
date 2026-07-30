@@ -9,7 +9,7 @@ import {
   type FsProtocolMethodName,
   type FsSerializedStats
 } from "@shared/uxp-api/fs-protocol.js";
-import type { UxpModuleAdapter } from "@uxp/module-registry.js";
+import { fixedCapability, type UxpModuleAdapter } from "@uxp/module-registry.js";
 import type { FsHostModule, FsMkdirOptions, FsReadFileOptions, FsStats, FsWriteFileOptions } from "./types.js";
 
 declare const require: (moduleName: "fs") => FsHostModule;
@@ -20,7 +20,7 @@ const FILE_DESCRIPTOR_IDLE_TIMEOUT_MS = 60_000;
 
 export const fsModuleAdapter: UxpModuleAdapter = {
   moduleId: FS_MODULE_ID,
-  capability: "fs",
+  resolveCapability: fixedCapability("fs", assertFsProtocolMethodName),
   dispatch: dispatchFsCall,
   destroy: destroyFsAdapter
 };

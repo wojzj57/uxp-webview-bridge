@@ -10,16 +10,18 @@ Import `uxp` from the WebView entry point after configuring the bridge. Calls ex
 
 | Family | Representative surface | Effective bridge capability | Typical manifest concern |
 | --- | --- | --- | --- |
-| `uxp.host` | name, version, UI locale | none beyond UXP module dispatch | none identified by this repository |
-| `uxp.versions` | UXP and plugin versions | none beyond UXP module dispatch | none identified by this repository |
-| `uxp.pluginManager` | installed plugin snapshots and commands | `pluginManager` | host/plugin policy |
-| `uxp.shell` | `openExternal`, `openPath` | `shell` | `requiredPermissions.launchProcess` |
-| `uxp.storage.secureStorage` | secret byte values | `keyValueStorage` | use as the secret-storage boundary |
-| `uxp.storage.localFileSystem` | files, folders, tokens, pickers | `persistentFileStorage` | `requiredPermissions.localFileSystem` as applicable |
-| `uxp.userInfo` | user id | `userInfo` | `requiredPermissions.enableUserInfo` |
-| `uxp.xmp` | XMP constructors, constants, metadata methods | `xmp` | availability varies with host APIs |
+| `uxp.host` | name, version, UI locale | `uxp.host` | none identified by this repository |
+| `uxp.versions` | UXP and plugin versions | `uxp.versions` | none identified by this repository |
+| `uxp.pluginManager` | installed plugin snapshots and commands | `uxp.pluginManager` | host/plugin policy |
+| `uxp.shell` | `openExternal`, `openPath` | `uxp.shell` | `requiredPermissions.launchProcess` |
+| `uxp.storage.secureStorage` | secret byte values | `uxp.storage.secureStorage` | use as the secret-storage boundary |
+| `uxp.storage.localFileSystem` | files, folders, tokens, pickers | `uxp.storage.localFileSystem` | `requiredPermissions.localFileSystem` as applicable |
+| `uxp.userInfo` | user id | `uxp.userInfo` | `requiredPermissions.enableUserInfo` |
+| `uxp.xmp` | XMP constructors, constants, metadata methods | `uxp.xmp` | availability varies with host APIs |
 
 Consult the exported TypeScript types under [`src/webview/uxp-api/modules/uxp`](../src/webview/uxp-api/modules/uxp) for the exhaustive implemented interface.
+
+All eight leaves default to denied. `uxp.all` expands to all eight, while `uxp.storage.all` expands only to the two storage leaves. These groups can grow when an installed package version adds descendants; enumerate leaves for stable least privilege.
 
 ## Promise-valued properties
 
@@ -139,4 +141,4 @@ try {
 
 ## Error handling
 
-Remote UXP failures surface as `BridgeRemoteError` with remote metadata and an `operationId`. Capability failures indicate bridge dispatch policy; native permission failures indicate the manifest/host boundary. Handle them separately and do not broaden both controls simply to silence an error.
+Remote UXP failures surface as `BridgeRemoteError` with remote metadata and an `operationId`. A capability denial has code `ERR_BRIDGE_CAPABILITY_DISABLED`, remote name `BridgeCapabilityError`, and exact `capability`, `module`, and `method` fields. Native permission failures indicate the manifest/host boundary instead. Handle them separately and do not broaden capability, origin, and manifest controls simply to silence an error.

@@ -11,11 +11,15 @@ import {
   fsTransportToHostValue,
   isFsTransportData
 } from "@shared/uxp-api/fs-protocol.js";
-import type { UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.js";
+import {
+  fixedCapability,
+  type UxpDispatchContext,
+  type UxpModuleAdapter
+} from "@uxp/module-registry.js";
 
 export const fetchModuleAdapter: UxpModuleAdapter = {
   moduleId: FETCH_MODULE_ID,
-  capability: "fetch",
+  resolveCapability: fixedCapability("fetch", assertFetchProtocolMethodName),
   dispatch: dispatchFetchCall
 };
 

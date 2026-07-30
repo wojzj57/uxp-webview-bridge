@@ -760,7 +760,7 @@ test("UXP xmp adapter rejects invalid args before requiring uxp", async () => {
   }
 });
 
-test("UXP module registry gates capability-scoped uxp methods without gating versions", async () => {
+test("UXP module registry gates each namespaced leaf independently", async () => {
   const { createUxpModuleRegistry } = await import("../../dist/uxp/module-registry.js");
   const { uxpModuleAdapter } = await import("../../dist/uxp/uxp-api/modules/uxp/index.js");
   const { UXP_MODULE_ID } = await import("../../dist/shared/uxp-api/uxp-protocol.js");
@@ -779,50 +779,34 @@ test("UXP module registry gates capability-scoped uxp methods without gating ver
   };
 
   const registry = createUxpModuleRegistry(
-    {
-      fs: false,
-      os: true,
-      clipboard: true,
-      localStorage: true,
-      sessionStorage: true,
-      fetch: true,
-      shell: false,
-      userInfo: false,
-      pluginManager: false,
-      keyValueStorage: false,
-      persistentFileStorage: false,
-      xmp: false,
-      photoshop: true,
-      imaging: true,
-      batchPlay: true
-    },
+    new Set(["uxp.versions"]),
     [uxpModuleAdapter]
   );
 
   try {
     assert.throws(
       () => registry.dispatch({ module: UXP_MODULE_ID, method: "shell.openPath", args: ["plugin-data:/x"] }),
-      /shell capability is disabled/
+      /Bridge capability uxp\.shell denied operation/
     );
     assert.throws(
       () => registry.dispatch({ module: UXP_MODULE_ID, method: "userInfo.userId", args: [] }),
-      /userInfo capability is disabled/
+      /Bridge capability uxp\.userInfo denied operation/
     );
     assert.throws(
       () => registry.dispatch({ module: UXP_MODULE_ID, method: "pluginManager.plugins", args: [] }),
-      /pluginManager capability is disabled/
+      /Bridge capability uxp\.pluginManager denied operation/
     );
     assert.throws(
       () => registry.dispatch({ module: UXP_MODULE_ID, method: "storage.secureStorage.length", args: [] }),
-      /keyValueStorage capability is disabled/
+      /Bridge capability uxp\.storage\.secureStorage denied operation/
     );
     assert.throws(
       () => registry.dispatch({ module: UXP_MODULE_ID, method: "storage.localFileSystem.getDataFolder", args: [] }),
-      /persistentFileStorage capability is disabled/
+      /Bridge capability uxp\.storage\.localFileSystem denied operation/
     );
     assert.throws(
       () => registry.dispatch({ module: UXP_MODULE_ID, method: "xmp.meta.create", args: [] }),
-      /xmp capability is disabled/
+      /Bridge capability uxp\.xmp denied operation/
     );
     assert.equal(required, false);
     assert.equal(
