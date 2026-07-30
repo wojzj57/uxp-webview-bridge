@@ -47,7 +47,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf dist",
     "test": "pnpm test:static && pnpm typecheck && pnpm test:contract",
-    "test:static": "node test/static/check-boundaries.mjs",
+    "test:static": "node test/static/check-boundaries.mjs && node test/static/check-mutable-owners.mjs",
     "test:contract": "pnpm build && node --test \"test/contract/**/*.test.mjs\"",
     "test:uxp": "pnpm build && node test/runner/run-cdp-auto.mjs",
     "uxp:open-devtools": "uxp-cli open-devtools --plugin-path ./test/uxp-plugin"

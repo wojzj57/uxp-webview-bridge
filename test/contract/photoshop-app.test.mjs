@@ -7,8 +7,8 @@ const storageHostModule = "../../dist/uxp/uxp-api/modules/uxp/persistent-file-st
 const solidColorModule = "../../dist/webview/photoshop-api/modules/photoshop/solid-color.js";
 const colorModelsModule = "../../dist/webview/photoshop-api/modules/photoshop/color-models.js";
 
-const appRef = { kind: "uxp.remote.ref", type: "Photoshop", id: "photoshop.app" };
-const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id });
+const appRef = { kind: "uxp.remote.ref", type: "Photoshop", id: "photoshop.app", bridgeSessionId: "bridge.direct" };
+const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id, bridgeSessionId: "bridge.direct" });
 const snapshot = (memberKind, owner, memberIds) => ({ kind: "uxp.photoshop.snapshot", memberKind, owner, memberIds });
 
 test("PhotoshopApp exposes all 18 documented members and queues writes before methods", async () => {

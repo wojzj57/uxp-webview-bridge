@@ -40,6 +40,7 @@ import type {
 
 interface UxpPersistentFileStorageRpc {
   call<T>(module: string, method: string, args?: readonly unknown[]): Promise<T>;
+  assertReferenceActive?(reference: { readonly bridgeSessionId: string }): void;
 }
 
 const STORAGE_PROXY_SECRET = Symbol("uxp.storage.proxy.secret");
@@ -276,6 +277,7 @@ export function createUxpPersistentFileStorageNamespace(
     }
 
     toUxpStorageReference(): Promise<UxpStorageEntryReference> {
+      rpc.assertReferenceActive?.(this.reference);
       return Promise.resolve(this.reference);
     }
   }

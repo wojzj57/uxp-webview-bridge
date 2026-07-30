@@ -121,6 +121,7 @@ test("configUxpBridge defaults to denying a representative call from every leaf"
   try {
     const { configUxpBridge } = await import(uxpEntrypoint);
     runtime = configUxpBridge({ webview: environment.webview });
+    await environment.establish();
     const calls = [
       ["uxp-api/global-members/clipboard", "readText", "clipboard"],
       ["uxp-api/global-members/crypto", "randomUUID", "crypto"],
@@ -501,7 +502,7 @@ test("real-host fixture explicitly lists its current leaves without permissive g
     import(capabilitiesModule),
     readFile(new URL("../uxp-plugin/host.js", import.meta.url), "utf8")
   ]);
-  const match = source.match(/capabilities:\s*(\[[\s\S]*?\])\s*\n\s*}\);/);
+  const match = source.match(/const capabilities\s*=\s*(\[[\s\S]*?\]);/);
   assert.ok(match, "fixture capability allowlist should be readable");
   const configured = JSON.parse(match[1]);
 
@@ -531,6 +532,7 @@ function installHostEnvironment() {
   const posted = [];
   const webview = { postMessage: (message) => posted.push(message) };
   let operation = 0;
+  let bridgeSessionId;
 
   globalThis.window = {
     addEventListener(type, listener) {
@@ -545,19 +547,49 @@ function installHostEnvironment() {
   return {
     posted,
     webview,
+    async establish() {
+      dispatch({
+        type: "bridge.hello",
+        protocolVersion: "0.3.0",
+        clientVersion: "test",
+        clientInstanceId: "capabilities-client"
+      });
+      await waitFor(() => posted.at(-1)?.type === "bridge.handshake.challenge");
+      const challenge = posted.at(-1);
+      dispatch({
+        type: "bridge.handshake.ack",
+        clientInstanceId: "capabilities-client",
+        candidateId: challenge.candidateId,
+        documentGeneration: challenge.documentGeneration,
+        challenge: challenge.challenge
+      });
+      await waitFor(() => posted.at(-1)?.type === "bridge.ready");
+      const ready = posted.at(-1);
+      bridgeSessionId = ready.bridgeSessionId;
+      dispatch({
+        type: "bridge.ready.ack",
+        clientInstanceId: "capabilities-client",
+        candidateId: ready.candidateId,
+        documentGeneration: ready.documentGeneration,
+        bridgeSessionId: ready.bridgeSessionId,
+        readyNonce: ready.readyNonce
+      });
+      dispatch({
+        type: "bridge.session.confirm",
+        bridgeSessionId: ready.bridgeSessionId,
+        clientInstanceId: "capabilities-client",
+        documentGeneration: ready.documentGeneration
+      });
+      posted.length = 0;
+    },
     dispatchCall(module, method, args = []) {
       operation += 1;
-      for (const listener of listeners) {
-        listener({
-          data: {
-            type: "bridge.call",
-            operationId: `capability-${operation}`,
-            payload: { module, method, args }
-          },
-          origin: "plugin://test",
-          source: webview
-        });
-      }
+      dispatch({
+        type: "bridge.call",
+        bridgeSessionId,
+        operationId: `capability-${operation}`,
+        payload: { module, method, args }
+      });
     },
     restore() {
       console.log = originalLog;
@@ -565,6 +597,12 @@ function installHostEnvironment() {
       else globalThis.window = originalWindow;
     }
   };
+
+  function dispatch(data) {
+    for (const listener of listeners) {
+      listener({ data, origin: "plugin://test", source: webview });
+    }
+  }
 }
 
 async function waitFor(predicate, timeoutMs = 500) {

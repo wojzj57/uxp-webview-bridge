@@ -19,15 +19,15 @@ test("Photoshop host bridges guides and nested path geometry", async () => {
   try {
     const docRef = dispatchPhotoshopCall("app.activeDocument", []);
     const guides = dispatchPhotoshopCall("document.propertyGet", [docRef, "guides"]); assert.equal(guides.memberKind, "Guide");
-    const guideRef = { kind: "uxp.remote.ref", type: "Guide", id: guides.memberIds[0] };
+    const guideRef = { kind: "uxp.remote.ref", type: "Guide", id: guides.memberIds[0], bridgeSessionId: "bridge.direct" };
     assert.equal(dispatchPhotoshopCall("guide.propertyGet", [guideRef, "coordinate"]), 10);
     await dispatchPhotoshopCall("guide.propertySet", [guideRef, "coordinate", 20]); assert.equal(guide.coordinate, 20);
     assert.equal((await dispatchPhotoshopCall("guides.add", [docRef, "horizontal", 30])).type, "Guide");
 
-    const paths = dispatchPhotoshopCall("document.propertyGet", [docRef, "pathItems"]); const pathRef = { kind: "uxp.remote.ref", type: "PathItem", id: paths.memberIds[0] };
+    const paths = dispatchPhotoshopCall("document.propertyGet", [docRef, "pathItems"]); const pathRef = { kind: "uxp.remote.ref", type: "PathItem", id: paths.memberIds[0], bridgeSessionId: "bridge.direct" };
     assert.deepEqual(dispatchPhotoshopCall("pathItems.getByName", [docRef, "P"]), pathRef);
-    const subSnapshot = dispatchPhotoshopCall("pathItem.propertyGet", [pathRef, "subPathItems"]); const subRef = { kind: "uxp.remote.ref", type: "SubPathItem", id: subSnapshot.memberIds[0] };
-    const points = dispatchPhotoshopCall("subPathItem.propertyGet", [subRef, "pathPoints"]); const pointRef = { kind: "uxp.remote.ref", type: "PathPoint", id: points.memberIds[0] };
+    const subSnapshot = dispatchPhotoshopCall("pathItem.propertyGet", [pathRef, "subPathItems"]); const subRef = { kind: "uxp.remote.ref", type: "SubPathItem", id: subSnapshot.memberIds[0], bridgeSessionId: "bridge.direct" };
+    const points = dispatchPhotoshopCall("subPathItem.propertyGet", [subRef, "pathPoints"]); const pointRef = { kind: "uxp.remote.ref", type: "PathPoint", id: points.memberIds[0], bridgeSessionId: "bridge.direct" };
     assert.deepEqual(dispatchPhotoshopCall("pathPoint.propertyGet", [pointRef, "anchor"]), [0, 0]);
     assert.deepEqual(dispatchPhotoshopCall("pathPoint.propertyGet", [pointRef, "parent"]), subRef);
 

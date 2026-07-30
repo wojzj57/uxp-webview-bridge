@@ -4,7 +4,7 @@ import { test } from "node:test";
 const namespaceModule = "../../dist/webview/photoshop-api/modules/photoshop/photoshop.js";
 const hostModule = "../../dist/uxp/photoshop-api/modules/photoshop/host.js";
 const storageHostModule = "../../dist/uxp/uxp-api/modules/uxp/persistent-file-storage/host.js";
-const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id });
+const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id, bridgeSessionId: "bridge.direct" });
 const snapshot = (memberKind, owner, memberIds) => ({ kind: "uxp.photoshop.snapshot", memberKind, owner, memberIds });
 const value = (valueKind, data) => ({ kind: "uxp.photoshop.value", valueKind, data });
 

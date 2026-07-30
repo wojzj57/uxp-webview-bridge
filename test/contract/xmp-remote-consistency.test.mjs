@@ -54,7 +54,7 @@ function findDescriptor(instance, name) {
   return undefined;
 }
 
-const reference = (type) => ({ kind: "uxp.remote.ref", type, id: `${type}-1` });
+const reference = (type) => ({ kind: "uxp.remote.ref", type, id: `${type}-1`, bridgeSessionId: "bridge.direct" });
 
 const CASES = [
   {

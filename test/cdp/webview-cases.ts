@@ -19,6 +19,8 @@ export interface WebviewCdpAssert {
 
 export interface WebviewCdpBridge {
   ensureConfigured(): unknown;
+  destroy(): Promise<void> | undefined;
+  rawCall(operationId: string, module: string, method: string, args?: readonly unknown[]): Promise<unknown>;
   clipboard: ClipboardNamespace;
   crypto: CryptoNamespace;
   fs: FsNamespace;
@@ -31,9 +33,11 @@ export interface WebviewCdpBridge {
 }
 
 export interface WebviewCdpCaseContext {
+  readonly target: string;
   readonly payload: unknown;
   readonly hostDiagnostics: Readonly<Record<string, unknown>>;
   readonly bridge: WebviewCdpBridge;
+  control(command: string, payload?: unknown): Promise<unknown>;
   readonly assert: WebviewCdpAssert;
   reportDiagnostics(diagnostics: Record<string, unknown>): void;
   skip(reason: string, diagnostics?: Record<string, unknown>): unknown;

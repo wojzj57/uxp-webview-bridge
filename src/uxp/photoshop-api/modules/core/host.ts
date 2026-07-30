@@ -14,7 +14,7 @@ import type {
   UxpDispatchContext,
   UxpModuleAdapter
 } from "@uxp/module-registry.js";
-import { fixedCapability } from "@uxp/module-registry.js";
+import { assertPhotoshopExecutionClass, fixedCapability } from "@uxp/module-registry.js";
 import {
   normalizeActiveTool,
   normalizeLayerTreeList,
@@ -51,12 +51,26 @@ import {
 
 declare const require: (moduleName: "photoshop") => PhotoshopCoreHostModule;
 
-const temporaryDocumentOwner = createTemporaryDocumentOwner();
 const TEMPORARY_DOCUMENT_CLEANUP_SUBSCRIPTION_ID = "photoshop.core.temporary-documents";
-let temporaryDocumentOptions: TemporaryDocumentOwnerOptions = {};
-const temporaryOwners = new WeakMap<UxpCallbackBridge, ReturnType<typeof createTemporaryDocumentOwner>>();
-const notificationRegistrations = new WeakMap<UxpCallbackBridge, Map<string, NotificationRegistration>>();
-const modalContexts = new WeakMap<UxpCallbackBridge, Map<string, Record<string, unknown>>>();
+interface CoreAdapterState {
+  readonly temporaryDocumentOwner: ReturnType<typeof createTemporaryDocumentOwner>;
+  readonly temporaryDocumentOptions: TemporaryDocumentOwnerOptions;
+  readonly temporaryOwners: WeakMap<UxpCallbackBridge, ReturnType<typeof createTemporaryDocumentOwner>>;
+  readonly notificationRegistrations: WeakMap<UxpCallbackBridge, Map<string, NotificationRegistration>>;
+  readonly modalContexts: WeakMap<UxpCallbackBridge, Map<string, Record<string, unknown>>>;
+}
+
+function createCoreAdapterState(options: TemporaryDocumentOwnerOptions = {}): CoreAdapterState {
+  return {
+    temporaryDocumentOwner: createTemporaryDocumentOwner(options),
+    temporaryDocumentOptions: { ...options },
+    temporaryOwners: new WeakMap(),
+    notificationRegistrations: new WeakMap(),
+    modalContexts: new WeakMap()
+  };
+}
+
+let defaultCoreState = createCoreAdapterState();
 
 interface NotificationRegistration {
   readonly subscriptionId: string;
@@ -69,22 +83,32 @@ interface NotificationRegistration {
 }
 
 export function configureCoreAdapter(options: TemporaryDocumentOwnerOptions): void {
-  temporaryDocumentOptions = options;
-  temporaryDocumentOwner.configure(options);
+  defaultCoreState = createCoreAdapterState(options);
+}
+
+export function createCoreModuleAdapter(options: TemporaryDocumentOwnerOptions = {}): UxpModuleAdapter {
+  const state = createCoreAdapterState(options);
+  return {
+    moduleId: PHOTOSHOP_CORE_MODULE_ID,
+    resolveCapability: fixedCapability("photoshop.core", assertPhotoshopCoreRpcMethodName),
+    dispatch: (method, args, context) => dispatchCoreCall(method, args, context, state),
+    destroy: () => state.temporaryDocumentOwner.destroy()
+  };
 }
 
 export const coreModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_CORE_MODULE_ID,
   resolveCapability: fixedCapability("photoshop.core", assertPhotoshopCoreRpcMethodName),
   dispatch: dispatchCoreCall,
-  destroy: destroyCoreAdapter
+  destroy: () => destroyCoreAdapter(defaultCoreState)
 };
 
 /** Dispatch the complete Core surface and its modal-session-only internal calls. */
 export function dispatchCoreCall(
   method: string,
   args: readonly unknown[],
-  context?: UxpDispatchContext
+  context?: UxpDispatchContext,
+  state: CoreAdapterState = defaultCoreState
 ): unknown {
   assertPhotoshopCoreRpcMethodName(method);
   const core = getCore();
@@ -94,7 +118,7 @@ export function dispatchCoreCall(
       expectArgs(args, 0, method);
       return assertFiniteNumber(core.apiVersion, `${method} result`);
     case "core.addNotificationListener":
-      return dispatchAddNotificationListener(core, args, method, context);
+      return dispatchAddNotificationListener(core, args, method, context, state);
     case "core.calculateDialogSize":
       return dispatchCalculateDialogSize(core, args, method);
     case "core.convertColor":
@@ -102,13 +126,13 @@ export function dispatchCoreCall(
     case "core.convertGlobalToLocal":
       return dispatchConvertGlobalToLocal(core, args, method);
     case "core.createTemporaryDocument":
-      return dispatchCreateTemporaryDocument(core, args, method, context);
+      return dispatchCreateTemporaryDocument(core, args, method, context, state);
     case "core.deleteTemporaryDocument":
-      return dispatchDeleteTemporaryDocument(core, args, method, context);
+      return dispatchDeleteTemporaryDocument(core, args, method, context, state);
     case "core.endModalToolState":
       return dispatchEndModalToolState(core, args, method);
     case "core.executeAsModal":
-      return dispatchExecuteAsModal(core, args, method, context);
+      return dispatchExecuteAsModal(core, args, method, context, state);
     case "core.getActiveTool":
       return dispatchActiveTool(core, args, method);
     case "core.getCPUInfo":
@@ -144,7 +168,7 @@ export function dispatchCoreCall(
     case "core.redrawDocument":
       return dispatchRedrawDocument(core, args, method, context);
     case "core.removeNotificationListener":
-      return dispatchRemoveNotificationListener(core, args, method, context);
+      return dispatchRemoveNotificationListener(core, args, method, context, state);
     case "core.setExecutionMode":
       return dispatchSetExecutionMode(core, args, method);
     case "core.setUserIdleTime":
@@ -164,7 +188,7 @@ export function dispatchCoreCall(
     case "modal.resumeHistory":
     case "modal.registerAutoCloseDocument":
     case "modal.unregisterAutoCloseDocument":
-      return dispatchModalHostControl(args, method, context);
+      return dispatchModalHostControl(args, method, context, state);
     default:
       return unsupported(method);
   }
@@ -174,7 +198,8 @@ function dispatchAddNotificationListener(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: "core.addNotificationListener",
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: CoreAdapterState
 ): Promise<void> {
   expectArgs(args, 3, method);
   const callbacks = requireCallbackContext(context, method);
@@ -182,16 +207,16 @@ function dispatchAddNotificationListener(
   const events = normalizeEvents(args[1], method);
   const reference = assertCallbackReference(args[2], `${method} listener`);
   const key = notificationRegistrationKey(group, events, reference.callbackId);
-  let registrations = notificationRegistrations.get(callbacks);
+  let registrations = state.notificationRegistrations.get(callbacks);
   if (!registrations) {
     registrations = new Map();
-    notificationRegistrations.set(callbacks, registrations);
+    state.notificationRegistrations.set(callbacks, registrations);
   }
   if (registrations.has(key)) {
     const existing = registrations.get(key);
     if (existing?.removing) {
       return existing.removing.then(() =>
-        dispatchAddNotificationListener(core, [group, events, reference], method, context)
+        dispatchAddNotificationListener(core, [group, events, reference], method, context, state)
       );
     }
     return existing?.added ?? Promise.resolve();
@@ -238,7 +263,8 @@ function dispatchRemoveNotificationListener(
   _core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: "core.removeNotificationListener",
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: CoreAdapterState
 ): Promise<void> {
   expectArgs(args, 3, method);
   const callbacks = requireCallbackContext(context, method);
@@ -246,13 +272,13 @@ function dispatchRemoveNotificationListener(
   const events = normalizeEvents(args[1], method);
   const reference = assertCallbackReference(args[2], `${method} listener`);
   const key = notificationRegistrationKey(group, events, reference.callbackId);
-  const registration = notificationRegistrations.get(callbacks)?.get(key);
+  const registration = state.notificationRegistrations.get(callbacks)?.get(key);
   if (!registration) return Promise.resolve();
   if (registration.removing) return registration.removing;
   const removing = registration.added.then(() => callbacks.unregisterSubscription(registration.subscriptionId));
   registration.removing = removing;
   return removing.finally(() => {
-    if (notificationRegistrations.get(callbacks)?.get(key) === registration) {
+    if (state.notificationRegistrations.get(callbacks)?.get(key) === registration) {
       delete registration.removing;
     }
   });
@@ -262,8 +288,10 @@ function dispatchExecuteAsModal(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: "core.executeAsModal",
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: CoreAdapterState
 ): Promise<unknown> {
+  assertPhotoshopExecutionClass(context, "modal-entry");
   expectArgs(args, 3, method);
   const callbacks = requireCallbackContext(context, method);
   if (callbacks.activeModalSessionId !== undefined) {
@@ -284,18 +312,17 @@ function dispatchExecuteAsModal(
 
   const executeAsModal = requireCoreMethod(core, "executeAsModal");
   const session = callbacks.openModalSession(context?.operationId);
-  const result = Promise.resolve().then(() =>
-    executeAsModal.call(
+  const enterNativeModal = () => Promise.resolve(executeAsModal.call(
       core,
       async (nativeContext: unknown, descriptor: unknown) => {
         const native = assertObject(nativeContext, `${method} executionContext`);
-        let contexts = modalContexts.get(callbacks);
+        let contexts = state.modalContexts.get(callbacks);
         if (!contexts) {
           contexts = new Map();
-          modalContexts.set(callbacks, contexts);
+          state.modalContexts.set(callbacks, contexts);
         }
-        contexts.set(session.sessionId, native);
-        const cancelSubscriptionId = `photoshop.core.modal-cancel:${session.sessionId}`;
+        contexts.set(session.modalSessionId, native);
+        const cancelSubscriptionId = `photoshop.core.modal-cancel:${session.modalSessionId}`;
         callbacks.registerSubscription(cancelSubscriptionId, () => {
           native.onCancel = undefined;
         });
@@ -307,7 +334,7 @@ function dispatchExecuteAsModal(
           void Promise.resolve().then(() => callbacks.invoke(cancelReference, nativeEvent, {
             mode: "listener",
             subscriptionId: cancelSubscriptionId,
-            sessionId: session.sessionId,
+            modalSessionId: session.modalSessionId,
             ...(context?.operationId === undefined ? {} : { parentOperationId: context.operationId })
           })).catch(() => undefined);
         };
@@ -318,13 +345,20 @@ function dispatchExecuteAsModal(
           ]);
         } finally {
           await callbacks.unregisterSubscription(cancelSubscriptionId);
-          contexts.delete(session.sessionId);
+          contexts.delete(session.modalSessionId);
         }
       },
       options
-    )
-  );
-  const modalSubscriptionId = `photoshop.core.modal:${session.sessionId}`;
+    ));
+  const result = context?.modalCoordinator && context.bridgeSessionId && context.signal
+    ? context.modalCoordinator.run({
+        bridgeSessionId: context.bridgeSessionId,
+        operationId: context.operationId,
+        signal: context.signal,
+        execute: enterNativeModal
+      })
+    : Promise.resolve().then(enterNativeModal);
+  const modalSubscriptionId = `photoshop.core.modal:${session.modalSessionId}`;
   let settled = false;
   let modalPromise = Promise.resolve<unknown>(undefined);
   callbacks.registerSubscription(modalSubscriptionId, async () => {
@@ -346,11 +380,13 @@ function dispatchExecuteAsModal(
 function dispatchModalHostControl(
   args: readonly unknown[],
   method: PhotoshopCoreInternalMethodName,
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: CoreAdapterState
 ): unknown {
+  assertPhotoshopExecutionClass(context, "nested-only");
   const callbacks = requireCallbackContext(context, method);
   const sessionId = context?.modalSessionId;
-  const native = sessionId === undefined ? undefined : modalContexts.get(callbacks)?.get(sessionId);
+  const native = sessionId === undefined ? undefined : state.modalContexts.get(callbacks)?.get(sessionId);
   if (!native || callbacks.activeModalSessionId !== sessionId) {
     throw coreRemoteError(
       "PhotoshopCoreModalSessionError",
@@ -448,12 +484,13 @@ function dispatchCreateTemporaryDocument(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName,
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: CoreAdapterState
 ): Promise<unknown> {
   const options = expectDocumentOptions(args, method);
   assertKnownKeys(options, ["documentID"], `${method} options`);
   throwIfAborted(context?.signal, method);
-  const owner = getTemporaryDocumentOwner(context);
+  const owner = getTemporaryDocumentOwner(context, state);
   requireCoreMethod(core, "createTemporaryDocument");
   return executeCoreMutation(core, method, () => callCore(core, "createTemporaryDocument", [options]), context).then(
     async (value) => {
@@ -490,12 +527,13 @@ function dispatchDeleteTemporaryDocument(
   core: PhotoshopCoreHost,
   args: readonly unknown[],
   method: PhotoshopCoreMethodName,
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: CoreAdapterState
 ): Promise<void> {
   const options = expectDocumentOptions(args, method);
   assertKnownKeys(options, ["documentID"], `${method} options`);
   const documentID = options.documentID as number;
-  return getTemporaryDocumentOwner(context).delete(
+  return getTemporaryDocumentOwner(context, state).delete(
     documentID,
     (deleteNative) => executeCoreMutation(core, method, deleteNative, context)
   ).then((result) => {
@@ -716,18 +754,19 @@ function dispatchLayerTree(
 }
 
 function getTemporaryDocumentOwner(
-  context: UxpDispatchContext | undefined
+  context: UxpDispatchContext | undefined,
+  state: CoreAdapterState
 ): ReturnType<typeof createTemporaryDocumentOwner> {
-  if (!context) return temporaryDocumentOwner;
-  const existing = temporaryOwners.get(context.callbacks);
+  if (!context) return state.temporaryDocumentOwner;
+  const existing = state.temporaryOwners.get(context.callbacks);
   if (existing) return existing;
-  const owner = createTemporaryDocumentOwner(temporaryDocumentOptions);
-  temporaryOwners.set(context.callbacks, owner);
+  const owner = createTemporaryDocumentOwner(state.temporaryDocumentOptions);
+  state.temporaryOwners.set(context.callbacks, owner);
   const callbacks = context.callbacks;
   callbacks.registerSubscription(TEMPORARY_DOCUMENT_CLEANUP_SUBSCRIPTION_ID, async () => {
     await owner.destroy();
-    if (temporaryOwners.get(callbacks) === owner) {
-      temporaryOwners.delete(callbacks);
+    if (state.temporaryOwners.get(callbacks) === owner) {
+      state.temporaryOwners.delete(callbacks);
     }
   });
   return owner;
@@ -867,6 +906,7 @@ function executeCoreMutation<T>(
   fn: () => T | Promise<T>,
   context?: UxpDispatchContext
 ): Promise<T> {
+  assertPhotoshopExecutionClass(context, "modal-aware-mutation");
   if (
     context?.modalSessionId !== undefined &&
     context.modalSessionId === context.callbacks.activeModalSessionId
@@ -874,6 +914,16 @@ function executeCoreMutation<T>(
     return Promise.resolve().then(fn);
   }
   const executeAsModal = requireCoreMethod(core, "executeAsModal");
+  if (context?.modalCoordinator && context.bridgeSessionId && context.signal) {
+    return context.modalCoordinator.run({
+      bridgeSessionId: context.bridgeSessionId,
+      operationId: context.operationId,
+      signal: context.signal,
+      execute: () => Promise.resolve(
+        executeAsModal.call(core, async () => fn(), { commandName }) as T | Promise<T>
+      )
+    });
+  }
   return Promise.resolve(
     executeAsModal.call(core, async () => fn(), { commandName }) as T | Promise<T>
   );
@@ -899,8 +949,8 @@ function unsupported(method: PhotoshopCoreMethodName): never {
   throw new Error(`Unsupported photoshop core method: ${method}`);
 }
 
-export function destroyCoreAdapter(): Promise<void> {
-  return temporaryDocumentOwner.destroy();
+export function destroyCoreAdapter(state: CoreAdapterState = defaultCoreState): Promise<void> {
+  return state.temporaryDocumentOwner.destroy();
 }
 
 function getCore(): PhotoshopCoreHost {

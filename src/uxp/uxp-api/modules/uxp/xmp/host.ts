@@ -6,7 +6,11 @@ declare const require: (moduleName: "uxp") => UxpXmpHostModule;
 
 type XmpApi = UxpXmpHostModule["xmp"];
 
-const registry = createRemoteHandleRegistry();
+type XmpState = ReturnType<typeof createRemoteHandleRegistry>;
+export function createUxpXmpState(bridgeSessionId: string): XmpState {
+  return createRemoteHandleRegistry({ bridgeSessionId });
+}
+const defaultState = createUxpXmpState("bridge.direct");
 
 const DATE_TIME_PROPERTY_NAMES = [
   "year",
@@ -81,14 +85,14 @@ const DATE_TIME_METHODS = {
   "xmp.dateTime.toString": { name: "toString", min: 0, max: 0 }
 } as const;
 
-export function dispatchUxpXmpCall(method: UxpXmpMethodName, args: readonly unknown[]): unknown {
-  registry.prune();
+export function dispatchUxpXmpCall(method: UxpXmpMethodName, args: readonly unknown[], state: XmpState = defaultState): unknown {
+  state.prune();
 
   if (method === "xmp.meta.create") {
     expectArgs(args, 0, 2, method);
     const xmp = getXmpApi();
-    const [packet, buffer] = decodeArgs(args);
-    return createHandle("XMPMeta", packet === undefined ? new xmp.XMPMeta() : new xmp.XMPMeta(packet as string, buffer as string | number[]));
+    const [packet, buffer] = decodeArgs(args, state);
+    return createHandle("XMPMeta", packet === undefined ? new xmp.XMPMeta() : new xmp.XMPMeta(packet as string, buffer as string | number[]), state);
   }
 
   if (method === "xmp.file.create") {
@@ -99,44 +103,45 @@ export function dispatchUxpXmpCall(method: UxpXmpMethodName, args: readonly unkn
       "XMPFile",
       filePath === undefined
         ? new xmp.XMPFile()
-        : new xmp.XMPFile(filePath as string, format as number, openFlags as number)
+        : new xmp.XMPFile(filePath as string, format as number, openFlags as number),
+      state
     );
   }
 
   if (method === "xmp.dateTime.create") {
     expectArgs(args, 0, 1, method);
     const xmp = getXmpApi();
-    const [date] = decodeArgs(args);
-    return createHandle("XMPDateTime", date === undefined ? new xmp.XMPDateTime() : new xmp.XMPDateTime(date as Date | string));
+    const [date] = decodeArgs(args, state);
+    return createHandle("XMPDateTime", date === undefined ? new xmp.XMPDateTime() : new xmp.XMPDateTime(date as Date | string), state);
   }
 
   if (method === "xmp.meta.dispose" || method === "xmp.file.dispose" || method === "xmp.iterator.dispose" || method === "xmp.dateTime.dispose") {
     const [reference] = expectReferenceArgs(args, 1, 1, method);
-    disposeHandle(reference);
+    disposeHandle(reference, state);
     return undefined;
   }
 
   if (method === "xmp.meta.iterator") {
     const [reference, ...methodArgs] = expectReferenceArgs(args, 1, 4, method);
-    const meta = getHandleValue(reference, "XMPMeta");
-    return createHandle("XMPIterator", callMethod(meta, "iterator", decodeArgs(methodArgs)));
+    const meta = getHandleValue(reference, "XMPMeta", state);
+    return createHandle("XMPIterator", callMethod(meta, "iterator", decodeArgs(methodArgs, state)), state);
   }
 
   if (method in META_INSTANCE_METHODS) {
     const spec = META_INSTANCE_METHODS[method as keyof typeof META_INSTANCE_METHODS];
     const [reference, ...methodArgs] = expectReferenceArgs(args, spec.min + 1, spec.max + 1, method);
-    const meta = getHandleValue(reference, "XMPMeta");
-    const result = callMethod(meta, spec.name, decodeArgs(methodArgs));
+    const meta = getHandleValue(reference, "XMPMeta", state);
+    const result = callMethod(meta, spec.name, decodeArgs(methodArgs, state));
     if (method === "xmp.meta.serializeToArray") {
       return serializeNumberArray(result);
     }
-    return "property" in spec ? serializeProperty(result, getXmpApi()) : result;
+    return "property" in spec ? serializeProperty(result, getXmpApi(), state) : result;
   }
 
   if (method in META_STATIC_METHODS) {
     const spec = META_STATIC_METHODS[method as keyof typeof META_STATIC_METHODS];
     expectArgs(args, spec.min, spec.max, method);
-    return callMethod(getXmpApi().XMPMeta, spec.name, decodeArgs(args));
+    return callMethod(getXmpApi().XMPMeta, spec.name, decodeArgs(args, state));
   }
 
   if (method === "xmp.file.getFormatInfo") {
@@ -145,44 +150,44 @@ export function dispatchUxpXmpCall(method: UxpXmpMethodName, args: readonly unkn
   }
 
   if (method.startsWith("xmp.file.")) {
-    return dispatchFileMethod(method, args);
+    return dispatchFileMethod(method, args, state);
   }
 
   if (method.startsWith("xmp.iterator.")) {
-    return dispatchIteratorMethod(method, args);
+    return dispatchIteratorMethod(method, args, state);
   }
 
   if (method.startsWith("xmp.dateTime.")) {
-    return dispatchDateTimeMethod(method, args);
+    return dispatchDateTimeMethod(method, args, state);
   }
 
   if (method in UTILS_METHODS) {
     const spec = UTILS_METHODS[method as keyof typeof UTILS_METHODS];
     expectArgs(args, spec.min, spec.max, method);
-    return callMethod(getXmpApi().XMPUtils, spec.name, decodeArgs(args));
+    return callMethod(getXmpApi().XMPUtils, spec.name, decodeArgs(args, state));
   }
 
   throw new Error(`Unsupported uxp xmp method: ${method}`);
 }
 
-export function destroyUxpXmpHandles(): void {
-  registry.clear();
+export function destroyUxpXmpHandles(state: XmpState = defaultState): void {
+  state.clear();
 }
 
-function dispatchFileMethod(method: UxpXmpMethodName, args: readonly unknown[]): unknown {
+function dispatchFileMethod(method: UxpXmpMethodName, args: readonly unknown[], state: XmpState): unknown {
   const [reference, ...methodArgs] = expectReferenceArgs(args, 1, 3, method);
-  const file = getHandleValue(reference, "XMPFile");
+  const file = getHandleValue(reference, "XMPFile", state);
 
   switch (method) {
     case "xmp.file.canPutXMP":
       expectArgs(methodArgs, 1, 1, method);
-      return callMethod(file, "canPutXMP", decodeArgs(methodArgs));
+      return callMethod(file, "canPutXMP", decodeArgs(methodArgs, state));
     case "xmp.file.closeFile":
       expectArgs(methodArgs, 1, 1, method);
       return callMethod(file, "closeFile", methodArgs);
     case "xmp.file.getXMP":
       expectArgs(methodArgs, 0, 0, method);
-      return createHandle("XMPMeta", callMethod(file, "getXMP", []));
+      return createHandle("XMPMeta", callMethod(file, "getXMP", []), state);
     case "xmp.file.getPacketInfo":
       expectArgs(methodArgs, 0, 0, method);
       return copyKnownProperties(callMethod(file, "getPacketInfo", []), ["charForm", "length", "offset", "packet", "padSize", "writeable"]);
@@ -191,20 +196,20 @@ function dispatchFileMethod(method: UxpXmpMethodName, args: readonly unknown[]):
       return copyKnownProperties(callMethod(file, "getFileInfo", []), ["filePath", "format", "handlerFlags", "openFlags"]);
     case "xmp.file.putXMP":
       expectArgs(methodArgs, 1, 1, method);
-      return callMethod(file, "putXMP", decodeArgs(methodArgs));
+      return callMethod(file, "putXMP", decodeArgs(methodArgs, state));
     default:
       throw new Error(`Unsupported uxp xmp file method: ${method}`);
   }
 }
 
-function dispatchIteratorMethod(method: UxpXmpMethodName, args: readonly unknown[]): unknown {
+function dispatchIteratorMethod(method: UxpXmpMethodName, args: readonly unknown[], state: XmpState): unknown {
   const [reference, ...methodArgs] = expectReferenceArgs(args, 1, 1, method);
-  const iterator = getHandleValue(reference, "XMPIterator");
+  const iterator = getHandleValue(reference, "XMPIterator", state);
 
   switch (method) {
     case "xmp.iterator.next":
       expectArgs(methodArgs, 0, 0, method);
-      return serializeProperty(callMethod(iterator, "next", []), getXmpApi());
+      return serializeProperty(callMethod(iterator, "next", []), getXmpApi(), state);
     case "xmp.iterator.skipSiblings":
       expectArgs(methodArgs, 0, 0, method);
       return callMethod(iterator, "skipSiblings", []);
@@ -216,30 +221,30 @@ function dispatchIteratorMethod(method: UxpXmpMethodName, args: readonly unknown
   }
 }
 
-function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown[]): unknown {
+function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown[], state: XmpState): unknown {
   if (method === "xmp.dateTime.getProperty") {
     const [reference, property] = expectReferenceArgs(args, 2, 2, method);
     assertNonEmptyString(property, `${method} property`);
-    return (getHandleValue(reference, "XMPDateTime") as Record<string, unknown>)[property];
+    return (getHandleValue(reference, "XMPDateTime", state) as Record<string, unknown>)[property];
   }
 
   if (method === "xmp.dateTime.setProperty") {
     const [reference, property, value] = expectReferenceArgs(args, 3, 3, method);
     assertNonEmptyString(property, `${method} property`);
-    (getHandleValue(reference, "XMPDateTime") as Record<string, unknown>)[property] = value;
+    (getHandleValue(reference, "XMPDateTime", state) as Record<string, unknown>)[property] = value;
     return undefined;
   }
 
   if (method === "xmp.dateTime.getDate") {
     const [reference, ...methodArgs] = expectReferenceArgs(args, 1, 1, method);
     expectArgs(methodArgs, 0, 0, method);
-    const result = callMethod(getHandleValue(reference, "XMPDateTime"), "getDate", []);
+    const result = callMethod(getHandleValue(reference, "XMPDateTime", state), "getDate", []);
     return result instanceof Date ? result.toISOString() : new Date(result as string | number).toISOString();
   }
 
   if (method === "xmp.dateTime.batchGet") {
     const [reference, propertyNames] = expectReferenceArgs(args, 2, 2, method);
-    const dateTime = getHandleValue(reference, "XMPDateTime") as Record<string, unknown>;
+    const dateTime = getHandleValue(reference, "XMPDateTime", state) as Record<string, unknown>;
     const names = assertDateTimePropertyNames(propertyNames, method);
     const result: Record<string, unknown> = {};
     for (const name of names) {
@@ -250,7 +255,7 @@ function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown
 
   if (method === "xmp.dateTime.batchSet") {
     const [reference, values] = expectReferenceArgs(args, 2, 2, method);
-    const dateTime = getHandleValue(reference, "XMPDateTime") as Record<string, unknown>;
+    const dateTime = getHandleValue(reference, "XMPDateTime", state) as Record<string, unknown>;
     if (!values || typeof values !== "object") {
       throw new Error(`${method} requires a property map.`);
     }
@@ -265,7 +270,7 @@ function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown
     const decoded = DATE_TIME_PROPERTY_NAMES
       .filter((name) => Object.prototype.hasOwnProperty.call(props, name))
       .map((name) => {
-        const value = decodeValue(props[name]);
+        const value = decodeValue(props[name], state);
         if (typeof value !== "number" || !Number.isFinite(value)) {
           throw new Error(`${method} ${name} must be a finite number.`);
         }
@@ -288,13 +293,13 @@ function dispatchDateTimeMethod(method: UxpXmpMethodName, args: readonly unknown
   if (method in DATE_TIME_METHODS) {
     const spec = DATE_TIME_METHODS[method as keyof typeof DATE_TIME_METHODS];
     const [reference, ...methodArgs] = expectReferenceArgs(args, spec.min + 1, spec.max + 1, method);
-    return callMethod(getHandleValue(reference, "XMPDateTime"), spec.name, decodeArgs(methodArgs));
+    return callMethod(getHandleValue(reference, "XMPDateTime", state), spec.name, decodeArgs(methodArgs, state));
   }
 
   throw new Error(`Unsupported uxp xmp dateTime method: ${method}`);
 }
 
-function serializeProperty(value: unknown, xmp: XmpApi): XMPSerializedProperty | null {
+function serializeProperty(value: unknown, xmp: XmpApi, state: XmpState): XMPSerializedProperty | null {
   if (!value) {
     return null;
   }
@@ -308,7 +313,7 @@ function serializeProperty(value: unknown, xmp: XmpApi): XMPSerializedProperty |
     value?: string | number | boolean | RemoteReference | null;
     stringValue?: string;
   } = {
-    value: serializePropertyValue(property.value, xmp),
+    value: serializePropertyValue(property.value, xmp, state),
   };
 
   if (typeof property.locale === "string") {
@@ -331,13 +336,13 @@ function serializeProperty(value: unknown, xmp: XmpApi): XMPSerializedProperty |
   return result;
 }
 
-function serializePropertyValue(value: unknown, xmp: XmpApi): string | number | boolean | RemoteReference | null {
+function serializePropertyValue(value: unknown, xmp: XmpApi, state: XmpState): string | number | boolean | RemoteReference | null {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return value;
   }
 
   if (value instanceof xmp.XMPDateTime) {
-    return createHandle("XMPDateTime", value);
+    return createHandle("XMPDateTime", value, state);
   }
 
   if (value == null) return null;
@@ -348,25 +353,25 @@ function serializePropertyValue(value: unknown, xmp: XmpApi): string | number | 
   throw new TypeError("XMP property value must be a primitive, XMPDateTime, or string-convertible object.");
 }
 
-function createHandle(type: XmpHandleType, value: unknown): RemoteReference {
-  return registry.register(type, value);
+function createHandle(type: XmpHandleType, value: unknown, state: XmpState): RemoteReference {
+  return state.register(type, value);
 }
 
-function disposeHandle(reference: RemoteReference): void {
-  registry.dispose(reference);
+function disposeHandle(reference: RemoteReference, state: XmpState): void {
+  state.dispose(reference);
 }
 
-function getHandleValue(reference: RemoteReference, expectedType: XmpHandleType): unknown {
-  return registry.resolve(reference, expectedType);
+function getHandleValue(reference: RemoteReference, expectedType: XmpHandleType, state: XmpState): unknown {
+  return state.resolve(reference, expectedType);
 }
 
-function decodeArgs(args: readonly unknown[]): unknown[] {
-  return args.map((arg) => decodeValue(arg));
+function decodeArgs(args: readonly unknown[], state: XmpState): unknown[] {
+  return args.map((arg) => decodeValue(arg, state));
 }
 
-function decodeValue(value: unknown): unknown {
+function decodeValue(value: unknown, state: XmpState): unknown {
   if (isReference(value)) {
-    return registry.resolve(value, value.type);
+    return state.resolve(value, value.type);
   }
 
   if (isNativeDateEnvelope(value)) {
@@ -374,11 +379,11 @@ function decodeValue(value: unknown): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => decodeValue(item));
+    return value.map((item) => decodeValue(item, state));
   }
 
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, decodeValue(nested)]));
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, decodeValue(nested, state)]));
   }
 
   return value;

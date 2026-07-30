@@ -1,6 +1,6 @@
-import { dispatchFsCall, fsModuleAdapter } from "./host.js";
+import { createFsModuleAdapter, dispatchFsCall, fsModuleAdapter } from "./host.js";
 
-export { dispatchFsCall, fsModuleAdapter };
+export { createFsModuleAdapter, dispatchFsCall, fsModuleAdapter };
 export type {
   FsHostModule,
   FsMethodName,

@@ -14,18 +14,43 @@ import type { FsHostModule, FsMkdirOptions, FsReadFileOptions, FsStats, FsWriteF
 
 declare const require: (moduleName: "fs") => FsHostModule;
 
-const OWNED_FILE_DESCRIPTORS = new Set<number>();
-const FILE_DESCRIPTOR_TIMEOUTS = new Map<number, ReturnType<typeof setTimeout>>();
 const FILE_DESCRIPTOR_IDLE_TIMEOUT_MS = 60_000;
 
-export const fsModuleAdapter: UxpModuleAdapter = {
-  moduleId: FS_MODULE_ID,
-  resolveCapability: fixedCapability("fs", assertFsProtocolMethodName),
-  dispatch: dispatchFsCall,
-  destroy: destroyFsAdapter
-};
+interface FsAdapterState {
+  readonly ownedFileDescriptors: Set<number>;
+  readonly fileDescriptorTimeouts: Map<number, ReturnType<typeof setTimeout>>;
+  destroyed: boolean;
+}
 
-export async function dispatchFsCall(method: string, args: readonly unknown[]): Promise<unknown> {
+function createFsAdapterState(): FsAdapterState {
+  return {
+    ownedFileDescriptors: new Set<number>(),
+    fileDescriptorTimeouts: new Map<number, ReturnType<typeof setTimeout>>(),
+    destroyed: false
+  };
+}
+
+export function createFsModuleAdapter(): UxpModuleAdapter {
+  return createFsModuleAdapterForState(createFsAdapterState());
+}
+
+function createFsModuleAdapterForState(state: FsAdapterState): UxpModuleAdapter {
+  return {
+    moduleId: FS_MODULE_ID,
+    resolveCapability: fixedCapability("fs", assertFsProtocolMethodName),
+    dispatch: (method, args) => dispatchFsCall(method, args, state),
+    destroy: () => destroyFsAdapter(state)
+  };
+}
+
+const defaultFsState = createFsAdapterState();
+export const fsModuleAdapter: UxpModuleAdapter = createFsModuleAdapterForState(defaultFsState);
+
+export async function dispatchFsCall(
+  method: string,
+  args: readonly unknown[],
+  state: FsAdapterState = getDefaultFsState()
+): Promise<unknown> {
   assertFsProtocolMethodName(method);
 
   switch (method) {
@@ -34,13 +59,13 @@ export async function dispatchFsCall(method: string, args: readonly unknown[]): 
     case "writeFile":
       return dispatchWriteFile(args);
     case "open":
-      return dispatchOpen(args);
+      return dispatchOpen(args, state);
     case "close":
-      return dispatchClose(args);
+      return dispatchClose(args, state);
     case "read":
-      return dispatchRead(args);
+      return dispatchRead(args, state);
     case "write":
-      return dispatchWrite(args);
+      return dispatchWrite(args, state);
     case "lstat":
       return dispatchLstat(args);
     case "rename":
@@ -60,21 +85,27 @@ export async function dispatchFsCall(method: string, args: readonly unknown[]): 
   }
 }
 
-function destroyFsAdapter(): void {
-  if (OWNED_FILE_DESCRIPTORS.size === 0) {
+function getDefaultFsState(): FsAdapterState {
+  return defaultFsState;
+}
+
+async function destroyFsAdapter(state: FsAdapterState): Promise<void> {
+  if (state.destroyed) {
     return;
   }
+  state.destroyed = true;
+
+  if (state.ownedFileDescriptors.size === 0) return;
 
   const fs = require("fs");
-  for (const fd of OWNED_FILE_DESCRIPTORS) {
-    try {
-      clearFileDescriptorTimeout(fd);
-      void fs.close(fd);
-    } catch {
-      // Best-effort cleanup during bridge shutdown.
-    }
+  const descriptors = [...state.ownedFileDescriptors];
+  for (const fd of descriptors) clearFileDescriptorTimeout(fd, state);
+  state.ownedFileDescriptors.clear();
+  const results = await Promise.allSettled(descriptors.map((fd) => Promise.resolve(fs.close(fd))));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length > 0) {
+    throw new Error(`Failed to close ${failures.length} bridge-owned file descriptor(s).`);
   }
-  OWNED_FILE_DESCRIPTORS.clear();
 }
 
 async function dispatchReadFile(args: readonly unknown[]): Promise<string | ReturnType<typeof fsBytesToTransport>> {
@@ -107,7 +138,7 @@ async function dispatchWriteFile(args: readonly unknown[]): Promise<number> {
   return require("fs").writeFile(path, fsTransportToHostValue(value), options ?? {});
 }
 
-async function dispatchOpen(args: readonly unknown[]): Promise<number> {
+async function dispatchOpen(args: readonly unknown[], state: FsAdapterState): Promise<number> {
   const [path, flag, mode] = expectFsArgs<[string, number | string | undefined, number | string | undefined]>(
     args,
     1,
@@ -120,27 +151,27 @@ async function dispatchOpen(args: readonly unknown[]): Promise<number> {
 
   const fd = await require("fs").open(path, flag, mode);
   assertFileDescriptor(fd, "fs.open return value");
-  registerFileDescriptor(fd);
+  registerFileDescriptor(fd, state);
   return fd;
 }
 
-async function dispatchClose(args: readonly unknown[]): Promise<number> {
+async function dispatchClose(args: readonly unknown[], state: FsAdapterState): Promise<number> {
   const [fd] = expectFsArgs<[number]>(args, 1, 1, "fs.close");
-  assertOwnedFileDescriptor(fd, "fs.close fd");
+  assertOwnedFileDescriptor(fd, "fs.close fd", state);
 
   const result = await require("fs").close(fd);
-  unregisterFileDescriptor(fd);
+  unregisterFileDescriptor(fd, state);
   return result;
 }
 
-async function dispatchRead(args: readonly unknown[]): Promise<{
+async function dispatchRead(args: readonly unknown[], state: FsAdapterState): Promise<{
   readonly bytesRead: number;
   readonly buffer: ReturnType<typeof fsBytesToTransport>;
 }> {
   const [fd, buffer, offset, length, position] = expectFsArgs<
     [number, unknown, number, number, number]
   >(args, 5, 5, "fs.read");
-  assertOwnedFileDescriptor(fd, "fs.read fd");
+  assertOwnedFileDescriptor(fd, "fs.read fd", state);
   if (!isFsBinaryTransportData(buffer)) {
     throw new Error("fs.read buffer must be binary transport data.");
   }
@@ -148,7 +179,7 @@ async function dispatchRead(args: readonly unknown[]): Promise<{
   assertNonNegativeInteger(length, "fs.read length");
   assertReadWritePosition(position, "fs.read position");
 
-  refreshFileDescriptorTimeout(fd);
+  refreshFileDescriptorTimeout(fd, state);
   const result = await require("fs").read(
     fd,
     fsTransportToArrayBuffer(buffer),
@@ -162,14 +193,14 @@ async function dispatchRead(args: readonly unknown[]): Promise<{
   };
 }
 
-async function dispatchWrite(args: readonly unknown[]): Promise<{
+async function dispatchWrite(args: readonly unknown[], state: FsAdapterState): Promise<{
   readonly bytesWritten: number;
   readonly buffer: ReturnType<typeof fsBytesToTransport>;
 }> {
   const [fd, buffer, offset, length, position] = expectFsArgs<
     [number, unknown, number, number, number]
   >(args, 5, 5, "fs.write");
-  assertOwnedFileDescriptor(fd, "fs.write fd");
+  assertOwnedFileDescriptor(fd, "fs.write fd", state);
   if (!isFsBinaryTransportData(buffer)) {
     throw new Error("fs.write buffer must be binary transport data.");
   }
@@ -177,7 +208,7 @@ async function dispatchWrite(args: readonly unknown[]): Promise<{
   assertNonNegativeInteger(length, "fs.write length");
   assertReadWritePosition(position, "fs.write position");
 
-  refreshFileDescriptorTimeout(fd);
+  refreshFileDescriptorTimeout(fd, state);
   const result = await require("fs").write(
     fd,
     fsTransportToArrayBuffer(buffer),
@@ -334,30 +365,34 @@ function assertFileDescriptor(value: unknown, label: string): asserts value is n
   }
 }
 
-function assertOwnedFileDescriptor(value: unknown, label: string): asserts value is number {
+function assertOwnedFileDescriptor(
+  value: unknown,
+  label: string,
+  state: FsAdapterState
+): asserts value is number {
   assertFileDescriptor(value, label);
-  if (!OWNED_FILE_DESCRIPTORS.has(value)) {
+  if (!state.ownedFileDescriptors.has(value)) {
     throw new Error(`${label} is not an open fs file descriptor owned by this bridge.`);
   }
 }
 
-function registerFileDescriptor(fd: number): void {
-  OWNED_FILE_DESCRIPTORS.add(fd);
-  refreshFileDescriptorTimeout(fd);
+function registerFileDescriptor(fd: number, state: FsAdapterState): void {
+  state.ownedFileDescriptors.add(fd);
+  refreshFileDescriptorTimeout(fd, state);
 }
 
-function unregisterFileDescriptor(fd: number): void {
-  clearFileDescriptorTimeout(fd);
-  OWNED_FILE_DESCRIPTORS.delete(fd);
+function unregisterFileDescriptor(fd: number, state: FsAdapterState): void {
+  clearFileDescriptorTimeout(fd, state);
+  state.ownedFileDescriptors.delete(fd);
 }
 
-function refreshFileDescriptorTimeout(fd: number): void {
-  clearFileDescriptorTimeout(fd);
-  FILE_DESCRIPTOR_TIMEOUTS.set(
+function refreshFileDescriptorTimeout(fd: number, state: FsAdapterState): void {
+  clearFileDescriptorTimeout(fd, state);
+  state.fileDescriptorTimeouts.set(
     fd,
     setTimeout(() => {
-      FILE_DESCRIPTOR_TIMEOUTS.delete(fd);
-      if (!OWNED_FILE_DESCRIPTORS.delete(fd)) {
+      state.fileDescriptorTimeouts.delete(fd);
+      if (!state.ownedFileDescriptors.delete(fd)) {
         return;
       }
 
@@ -370,11 +405,11 @@ function refreshFileDescriptorTimeout(fd: number): void {
   );
 }
 
-function clearFileDescriptorTimeout(fd: number): void {
-  const timeout = FILE_DESCRIPTOR_TIMEOUTS.get(fd);
+function clearFileDescriptorTimeout(fd: number, state: FsAdapterState): void {
+  const timeout = state.fileDescriptorTimeouts.get(fd);
   if (timeout !== undefined) {
     clearTimeout(timeout);
-    FILE_DESCRIPTOR_TIMEOUTS.delete(fd);
+    state.fileDescriptorTimeouts.delete(fd);
   }
 }
 

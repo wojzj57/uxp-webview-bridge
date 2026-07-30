@@ -48,7 +48,7 @@ async function makeImageDataTransport(overrides = {}) {
     ...overrides
   };
   return {
-    imageData: { kind: REMOTE_REFERENCE_KIND, type: TYPE, id: "PsImageData:1" },
+    imageData: { kind: REMOTE_REFERENCE_KIND, type: TYPE, id: "PsImageData:1", bridgeSessionId: "bridge.direct" },
     metadata: serializeValue(IMAGE_DATA_METADATA_VALUE_KIND, metadataSource)
   };
 }
@@ -257,7 +257,7 @@ test("host getPixels accepts Photoshop's function-shaped imageData and returns m
     const envelope = await dispatchImagingCall("imaging.imageData.getData", [result.imageData, {}]);
     assert.equal(envelope.kind, "bytes");
     assert.deepEqual(envelope.value, [9, 8, 7]);
-    destroyImagingHandles();
+    await destroyImagingHandles();
   });
 });
 
@@ -306,7 +306,7 @@ test("host putPixels resolves the handle reference to the native object under a 
     assert.equal(putReceived.imageData, nativeImageData, "put must receive the resolved native imageData.");
     assert.equal(putReceived.replace, false, "other options must pass through.");
     assert.equal(modalCount, 2, "both getPixels and putPixels run inside executeAsModal.");
-    destroyImagingHandles();
+    await destroyImagingHandles();
   });
 });
 
@@ -354,7 +354,7 @@ test("host createImageDataFromBuffer decodes the transport and registers a handl
     assert.ok(receivedBuffer instanceof Uint8Array, "the host must decode the transport to a Uint8Array.");
     assert.deepEqual(Array.from(receivedBuffer), [5, 6, 7, 8]);
     assert.equal(result.imageData.type, PS_IMAGE_DATA_TYPE);
-    destroyImagingHandles();
+    await destroyImagingHandles();
   });
 });
 

@@ -2,6 +2,7 @@ import { BridgeRemoteError } from "../shared/errors.js";
 import { createOperationId } from "../shared/operation-id.js";
 import { isAllowedOrigin, mergeAllowedOrigins } from "../shared/origins.js";
 import {
+  BRIDGE_PROTOCOL_VERSION,
   assertBridgeTransportValue,
   type BridgeCallbackErrorEnvelope,
   type BridgeCallbackInvokeEnvelope,
@@ -15,7 +16,19 @@ import {
   type BridgeSuccessEnvelope,
   type BridgeUnhandledErrorEnvelope
 } from "../shared/protocol.js";
-import type { BridgeCallPayload } from "../shared/types.js";
+import type {
+  BridgeCallPayload,
+  BridgeEstablished,
+  BridgeHandshakeCancel,
+  BridgeHandshakeCancelAck,
+  BridgeHandshakeChallenge,
+  BridgeHandshakeError,
+  BridgeHandshakeHello,
+  BridgeHandshakeReady,
+  BridgeHostInfo
+} from "../shared/types.js";
+import { isRemoteReference } from "../shared/uxp-api/remote-protocol.js";
+import { CallbackInvocationContextCarrier } from "./callback-invocation-context.js";
 
 export interface WebViewBridgeTarget {
   postMessage(message: unknown): void;
@@ -29,6 +42,11 @@ export interface RpcClientOptions {
   readonly allowedOrigins?: readonly string[];
   readonly timeoutMs?: number;
   readonly onUnhandledError?: ((error: BridgeRemoteError) => void) | undefined;
+  /** Internal direct-client owner used by contract seams. */
+  readonly bridgeSessionId?: string;
+  /** Internal setup path; public configWebviewBridge always enables it. */
+  readonly handshake?: boolean;
+  readonly connectionTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -42,22 +60,39 @@ interface RetainedCallback {
   references: number;
 }
 
-interface ActiveModalSession {
-  readonly sessionId: string;
-  depth: number;
+interface QueuedRequest {
+  readonly message: BridgeRequestEnvelope;
+  readonly allowDuringDestroy: boolean;
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (reason: unknown) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
+const CONNECT_QUEUE_LIMIT = 100;
 
 export class RpcClient {
+  readonly ready: Promise<BridgeHostInfo>;
+  readonly clientEpoch = createOperationId();
   private readonly target: WebViewBridgeTarget;
   private readonly timeoutMs: number;
   private readonly allowedOrigins: readonly string[];
   private readonly onUnhandledError: ((error: BridgeRemoteError) => void) | undefined;
+  private bridgeSessionId: string | undefined;
+  private readonly handshake: boolean;
+  private readonly clientInstanceId = createOperationId();
+  private stateValue: "connecting" | "ready" | "failed" | "closing" | "destroyed";
+  private readyResolve!: (info: BridgeHostInfo) => void;
+  private readyReject!: (reason: unknown) => void;
+  private connectionTimer: ReturnType<typeof setTimeout> | undefined;
+  private candidate: BridgeHandshakeChallenge | undefined;
+  private provisionalReady: BridgeHandshakeReady | undefined;
+  private readonly queuedRequests: QueuedRequest[] = [];
+  private cancelAckResolve: (() => void) | undefined;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly callbackIdByFunction = new WeakMap<RpcCallback, string>();
   private readonly callbacks = new Map<string, RetainedCallback>();
-  private activeModalSession: ActiveModalSession | undefined;
+  private readonly callbackContext = new CallbackInvocationContextCarrier();
   private destroying = false;
   private destroyed = false;
   private destroyPromise: Promise<void> | undefined;
@@ -73,22 +108,103 @@ export class RpcClient {
     this.allowedOrigins = mergeAllowedOrigins(options.allowedOrigins);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.onUnhandledError = options.onUnhandledError;
+    this.handshake = options.handshake ?? false;
+    this.bridgeSessionId = this.handshake ? undefined : options.bridgeSessionId ?? "bridge.direct";
+    this.stateValue = this.handshake ? "connecting" : "ready";
+    this.ready = new Promise<BridgeHostInfo>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+    void this.ready.catch(() => undefined);
+    if (!this.handshake) {
+      this.readyResolve({
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        hostVersion: "direct",
+        capabilities: [],
+        navigationReplacement: "unsupported",
+        documentGenerationMode: "unsupported"
+      });
+    }
     window.addEventListener("message", this.onMessageBound);
+    if (this.handshake) {
+      const connectionTimeoutMs = options.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
+      if (!Number.isFinite(connectionTimeoutMs) || connectionTimeoutMs <= 0) {
+        throw new TypeError("connectionTimeoutMs must be a positive finite number.");
+      }
+      this.connectionTimer = setTimeout(() => {
+        this.failConnecting(codedClientError(
+          "ERR_BRIDGE_CONNECTION_TIMEOUT",
+          "The WebView bridge connection timed out."
+        ));
+      }, connectionTimeoutMs);
+      const hello: BridgeHandshakeHello = {
+        type: "bridge.hello",
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        clientVersion: "0.1.0",
+        clientInstanceId: this.clientInstanceId
+      };
+      this.target.postMessage(hello);
+    }
+  }
+
+  get state(): "connecting" | "ready" | "failed" | "closing" | "destroyed" {
+    return this.stateValue;
+  }
+
+  get activeBridgeSessionId(): string | undefined {
+    return this.bridgeSessionId;
   }
 
   get activeModalSessionId(): string | undefined {
-    return this.activeModalSession?.sessionId;
+    return this.callbackContext.current?.modalSessionId;
+  }
+
+  async bindReference(
+    reference: import("../shared/uxp-api/remote-protocol.js").RemoteReference
+  ): Promise<import("../shared/uxp-api/remote-protocol.js").RemoteReference> {
+    if (reference.bridgeSessionId === "bridge.connecting") {
+      await this.ready;
+      const bridgeSessionId = this.bridgeSessionId;
+      if (!bridgeSessionId) throw staleReferenceError();
+      const ownedReference = { ...reference, bridgeSessionId };
+      this.assertReferenceActive(ownedReference);
+      return ownedReference;
+    }
+    this.assertReferenceActive(reference);
+    return reference;
+  }
+
+  assertReferenceActive(reference: { readonly bridgeSessionId: string }): void {
+    if (
+      this.destroying ||
+      this.destroyed ||
+      this.stateValue === "failed" ||
+      !this.bridgeSessionId ||
+      reference.bridgeSessionId !== this.bridgeSessionId
+    ) {
+      throw staleReferenceError();
+    }
   }
 
   destroy(): Promise<void> {
     if (this.destroyPromise) {
       return this.destroyPromise;
     }
+    if (this.stateValue === "connecting") {
+      return this.destroyConnecting();
+    }
     this.destroying = true;
+    this.stateValue = "closing";
     this.cancelPendingRequests();
+    const bridgeSessionId = this.bridgeSessionId;
+    if (!bridgeSessionId) {
+      this.finishConnectingDestroy();
+      this.destroyPromise = Promise.resolve();
+      return this.destroyPromise;
+    }
     const operationId = createOperationId();
     this.destroyPromise = this.send<void>(
-      { type: "bridge.release-all", operationId, payload: {} },
+      { type: "bridge.release-all", bridgeSessionId, operationId, payload: {} },
       true
     ).finally(() => {
       this.finishDestroy(operationId);
@@ -140,7 +256,12 @@ export class RpcClient {
   }
 
   cancel(operationId: string): void {
-    const message: BridgeCancelEnvelope = { type: "bridge.cancel", operationId };
+    if (!this.bridgeSessionId) return;
+    const message: BridgeCancelEnvelope = {
+      type: "bridge.cancel",
+      bridgeSessionId: this.bridgeSessionId,
+      operationId
+    };
     this.target.postMessage(message);
   }
 
@@ -149,37 +270,71 @@ export class RpcClient {
     payload: BridgeCallPayload,
     operationId = createOperationId()
   ): BridgeRequestEnvelope<BridgeCallPayload> {
-    const sessionId = this.activeModalSession?.sessionId;
-    return sessionId === undefined
-      ? { type, operationId, payload }
-      : { type, operationId, payload, sessionId };
+    const bridgeSessionId = this.bridgeSessionId ?? "bridge.connecting";
+    const modalContext = this.callbackContext.current;
+    return modalContext === undefined
+      ? { type, bridgeSessionId, operationId, payload }
+      : { type, bridgeSessionId, operationId, payload, modalContext };
   }
 
   private send<T>(message: BridgeRequestEnvelope, allowDuringDestroy = false): Promise<T> {
     if ((!allowDuringDestroy && this.destroying) || this.destroyed) {
       return Promise.reject(new Error("The WebView bridge client has been destroyed."));
     }
+    if (this.handshake && this.stateValue === "connecting") {
+      if (this.queuedRequests.length >= CONNECT_QUEUE_LIMIT) {
+        return Promise.reject(codedClientError(
+          "ERR_BRIDGE_CONNECT_QUEUE_FULL",
+          `The pre-ready bridge queue exceeded ${CONNECT_QUEUE_LIMIT} calls.`
+        ));
+      }
+      return new Promise<T>((resolve, reject) => {
+        this.queuedRequests.push({
+          message,
+          allowDuringDestroy,
+          resolve: (value) => resolve(value as T),
+          reject
+        });
+      });
+    }
+    return this.sendEstablished<T>(message, allowDuringDestroy);
+  }
+
+  private sendEstablished<T>(message: BridgeRequestEnvelope, allowDuringDestroy = false): Promise<T> {
+    if ((!allowDuringDestroy && this.destroying) || this.destroyed || !this.bridgeSessionId) {
+      return Promise.reject(codedClientError("ERR_BRIDGE_SESSION_CLOSED", "The Bridge session is closed."));
+    }
+    let ownedMessage: BridgeRequestEnvelope;
+    try {
+      ownedMessage = {
+        ...message,
+        bridgeSessionId: this.bridgeSessionId,
+        payload: translateClientReferences(message.payload, this.bridgeSessionId)
+      };
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        this.pending.delete(message.operationId);
+        this.pending.delete(ownedMessage.operationId);
         try {
-          this.cancel(message.operationId);
+          this.cancel(ownedMessage.operationId);
         } catch {
           // The timeout remains authoritative even if the transport is already unavailable.
         }
-        reject(new Error(`Bridge request ${message.operationId} timed out.`));
+        reject(new Error(`Bridge request ${ownedMessage.operationId} timed out.`));
       }, this.timeoutMs);
 
-      this.pending.set(message.operationId, {
+      this.pending.set(ownedMessage.operationId, {
         resolve: (value) => resolve(value as T),
         reject,
         timeoutId
       });
 
       try {
-        this.target.postMessage(message);
+        this.target.postMessage(ownedMessage);
       } catch (error) {
-        this.pending.delete(message.operationId);
+        this.pending.delete(ownedMessage.operationId);
         clearTimeout(timeoutId);
         reject(error instanceof Error ? error : new Error(String(error)));
       }
@@ -187,17 +342,21 @@ export class RpcClient {
   }
 
   private handleMessage(message: unknown): void {
+    if (this.handleHandshakeMessage(message)) return;
     if (isCallbackInvoke(message)) {
+      if (!matchesBridgeSession(message.bridgeSessionId, this.bridgeSessionId)) return;
       void this.handleCallbackInvoke(message);
       return;
     }
     if (isUnhandledError(message)) {
+      if (!matchesBridgeSession(message.bridgeSessionId, this.bridgeSessionId)) return;
       this.reportUnhandled(toRemoteError(message.operationId, message.error));
       return;
     }
     if (!isBridgeResponse(message)) {
       return;
     }
+    if (!matchesBridgeSession(message.bridgeSessionId, this.bridgeSessionId)) return;
 
     const request = this.pending.get(message.operationId);
     if (!request) {
@@ -215,14 +374,167 @@ export class RpcClient {
     request.reject(toRemoteError(message.operationId, message.error));
   }
 
-  private isAllowedEvent(event: MessageEvent<unknown>): boolean {
-    if (event.source) {
-      return event.source === this.target;
+  private handleHandshakeMessage(message: unknown): boolean {
+    if (!isRecord(message) || typeof message.type !== "string") return false;
+    if (message.type === "bridge.handshake.challenge") {
+      const challenge = message as unknown as BridgeHandshakeChallenge;
+      if (this.stateValue !== "connecting" || challenge.clientInstanceId !== this.clientInstanceId) {
+        return true;
+      }
+      this.candidate = challenge;
+      this.target.postMessage({
+        type: "bridge.handshake.ack",
+        clientInstanceId: this.clientInstanceId,
+        candidateId: challenge.candidateId,
+        documentGeneration: challenge.documentGeneration,
+        challenge: challenge.challenge
+      });
+      return true;
     }
+    if (message.type === "bridge.ready") {
+      const ready = message as unknown as BridgeHandshakeReady;
+      if (!this.matchesCandidate(ready)) return true;
+      this.provisionalReady = ready;
+      this.bridgeSessionId = ready.bridgeSessionId;
+      this.target.postMessage({
+        type: "bridge.ready.ack",
+        clientInstanceId: this.clientInstanceId,
+        candidateId: ready.candidateId,
+        documentGeneration: ready.documentGeneration,
+        bridgeSessionId: ready.bridgeSessionId,
+        readyNonce: ready.readyNonce
+      });
+      return true;
+    }
+    if (message.type === "bridge.established") {
+      const established = message as unknown as BridgeEstablished;
+      const ready = this.provisionalReady;
+      if (this.stateValue !== "connecting" || !ready ||
+        established.clientInstanceId !== this.clientInstanceId ||
+        established.candidateId !== ready.candidateId ||
+        established.documentGeneration !== ready.documentGeneration ||
+        established.bridgeSessionId !== ready.bridgeSessionId) return true;
+      this.target.postMessage({
+        type: "bridge.session.confirm",
+        bridgeSessionId: established.bridgeSessionId,
+        clientInstanceId: this.clientInstanceId,
+        documentGeneration: established.documentGeneration
+      });
+      if (this.connectionTimer) clearTimeout(this.connectionTimer);
+      this.connectionTimer = undefined;
+      this.stateValue = "ready";
+      this.readyResolve({
+        protocolVersion: ready.protocolVersion,
+        hostVersion: ready.hostVersion,
+        capabilities: ready.capabilities,
+        ...(ready.constantsHash === undefined ? {} : { constantsHash: ready.constantsHash }),
+        navigationReplacement: ready.navigationReplacement,
+        documentGenerationMode: ready.documentGenerationMode
+      });
+      this.flushQueuedRequests();
+      return true;
+    }
+    if (message.type === "bridge.handshake.error") {
+      const handshakeError = message as unknown as BridgeHandshakeError;
+      if (handshakeError.clientInstanceId === this.clientInstanceId && this.stateValue === "connecting") {
+        this.failConnecting(toRemoteError("bridge.connect", handshakeError.error));
+      }
+      return true;
+    }
+    if (message.type === "bridge.handshake.cancelled") {
+      const cancelAck = message as unknown as BridgeHandshakeCancelAck;
+      if (cancelAck.clientInstanceId === this.clientInstanceId) this.cancelAckResolve?.();
+      return true;
+    }
+    return false;
+  }
+
+  private matchesCandidate(ready: BridgeHandshakeReady): boolean {
+    const candidate = this.candidate;
+    return this.stateValue === "connecting" && !!candidate &&
+      ready.clientInstanceId === this.clientInstanceId &&
+      ready.candidateId === candidate.candidateId &&
+      ready.documentGeneration === candidate.documentGeneration;
+  }
+
+  private flushQueuedRequests(): void {
+    for (const queued of this.queuedRequests.splice(0)) {
+      void this.sendEstablished(queued.message, queued.allowDuringDestroy).then(
+        queued.resolve,
+        queued.reject
+      );
+    }
+  }
+
+  private failConnecting(error: unknown): void {
+    if (this.stateValue !== "connecting") return;
+    this.stateValue = "failed";
+    if (this.connectionTimer) clearTimeout(this.connectionTimer);
+    this.connectionTimer = undefined;
+    this.readyReject(error);
+    for (const queued of this.queuedRequests.splice(0)) queued.reject(error);
+  }
+
+  private destroyConnecting(): Promise<void> {
+    this.destroying = true;
+    this.stateValue = "closing";
+    if (this.connectionTimer) clearTimeout(this.connectionTimer);
+    this.connectionTimer = undefined;
+    const error = codedClientError("ERR_BRIDGE_SESSION_CLOSED", "The Bridge connection was destroyed.");
+    this.readyReject(error);
+    for (const queued of this.queuedRequests.splice(0)) queued.reject(error);
+    const candidate = this.candidate;
+    const ready = this.provisionalReady;
+    const cancel: BridgeHandshakeCancel = {
+      type: "bridge.handshake.cancel",
+      clientInstanceId: this.clientInstanceId,
+      ...(candidate === undefined ? {} : {
+        candidateId: candidate.candidateId,
+        documentGeneration: candidate.documentGeneration,
+        challenge: candidate.challenge
+      }),
+      ...(ready === undefined ? {} : { bridgeSessionId: ready.bridgeSessionId })
+    };
+    this.destroyPromise = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.finishConnectingDestroy();
+        reject(codedClientError(
+          "ERR_BRIDGE_HANDSHAKE_CANCEL_UNCONFIRMED",
+          "The Host did not confirm handshake cancellation."
+        ));
+      }, 1_000);
+      this.cancelAckResolve = () => {
+        clearTimeout(timeout);
+        this.finishConnectingDestroy();
+        resolve();
+      };
+      try {
+        this.target.postMessage(cancel);
+      } catch (postError) {
+        clearTimeout(timeout);
+        this.finishConnectingDestroy();
+        reject(postError);
+      }
+    });
+    return this.destroyPromise;
+  }
+
+  private finishConnectingDestroy(): void {
+    window.removeEventListener("message", this.onMessageBound);
+    this.cancelAckResolve = undefined;
+    this.destroying = false;
+    this.destroyed = true;
+    this.stateValue = "destroyed";
+  }
+
+  private isAllowedEvent(event: MessageEvent<unknown>): boolean {
+    if (event.source && event.source !== this.target) return false;
     return isAllowedOrigin(event.origin, this.allowedOrigins);
   }
 
   private async handleCallbackInvoke(message: BridgeCallbackInvokeEnvelope): Promise<void> {
+    const bridgeSessionId = this.bridgeSessionId;
+    if (!bridgeSessionId) return;
     if (this.destroying || this.destroyed) {
       this.postCallbackError(message, new Error("The WebView bridge client is being destroyed."));
       return;
@@ -233,70 +545,52 @@ export class RpcClient {
       return;
     }
 
-    let enteredSession = false;
     try {
-      if (message.sessionId !== undefined) {
-        this.enterModalSession(message.sessionId);
-        enteredSession = true;
-      }
-      const result = await retained.callback(...message.args);
+      const invoke = () => retained.callback(...message.args);
+      const result = message.modalSessionId !== undefined && message.parentOperationId !== undefined
+        ? await this.callbackContext.run({
+          modalSessionId: message.modalSessionId,
+          callbackInvocationId: message.operationId,
+          parentOperationId: message.parentOperationId
+        }, invoke)
+        : await invoke();
       assertBridgeTransportValue(result, "bridge callback result");
       const response: BridgeCallbackSuccessEnvelope = {
         type: "bridge.callback.success",
+        bridgeSessionId,
         operationId: message.operationId,
         callbackId: message.callbackId,
-        ...(message.sessionId === undefined ? {} : { sessionId: message.sessionId }),
-        payload: result
+        ...(message.modalSessionId === undefined ? {} : { modalSessionId: message.modalSessionId }),
+        ...(message.parentOperationId === undefined ? {} : { parentOperationId: message.parentOperationId }),
+        payload: translateClientReferences(result, bridgeSessionId)
       };
       this.target.postMessage(response);
     } catch (error) {
       this.postCallbackError(message, error);
-    } finally {
-      if (enteredSession) {
-        this.leaveModalSession(message.sessionId as string);
-      }
     }
   }
 
   private postCallbackError(message: BridgeCallbackInvokeEnvelope, error: unknown): void {
+    const bridgeSessionId = this.bridgeSessionId;
+    if (!bridgeSessionId) return;
     const response: BridgeCallbackErrorEnvelope = {
       type: "bridge.callback.error",
+      bridgeSessionId,
       operationId: message.operationId,
       callbackId: message.callbackId,
-      ...(message.sessionId === undefined ? {} : { sessionId: message.sessionId }),
+      ...(message.modalSessionId === undefined ? {} : { modalSessionId: message.modalSessionId }),
+      ...(message.parentOperationId === undefined ? {} : { parentOperationId: message.parentOperationId }),
       error: serializeError(error, message.parentOperationId, message.callbackId)
     };
     this.target.postMessage(response);
-  }
-
-  private enterModalSession(sessionId: string): void {
-    if (this.activeModalSession && this.activeModalSession.sessionId !== sessionId) {
-      throw new Error(
-        `Modal session ${this.activeModalSession.sessionId} is already active; cannot enter ${sessionId}.`
-      );
-    }
-    if (this.activeModalSession) {
-      this.activeModalSession.depth += 1;
-    } else {
-      this.activeModalSession = { sessionId, depth: 1 };
-    }
-  }
-
-  private leaveModalSession(sessionId: string): void {
-    if (!this.activeModalSession || this.activeModalSession.sessionId !== sessionId) {
-      return;
-    }
-    this.activeModalSession.depth -= 1;
-    if (this.activeModalSession.depth === 0) {
-      this.activeModalSession = undefined;
-    }
   }
 
   private finishDestroy(releaseOperationId: string): void {
     window.removeEventListener("message", this.onMessageBound);
     this.destroyed = true;
     this.destroying = false;
-    this.activeModalSession = undefined;
+    this.stateValue = "destroyed";
+    this.callbackContext.invalidate();
     this.callbacks.clear();
     for (const [operationId, request] of this.pending) {
       if (operationId === releaseOperationId) {
@@ -353,7 +647,8 @@ function isBridgeResponse(message: unknown): message is BridgeResponseEnvelope {
     return false;
   }
   const candidate = message as Partial<BridgeSuccessEnvelope | BridgeErrorEnvelope>;
-  return typeof candidate.operationId === "string" &&
+  return (candidate.bridgeSessionId === undefined || typeof candidate.bridgeSessionId === "string") &&
+    typeof candidate.operationId === "string" &&
     (candidate.type === "bridge.success" || candidate.type === "bridge.error");
 }
 
@@ -363,10 +658,11 @@ function isCallbackInvoke(message: unknown): message is BridgeCallbackInvokeEnve
   }
   const candidate = message as Partial<BridgeCallbackInvokeEnvelope>;
   return candidate.type === "bridge.callback.invoke" &&
+    (candidate.bridgeSessionId === undefined || typeof candidate.bridgeSessionId === "string") &&
     typeof candidate.operationId === "string" &&
     typeof candidate.callbackId === "string" &&
     Array.isArray(candidate.args) &&
-    (candidate.sessionId === undefined || typeof candidate.sessionId === "string") &&
+    (candidate.modalSessionId === undefined || typeof candidate.modalSessionId === "string") &&
     (candidate.mode === "awaited" || candidate.mode === "listener");
 }
 
@@ -376,6 +672,7 @@ function isUnhandledError(message: unknown): message is BridgeUnhandledErrorEnve
   }
   const candidate = message as Partial<BridgeUnhandledErrorEnvelope>;
   return candidate.type === "bridge.unhandled-error" &&
+    (candidate.bridgeSessionId === undefined || typeof candidate.bridgeSessionId === "string") &&
     typeof candidate.operationId === "string" &&
     typeof candidate.error?.remoteMessage === "string";
 }
@@ -421,4 +718,58 @@ function toRemoteError(operationId: string, error: BridgeSerializedError): Bridg
     module: error.module,
     method: error.method
   });
+}
+
+function codedClientError(code: string, message: string): Error & { readonly code: string } {
+  const error = new Error(message) as Error & { code: string };
+  error.code = code;
+  return error;
+}
+
+function staleReferenceError(): Error & { readonly code: string } {
+  return codedClientError(
+    "ERR_BRIDGE_STALE_REFERENCE",
+    "Remote reference belongs to an inactive WebView client epoch."
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function matchesBridgeSession(actual: string | undefined, expected: string | undefined): boolean {
+  return actual === expected || (actual === undefined && expected === "bridge.direct");
+}
+
+function translateClientReferences(value: unknown, bridgeSessionId: string): unknown {
+  if (isSessionOwnedReference(value)) {
+    if (value.bridgeSessionId === bridgeSessionId) return value;
+    throw codedClientError(
+      "ERR_BRIDGE_STALE_REFERENCE",
+      "Remote reference belongs to a stale Bridge session."
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => translateClientReferences(entry, bridgeSessionId));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        translateClientReferences(entry, bridgeSessionId)
+      ])
+    );
+  }
+  return value;
+}
+
+function isSessionOwnedReference(value: unknown): value is {
+  readonly kind: "uxp.remote.ref" | "uxp.storage.entry";
+  readonly id: string;
+  readonly bridgeSessionId: string;
+} {
+  return isRemoteReference(value) || (
+    isRecord(value) && value.kind === "uxp.storage.entry" && typeof value.id === "string" &&
+    typeof value.bridgeSessionId === "string"
+  );
 }

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "requiredCases": [
+    "bridge.multi-webview-source-routing",
+    "bridge.multi-webview-resource-isolation",
+    "bridge.multi-webview-navigation-generation",
+    "bridge.multi-webview-modal-ordering",
+    "bridge.multi-webview-bounded-teardown"
+  ],
+  "verifiedRows": [],
+  "releaseClaim": "No Adobe UXP/Photoshop compatibility row is claimed without a non-skipped real-host run."
+}

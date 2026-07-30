@@ -1,6 +1,6 @@
 import type { BridgeCapabilityName } from "./capabilities.js";
 
-export const BRIDGE_PROTOCOL_VERSION = "0.2.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = "0.3.0" as const;
 
 export type BridgeRequestType =
   | "bridge.get"
@@ -19,19 +19,22 @@ export interface BridgeCallbackReference {
 
 export interface BridgeRequestEnvelope<TPayload = unknown> {
   readonly type: BridgeRequestType;
+  readonly bridgeSessionId: string;
   readonly operationId: string;
   readonly payload: TPayload;
-  /** Present on calls made while a Host-owned modal callback is active. */
-  readonly sessionId?: string | undefined;
+  /** Present on calls made inside one validated Host-owned modal callback invocation. */
+  readonly modalContext?: BridgeNestedModalContext | undefined;
 }
 
 export interface BridgeCancelEnvelope {
   readonly type: "bridge.cancel";
+  readonly bridgeSessionId: string;
   readonly operationId: string;
 }
 
 export interface BridgeSuccessEnvelope<TPayload = unknown> {
   readonly type: "bridge.success";
+  readonly bridgeSessionId: string;
   readonly operationId: string;
   readonly payload: TPayload;
 }
@@ -50,33 +53,45 @@ export interface BridgeSerializedError {
 
 export interface BridgeErrorEnvelope {
   readonly type: "bridge.error";
+  readonly bridgeSessionId: string;
   readonly operationId: string;
   readonly error: BridgeSerializedError;
 }
 
+export interface BridgeNestedModalContext {
+  readonly modalSessionId: string;
+  readonly callbackInvocationId: string;
+  readonly parentOperationId: string;
+}
+
 export interface BridgeCallbackInvokeEnvelope {
   readonly type: "bridge.callback.invoke";
+  readonly bridgeSessionId: string;
   readonly operationId: string;
   readonly callbackId: string;
   readonly args: readonly unknown[];
   readonly mode: BridgeCallbackInvocationMode;
   readonly parentOperationId?: string | undefined;
-  readonly sessionId?: string | undefined;
+  readonly modalSessionId?: string | undefined;
 }
 
 export interface BridgeCallbackSuccessEnvelope<TPayload = unknown> {
   readonly type: "bridge.callback.success";
+  readonly bridgeSessionId: string;
   readonly operationId: string;
   readonly callbackId: string;
-  readonly sessionId?: string | undefined;
+  readonly modalSessionId?: string | undefined;
+  readonly parentOperationId?: string | undefined;
   readonly payload: TPayload;
 }
 
 export interface BridgeCallbackErrorEnvelope {
   readonly type: "bridge.callback.error";
+  readonly bridgeSessionId: string;
   readonly operationId: string;
   readonly callbackId: string;
-  readonly sessionId?: string | undefined;
+  readonly modalSessionId?: string | undefined;
+  readonly parentOperationId?: string | undefined;
   readonly error: BridgeSerializedError;
 }
 
@@ -86,6 +101,7 @@ export type BridgeCallbackResultEnvelope<TPayload = unknown> =
 
 export interface BridgeUnhandledErrorEnvelope {
   readonly type: "bridge.unhandled-error";
+  readonly bridgeSessionId: string;
   readonly operationId: string;
   readonly error: BridgeSerializedError;
 }
@@ -93,6 +109,53 @@ export interface BridgeUnhandledErrorEnvelope {
 export type BridgeResponseEnvelope<TPayload = unknown> =
   | BridgeSuccessEnvelope<TPayload>
   | BridgeErrorEnvelope;
+
+const POST_HANDSHAKE_TYPES = new Set<string>([
+  "bridge.get",
+  "bridge.set",
+  "bridge.call",
+  "bridge.flush",
+  "bridge.dispose",
+  "bridge.release-all",
+  "bridge.cancel",
+  "bridge.success",
+  "bridge.error",
+  "bridge.callback.invoke",
+  "bridge.callback.success",
+  "bridge.callback.error",
+  "bridge.unhandled-error"
+]);
+
+/** Minimal owner/discriminator validation performed before any lookup or native loading. */
+export function isBridgeSessionEnvelope(value: unknown): value is { readonly bridgeSessionId: string } {
+  if (!isPlainRecord(value) || typeof value.type !== "string" || !POST_HANDSHAKE_TYPES.has(value.type)) {
+    return false;
+  }
+  if ("sessionId" in value || typeof value.bridgeSessionId !== "string" || value.bridgeSessionId.length === 0) {
+    return false;
+  }
+  if (typeof value.operationId !== "string" || value.operationId.length === 0) {
+    return false;
+  }
+  if (value.modalContext !== undefined && !isBridgeNestedModalContext(value.modalContext)) {
+    return false;
+  }
+  return true;
+}
+
+export function isBridgeNestedModalContext(value: unknown): value is BridgeNestedModalContext {
+  return isPlainRecord(value) &&
+    Object.keys(value).length === 3 &&
+    typeof value.modalSessionId === "string" &&
+    typeof value.callbackInvocationId === "string" &&
+    typeof value.parentOperationId === "string";
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Reflect.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
 
 export function isBridgeCallbackReference(value: unknown): value is BridgeCallbackReference {
   if (!value || typeof value !== "object") {

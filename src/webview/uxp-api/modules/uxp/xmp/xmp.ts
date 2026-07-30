@@ -482,15 +482,15 @@ function createXmpContext(rpc: XmpRpc): XmpContext {
   }
 
   function getOrCreateMeta(reference: RemoteReference): XMPMeta {
-    return metaCache.getOrCreate(reference.id, () => new WebviewXMPMeta(undefined, undefined, reference));
+    return metaCache.getOrCreate(`${reference.bridgeSessionId}\u0000${reference.id}`, () => new WebviewXMPMeta(undefined, undefined, reference));
   }
 
   function getOrCreateDateTime(reference: RemoteReference): XMPDateTime {
-    return dateTimeCache.getOrCreate(reference.id, () => new WebviewXMPDateTime(undefined, reference));
+    return dateTimeCache.getOrCreate(`${reference.bridgeSessionId}\u0000${reference.id}`, () => new WebviewXMPDateTime(undefined, reference));
   }
 
   function getOrCreateIterator(reference: RemoteReference): XMPIterator {
-    return iteratorCache.getOrCreate(reference.id, () => new WebviewXMPIterator(reference));
+    return iteratorCache.getOrCreate(`${reference.bridgeSessionId}\u0000${reference.id}`, () => new WebviewXMPIterator(reference));
   }
 
   const XMPUtilsProxy = createXMPUtils(rpc, argEncoders);
@@ -607,6 +607,11 @@ function trimTrailingUndefined(values: unknown[]): unknown[] {
 
 export const xmp: UxpXmp =
   createUxpXmpNamespace({
+    get bridgeSessionId() {
+      return getBridgeRpcClient().activeBridgeSessionId ?? "bridge.connecting";
+    },
+    bindReference: (reference) => getBridgeRpcClient().bindReference(reference),
+    assertReferenceActive: (reference) => getBridgeRpcClient().assertReferenceActive(reference),
     call: <T>(module: string, method: string, args?: readonly unknown[]) =>
       getBridgeRpcClient().call<T>(module, method, args)
   });

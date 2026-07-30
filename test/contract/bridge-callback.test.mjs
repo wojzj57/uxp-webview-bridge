@@ -55,7 +55,7 @@ test("WebView ignores callback messages from untrusted origins and sources", asy
     await delay(0);
     assert.equal(calls, 0);
 
-    bus.dispatchToClient(invoke, bus.clientTarget, "com.uxpwebviewbridge.test");
+    bus.dispatchToClient(invoke, bus.clientTarget, "plugin://test");
     await waitFor(() => calls === 1);
 
     bus.dispatchToClient(invoke, null, "plugin://test");
@@ -379,11 +379,17 @@ test("configWebviewBridge requires awaited teardown before reconfiguration", asy
   };
   const target = {
     postMessage(message) {
-      if (message.type !== "bridge.release-all") return;
+      const reply = handshakeReply(message);
+      if (!reply && message.type !== "bridge.release-all") return;
       queueMicrotask(() => {
         for (const listener of [...listeners]) {
           listener({
-            data: { type: "bridge.success", operationId: message.operationId, payload: undefined },
+            data: reply ?? {
+              type: "bridge.success",
+              bridgeSessionId: message.bridgeSessionId,
+              operationId: message.operationId,
+              payload: undefined
+            },
             origin: "plugin://test",
             source: null
           });
@@ -407,6 +413,46 @@ test("configWebviewBridge requires awaited teardown before reconfiguration", asy
     else globalThis.window = originalWindow;
   }
 });
+
+function handshakeReply(message) {
+  if (message.type === "bridge.hello") return {
+    type: "bridge.handshake.challenge",
+    clientInstanceId: message.clientInstanceId,
+    candidateId: `candidate-${message.clientInstanceId}`,
+    documentGeneration: 0,
+    challenge: `challenge-${message.clientInstanceId}`,
+    expiresAt: Date.now() + 10_000
+  };
+  if (message.type === "bridge.handshake.ack") return {
+    type: "bridge.ready",
+    clientInstanceId: message.clientInstanceId,
+    candidateId: message.candidateId,
+    documentGeneration: message.documentGeneration,
+    bridgeSessionId: `session-${message.clientInstanceId}`,
+    readyNonce: `ready-${message.clientInstanceId}`,
+    protocolVersion: "0.3.0",
+    hostVersion: "test",
+    capabilities: [],
+    navigationReplacement: "unsupported",
+    documentGenerationMode: "unsupported"
+  };
+  if (message.type === "bridge.ready.ack") return {
+    type: "bridge.established",
+    clientInstanceId: message.clientInstanceId,
+    candidateId: message.candidateId,
+    documentGeneration: message.documentGeneration,
+    bridgeSessionId: message.bridgeSessionId
+  };
+  if (message.type === "bridge.handshake.cancel") return {
+    type: "bridge.handshake.cancelled",
+    clientInstanceId: message.clientInstanceId,
+    candidateId: message.candidateId,
+    documentGeneration: message.documentGeneration,
+    bridgeSessionId: message.bridgeSessionId,
+    disposition: "active-session-close-started",
+    cleanup: "completed"
+  };
+}
 
 async function createBridge(adapter, options = {}) {
   const bus = installMessageBus();

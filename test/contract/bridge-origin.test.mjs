@@ -21,7 +21,7 @@ test("configUxpBridge accepts built-in plugin and loopback origins by default", 
   const environment = installHostEnvironment();
 
   try {
-    const { configUxpBridge } = await import(uxpEntrypoint);
+    const { configUxpBridge } = await import(`${uxpEntrypoint}?case=default-origins`);
     const runtime = configUxpBridge({ webview: environment.webview });
 
     for (const [index, origin] of defaultOrigins.entries()) {
@@ -71,7 +71,7 @@ test("configUxpBridge appends exact allowed origins without replacing defaults",
   const environment = installHostEnvironment();
 
   try {
-    const { configUxpBridge } = await import(uxpEntrypoint);
+    const { configUxpBridge } = await import(`${uxpEntrypoint}?case=custom-origin`);
     const runtime = configUxpBridge({
       webview: environment.webview,
       allowedOrigins: ["https://app.example.com"]
@@ -153,7 +153,49 @@ function installHostEnvironment() {
   const originalLog = console.log;
   const listeners = new Set();
   const posted = [];
-  const webview = { postMessage: (message) => posted.push(message) };
+  let currentOrigin;
+  let currentClient;
+  const webview = { postMessage(message) {
+    if (message.type === "bridge.handshake.challenge") {
+      queueMicrotask(() => dispatchHost({
+        type: "bridge.handshake.ack",
+        clientInstanceId: message.clientInstanceId,
+        candidateId: message.candidateId,
+        documentGeneration: message.documentGeneration,
+        challenge: message.challenge
+      }, currentOrigin));
+      return;
+    }
+    if (message.type === "bridge.ready") {
+      queueMicrotask(() => dispatchHost({
+        type: "bridge.ready.ack",
+        clientInstanceId: message.clientInstanceId,
+        candidateId: message.candidateId,
+        documentGeneration: message.documentGeneration,
+        bridgeSessionId: message.bridgeSessionId,
+        readyNonce: message.readyNonce
+      }, currentOrigin));
+      return;
+    }
+    if (message.type === "bridge.established") {
+      queueMicrotask(() => {
+        dispatchHost({
+          type: "bridge.session.confirm",
+          bridgeSessionId: message.bridgeSessionId,
+          clientInstanceId: message.clientInstanceId,
+          documentGeneration: message.documentGeneration
+        }, currentOrigin);
+        dispatchHost({
+          type: "bridge.release-all",
+          bridgeSessionId: message.bridgeSessionId,
+          operationId: `release-${currentOrigin}`,
+          payload: {}
+        }, currentOrigin);
+      });
+      return;
+    }
+    posted.push(message);
+  } };
 
   globalThis.window = {
     addEventListener(type, listener) {
@@ -169,13 +211,16 @@ function installHostEnvironment() {
     posted,
     webview,
     dispatchReleaseAll(origin) {
-      for (const listener of listeners) {
-        listener({
-          data: { type: "bridge.release-all", operationId: `release-${origin}`, payload: {} },
-          origin,
-          source: webview
-        });
-      }
+      setTimeout(() => {
+        currentOrigin = origin;
+        currentClient = `origin-client-${Math.random()}`;
+        dispatchHost({
+          type: "bridge.hello",
+          protocolVersion: "0.3.0",
+          clientVersion: "test",
+          clientInstanceId: currentClient
+        }, origin);
+      }, 0);
     },
     restore() {
       console.log = originalLog;
@@ -183,6 +228,10 @@ function installHostEnvironment() {
       else globalThis.window = originalWindow;
     }
   };
+
+  function dispatchHost(data, origin) {
+    for (const listener of listeners) listener({ data, origin, source: webview });
+  }
 }
 
 function installClientEnvironment() {
@@ -199,10 +248,47 @@ function installClientEnvironment() {
   const target = {
     postMessage(message) {
       posted.push(message);
+      if (message.type === "bridge.hello") {
+        dispatch({
+          type: "bridge.handshake.challenge",
+          clientInstanceId: message.clientInstanceId,
+          candidateId: `candidate-${message.clientInstanceId}`,
+          documentGeneration: 0,
+          challenge: "origin-challenge",
+          expiresAt: Date.now() + 10_000
+        }, "plugin://test", target);
+      } else if (message.type === "bridge.handshake.ack") {
+        dispatch({
+          type: "bridge.ready",
+          clientInstanceId: message.clientInstanceId,
+          candidateId: message.candidateId,
+          documentGeneration: message.documentGeneration,
+          bridgeSessionId: `session-${message.clientInstanceId}`,
+          readyNonce: "origin-ready",
+          protocolVersion: "0.3.0",
+          hostVersion: "test",
+          capabilities: ["os"],
+          navigationReplacement: "unsupported",
+          documentGenerationMode: "unsupported"
+        }, "plugin://test", target);
+      } else if (message.type === "bridge.ready.ack") {
+        dispatch({
+          type: "bridge.established",
+          clientInstanceId: message.clientInstanceId,
+          candidateId: message.candidateId,
+          documentGeneration: message.documentGeneration,
+          bridgeSessionId: message.bridgeSessionId
+        }, "plugin://test", target);
+      }
       if (message.type === "bridge.release-all") {
         queueMicrotask(() => {
           dispatch(
-            { type: "bridge.success", operationId: message.operationId, payload: undefined },
+            {
+              type: "bridge.success",
+              bridgeSessionId: message.bridgeSessionId,
+              operationId: message.operationId,
+              payload: undefined
+            },
             "plugin://test",
             target
           );
@@ -226,7 +312,12 @@ function installClientEnvironment() {
     respondToLatest(origin, payload) {
       const request = posted.findLast((message) => message.type === "bridge.call");
       assert.ok(request, "Expected a bridge.call request.");
-      dispatch({ type: "bridge.success", operationId: request.operationId, payload }, origin);
+      dispatch({
+        type: "bridge.success",
+        bridgeSessionId: request.bridgeSessionId,
+        operationId: request.operationId,
+        payload
+      }, origin, target);
     },
     restore() {
       console.log = originalLog;

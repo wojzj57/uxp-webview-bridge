@@ -145,6 +145,7 @@ export interface UxpStorageEntryReference {
   readonly kind: "uxp.storage.entry";
   readonly type: UxpStorageEntryType;
   readonly id: string;
+  readonly bridgeSessionId: string;
   readonly entry: UxpStorageSerializedEntry;
 }
 
@@ -153,7 +154,8 @@ export function isUxpStorageEntryReference(value: unknown): value is UxpStorageE
   const candidate = value as Partial<UxpStorageEntryReference>;
   return candidate.kind === "uxp.storage.entry"
     && (candidate.type === "entry" || candidate.type === "file" || candidate.type === "folder")
-    && typeof candidate.id === "string";
+    && typeof candidate.id === "string"
+    && typeof candidate.bridgeSessionId === "string";
 }
 
 export interface UxpStorageSerializedEntryMetadata {

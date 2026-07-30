@@ -59,7 +59,11 @@ test("WebView RPC client posts a bridge.cancel envelope", async () => {
     try {
       client.cancel("op-123");
       assert.equal(posted.length, 1);
-      assert.deepEqual(posted[0], { type: "bridge.cancel", operationId: "op-123" });
+      assert.deepEqual(posted[0], {
+        type: "bridge.cancel",
+        bridgeSessionId: "bridge.direct",
+        operationId: "op-123"
+      });
     } finally {
       await client.destroy().catch(() => {});
     }

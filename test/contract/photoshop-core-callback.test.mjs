@@ -195,7 +195,7 @@ function createCallbackBridge(callbacksById = new Map()) {
       const sessionId = "modal-session";
       activeModalSessionId = sessionId;
       return {
-        sessionId,
+        modalSessionId: sessionId,
         invoke(reference, args) {
           return Promise.resolve(callbacksById.get(reference.callbackId)(...args));
         },

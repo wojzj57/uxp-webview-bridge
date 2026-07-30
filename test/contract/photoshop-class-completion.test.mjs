@@ -9,7 +9,7 @@ const solidColorModule = "../../dist/webview/photoshop-api/modules/photoshop/sol
 const hostModule = "../../dist/uxp/photoshop-api/modules/photoshop/host.js";
 const storageHostModule = "../../dist/uxp/uxp-api/modules/uxp/persistent-file-storage/host.js";
 
-const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id });
+const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id, bridgeSessionId: "bridge.direct" });
 const snapshot = (memberKind, owner, memberIds) => ({ kind: "uxp.photoshop.snapshot", memberKind, owner, memberIds });
 
 const LAYER_PROPERTIES = [

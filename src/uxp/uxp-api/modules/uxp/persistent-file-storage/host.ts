@@ -19,13 +19,23 @@ import type {
 
 declare const require: (moduleName: "uxp") => UxpPersistentFileStorageHostModule;
 
+const PERSISTENT_FILE_STORAGE_HANDLE_TTL_MS = 10 * 60 * 1000;
+
+export interface UxpPersistentFileStorageOwner {
+  dispatch(method: UxpPersistentFileStorageMethodName, args: readonly unknown[]): unknown;
+  resolve(reference: unknown, expectedType?: UxpStorageEntryType): unknown;
+  destroy(): void;
+}
+
+export function createUxpPersistentFileStorageOwner(
+  bridgeSessionId: string
+): UxpPersistentFileStorageOwner {
 const PERSISTENT_FILE_STORAGE_HANDLES = new Map<string, UxpPersistentFileStorageHandle>();
 const PERSISTENT_FILE_STORAGE_HANDLE_IDS = new WeakMap<object, string>();
-const PERSISTENT_FILE_STORAGE_HANDLE_TTL_MS = 10 * 60 * 1000;
 let nextPersistentFileStorageHandleId = 1;
 let persistentFileStorageApi: UxpPersistentFileStorageHostModule["storage"] | undefined;
 
-export function dispatchUxpPersistentFileStorageCall(
+function dispatchUxpPersistentFileStorageCall(
   method: UxpPersistentFileStorageMethodName,
   args: readonly unknown[]
 ): unknown {
@@ -96,13 +106,13 @@ export function dispatchUxpPersistentFileStorageCall(
   }
 }
 
-export function destroyUxpPersistentFileStorageHandles(): void {
+function destroyUxpPersistentFileStorageHandles(): void {
   PERSISTENT_FILE_STORAGE_HANDLES.clear();
   persistentFileStorageApi = undefined;
 }
 
 /** Resolve a storage entry for another UXP-host adapter, such as Photoshop `app.open`. */
-export function resolveUxpStorageEntryReference(
+function resolveUxpStorageEntryReference(
   reference: unknown,
   expectedType: UxpStorageEntryType = "entry"
 ): unknown {
@@ -311,6 +321,7 @@ function serializeEntry(value: unknown, expectedType?: UxpStorageEntryType): Uxp
     kind: "uxp.storage.entry",
     type,
     id,
+    bridgeSessionId,
     entry: serializeEntrySnapshot(value, type)
   };
 }
@@ -381,9 +392,14 @@ function assertEntryReference(value: unknown, label: string): UxpStorageEntryRef
   if (
     candidate.kind !== "uxp.storage.entry" ||
     typeof candidate.id !== "string" ||
+    candidate.bridgeSessionId !== bridgeSessionId ||
     (candidate.type !== "entry" && candidate.type !== "file" && candidate.type !== "folder")
   ) {
-    throw new Error(`${label} must be a UXP storage Entry reference.`);
+    const error = new Error(`${label} must be a UXP storage Entry reference owned by the current session.`) as Error & {
+      code: string;
+    };
+    error.code = "ERR_BRIDGE_STALE_REFERENCE";
+    throw error;
   }
   return candidate as UxpStorageEntryReference;
 }
@@ -530,4 +546,31 @@ function pruneExpiredHandles(): void {
 
 function assertNever(method: never): never {
   throw new Error(`Unsupported uxp persistent-file-storage method: ${String(method)}`);
+}
+
+return {
+  dispatch: dispatchUxpPersistentFileStorageCall,
+  resolve: resolveUxpStorageEntryReference,
+  destroy: destroyUxpPersistentFileStorageHandles
+};
+}
+
+const defaultPersistentFileStorageOwner = createUxpPersistentFileStorageOwner("bridge.direct");
+
+export function dispatchUxpPersistentFileStorageCall(
+  method: UxpPersistentFileStorageMethodName,
+  args: readonly unknown[]
+): unknown {
+  return defaultPersistentFileStorageOwner.dispatch(method, args);
+}
+
+export function destroyUxpPersistentFileStorageHandles(): void {
+  defaultPersistentFileStorageOwner.destroy();
+}
+
+export function resolveUxpStorageEntryReference(
+  reference: unknown,
+  expectedType: UxpStorageEntryType = "entry"
+): unknown {
+  return defaultPersistentFileStorageOwner.resolve(reference, expectedType);
 }

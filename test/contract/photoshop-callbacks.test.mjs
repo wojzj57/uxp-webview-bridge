@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 const namespaceModule = "../../dist/webview/photoshop-api/modules/photoshop/photoshop.js";
 const hostModule = "../../dist/uxp/photoshop-api/modules/photoshop/host.js";
-const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id });
+const ref = (type, id) => ({ kind: "uxp.remote.ref", type, id, bridgeSessionId: "bridge.direct" });
 const callbackRef = (callbackId) => ({ kind: "bridge.callback.ref", callbackId });
 
 test("photoshop callbacks retain stable refs, isolate callback scope, and expose a complete suspendHistory facade", async () => {
@@ -203,8 +203,8 @@ test("Photoshop host listeners clean up natively and suspendHistory nested calls
     openModalSession() {
       activeSessionId = "session-1";
       return {
-        sessionId: activeSessionId,
-        invoke: (reference, args) => callbacksBridge.invoke(reference, args, { sessionId: activeSessionId }),
+        modalSessionId: activeSessionId,
+        invoke: (reference, args) => callbacksBridge.invoke(reference, args, { modalSessionId: activeSessionId }),
         async close() { activeSessionId = undefined; }
       };
     }

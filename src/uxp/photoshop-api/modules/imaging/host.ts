@@ -32,6 +32,7 @@ import {
 import { serializeValue } from "@shared/photoshop-api/value-objects.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 import {
+  assertPhotoshopExecutionClass,
   fixedCapability,
   type UxpDispatchContext,
   type UxpModuleAdapter
@@ -45,51 +46,87 @@ import type {
 
 declare const require: (moduleName: "photoshop") => PhotoshopImagingHostModule;
 
-const imagingRegistry = createRemoteHandleRegistry();
+interface ImagingAdapterState {
+  readonly registry: ReturnType<typeof createRemoteHandleRegistry>;
+  readonly resources: Set<PhotoshopImageDataLike>;
+}
+
+function createImagingAdapterState(bridgeSessionId = "bridge.direct"): ImagingAdapterState {
+  return { registry: createRemoteHandleRegistry({ bridgeSessionId }), resources: new Set() };
+}
+
+export function createImagingModuleAdapter(bridgeSessionId: string): UxpModuleAdapter {
+  const state = createImagingAdapterState(bridgeSessionId);
+  return {
+    moduleId: PHOTOSHOP_IMAGING_MODULE_ID,
+    resolveCapability: fixedCapability("photoshop.imaging", assertPhotoshopImagingMethodName),
+    dispatch: (method, args, context) => dispatchImagingCall(method, args, context, state),
+    destroy: () => destroyImagingHandles(state)
+  };
+}
+
+const defaultImagingState = createImagingAdapterState();
 
 export const imagingModuleAdapter: UxpModuleAdapter = {
   moduleId: PHOTOSHOP_IMAGING_MODULE_ID,
   resolveCapability: fixedCapability("photoshop.imaging", assertPhotoshopImagingMethodName),
-  dispatch: (method, args, context) => dispatchImagingCall(method, args, context),
-  destroy: destroyImagingHandles
+  dispatch: (method, args, context) => dispatchImagingCall(method, args, context, defaultImagingState),
+  destroy: () => destroyImagingHandles(defaultImagingState)
 };
 
 export function dispatchImagingCall(
   method: string,
   args: readonly unknown[],
-  context?: UxpDispatchContext
+  context?: UxpDispatchContext,
+  state: ImagingAdapterState = defaultImagingState
 ): unknown {
   assertPhotoshopImagingMethodName(method);
-  imagingRegistry.prune();
+  state.registry.prune();
 
   switch (method) {
     case "imaging.getPixels":
-      return dispatchGetPixels(args, context);
+      return dispatchGetPixels(args, context, state);
     case "imaging.getLayerMask":
-      return dispatchRead("imaging.getLayerMask", "getLayerMask", args, context);
+      return dispatchRead("imaging.getLayerMask", "getLayerMask", args, context, state);
     case "imaging.getSelection":
-      return dispatchRead("imaging.getSelection", "getSelection", args, context);
+      return dispatchRead("imaging.getSelection", "getSelection", args, context, state);
     case "imaging.putPixels":
-      return dispatchPut("imaging.putPixels", "putPixels", args, context);
+      return dispatchPut("imaging.putPixels", "putPixels", args, context, state);
     case "imaging.putLayerMask":
-      return dispatchPut("imaging.putLayerMask", "putLayerMask", args, context);
+      return dispatchPut("imaging.putLayerMask", "putLayerMask", args, context, state);
     case "imaging.putSelection":
-      return dispatchPut("imaging.putSelection", "putSelection", args, context);
+      return dispatchPut("imaging.putSelection", "putSelection", args, context, state);
     case "imaging.createImageDataFromBuffer":
-      return dispatchCreateImageDataFromBuffer(args, context);
+      return dispatchCreateImageDataFromBuffer(args, context, state);
     case "imaging.encodeImageData":
-      return dispatchEncodeImageData(args);
+      return dispatchEncodeImageData(args, state);
     case "imaging.imageData.getData":
-      return dispatchGetData(args);
+      return dispatchGetData(args, state);
     case "imaging.imageData.dispose":
-      return dispatchDispose(args);
+      return dispatchDispose(args, state);
     default:
       return unsupported(method);
   }
 }
 
-export function destroyImagingHandles(): void {
-  imagingRegistry.clear();
+export async function destroyImagingHandles(state: ImagingAdapterState = defaultImagingState): Promise<void> {
+  const failures: unknown[] = [];
+  await Promise.all([...state.resources].map(async (resource) => {
+    try {
+      await resource.dispose();
+    } catch (error) {
+      failures.push(error);
+    }
+  }));
+  state.resources.clear();
+  state.registry.clear();
+  if (failures.length > 0) {
+    const error = new Error(`Failed to dispose ${failures.length} Photoshop image resource(s).`) as Error & {
+      failures: readonly unknown[];
+    };
+    error.failures = failures;
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------- reads
@@ -98,12 +135,12 @@ export function destroyImagingHandles(): void {
  * `getPixels` returns `{ imageData, sourceBounds, level }`. The imageData is registered as a handle;
  * `sourceBounds`/`level` are copied through verbatim so the WebView result mirrors Adobe's shape.
  */
-function dispatchGetPixels(args: readonly unknown[], context?: UxpDispatchContext): Promise<unknown> {
+function dispatchGetPixels(args: readonly unknown[], context: UxpDispatchContext | undefined, state: ImagingAdapterState): Promise<unknown> {
   const options = expectOptions(args, "imaging.getPixels");
   return executeAsModal("imaging.getPixels", () => getImaging().getPixels(options), context).then((result) => {
     const read = asReadResult(result, "imaging.getPixels");
     return {
-      ...serializeImageData(read.imageData),
+      ...serializeImageData(read.imageData, state),
       sourceBounds: read.sourceBounds,
       level: read.level
     };
@@ -115,12 +152,13 @@ function dispatchRead(
   method: PhotoshopImagingMethodName,
   apiMethod: "getLayerMask" | "getSelection",
   args: readonly unknown[],
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: ImagingAdapterState
 ): Promise<unknown> {
   const options = expectOptions(args, method);
   return executeAsModal(method, () => getImaging()[apiMethod](options), context).then((result) => {
     const read = asReadResult(result, method);
-    return { ...serializeImageData(read.imageData), sourceBounds: read.sourceBounds };
+    return { ...serializeImageData(read.imageData, state), sourceBounds: read.sourceBounds };
   });
 }
 
@@ -135,10 +173,11 @@ function dispatchPut(
   method: PhotoshopImagingMethodName,
   apiMethod: "putPixels" | "putLayerMask" | "putSelection",
   args: readonly unknown[],
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: ImagingAdapterState
 ): Promise<unknown> {
   const options = expectOptions(args, method);
-  const resolved = resolveImageDataOption(options, method);
+  const resolved = resolveImageDataOption(options, method, state);
   return executeAsModal(method, () => getImaging()[apiMethod](resolved), context).then(() => undefined);
 }
 
@@ -150,7 +189,8 @@ function dispatchPut(
  */
 function dispatchCreateImageDataFromBuffer(
   args: readonly unknown[],
-  context?: UxpDispatchContext
+  context: UxpDispatchContext | undefined,
+  state: ImagingAdapterState
 ): Promise<unknown> {
   expectArgs(args, 2, 2, "imaging.createImageDataFromBuffer");
   const [transport, options] = args;
@@ -163,30 +203,30 @@ function dispatchCreateImageDataFromBuffer(
     "imaging.createImageDataFromBuffer",
     () => getImaging().createImageDataFromBuffer(bytes, optionsRecord),
     context
-  ).then((imageData) => serializeImageData(imageData));
+  ).then((imageData) => serializeImageData(imageData, state));
 }
 
 /** `encodeImageData` resolves its handle then returns the raw base64/number[] result verbatim. */
-function dispatchEncodeImageData(args: readonly unknown[]): Promise<number[] | string> {
+function dispatchEncodeImageData(args: readonly unknown[], state: ImagingAdapterState): Promise<number[] | string> {
   const options = expectOptions(args, "imaging.encodeImageData");
-  const resolved = resolveImageDataOption(options, "imaging.encodeImageData");
+  const resolved = resolveImageDataOption(options, "imaging.encodeImageData", state);
   return getImaging().encodeImageData(resolved);
 }
 
 // ---------------------------------------------------------------------------- handle methods
 
 /** `imaging.imageData.getData` resolves the handle, reads pixels, and envelopes the bytes. */
-function dispatchGetData(args: readonly unknown[]): Promise<BinaryTransportData> {
+function dispatchGetData(args: readonly unknown[], state: ImagingAdapterState): Promise<BinaryTransportData> {
   expectArgs(args, 1, 2, "imaging.imageData.getData");
   const [reference, options] = args;
-  const imageData = getImageData(reference, "imaging.imageData.getData");
+  const imageData = getImageData(reference, "imaging.imageData.getData", state);
   return Promise.resolve(imageData.getData(options)).then((data) =>
     bytesToTransport(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))
   );
 }
 
 /** `imaging.imageData.dispose` drops the handle and disposes the native imageData if it supports it. */
-function dispatchDispose(args: readonly unknown[]): Promise<void> {
+function dispatchDispose(args: readonly unknown[], state: ImagingAdapterState): Promise<void> {
   expectArgs(args, 1, 1, "imaging.imageData.dispose");
   const [reference] = args;
   if (!isRemoteReference(reference)) {
@@ -195,13 +235,14 @@ function dispatchDispose(args: readonly unknown[]): Promise<void> {
   // Best-effort native dispose before dropping the handle; some hosts free lazily.
   let native: PhotoshopImageDataLike | undefined;
   try {
-    native = imagingRegistry.resolve(reference, PS_IMAGE_DATA_TYPE) as PhotoshopImageDataLike;
+    native = state.registry.resolve(reference, PS_IMAGE_DATA_TYPE) as PhotoshopImageDataLike;
   } catch {
     native = undefined;
   }
   const disposed = native ? Promise.resolve(native.dispose()).catch(() => undefined) : Promise.resolve();
   return disposed.then(() => {
-    imagingRegistry.dispose(reference);
+    if (native) state.resources.delete(native);
+    state.registry.dispose(reference);
     return undefined;
   });
 }
@@ -213,11 +254,12 @@ function dispatchDispose(args: readonly unknown[]): Promise<void> {
  * immutable metadata value snapshot. Each read produces a distinct buffer, so a new handle id is
  * always allocated (`register`, not `getOrCreate` — there is no stable domain id to dedup on).
  */
-function serializeImageData(imageData: PhotoshopImageDataLike): {
+function serializeImageData(imageData: PhotoshopImageDataLike, state: ImagingAdapterState): {
   imageData: RemoteReference;
   metadata: unknown;
 } {
-  const reference = imagingRegistry.register(PS_IMAGE_DATA_TYPE, imageData);
+  const reference = state.registry.register(PS_IMAGE_DATA_TYPE, imageData);
+  state.resources.add(imageData);
   const metadata = serializeValue(IMAGE_DATA_METADATA_VALUE_KIND, imageData);
   return { imageData: reference, metadata };
 }
@@ -229,17 +271,17 @@ function serializeImageData(imageData: PhotoshopImageDataLike): {
  * path carries the handle in the same field; the returned object is otherwise the caller's options
  * verbatim so Adobe honors `replace`/`targetBounds`/`commandName`/etc.
  */
-function resolveImageDataOption(options: Record<string, unknown>, method: string): Record<string, unknown> {
+function resolveImageDataOption(options: Record<string, unknown>, method: string, state: ImagingAdapterState): Record<string, unknown> {
   const reference = options.imageData;
-  const imageData = getImageData(reference, method);
+  const imageData = getImageData(reference, method, state);
   return { ...options, imageData };
 }
 
-function getImageData(reference: unknown, method: string): PhotoshopImageDataLike {
+function getImageData(reference: unknown, method: string, state: ImagingAdapterState): PhotoshopImageDataLike {
   if (!isRemoteReference(reference)) {
     throw new Error(`${method} requires a PsImageData reference.`);
   }
-  return imagingRegistry.resolve(reference, PS_IMAGE_DATA_TYPE) as PhotoshopImageDataLike;
+  return state.registry.resolve(reference, PS_IMAGE_DATA_TYPE) as PhotoshopImageDataLike;
 }
 
 function asReadResult(result: unknown, method: string): ImagingReadResultLike {
@@ -279,11 +321,20 @@ function executeAsModal<T>(
   fn: () => T | Promise<T>,
   context?: UxpDispatchContext
 ): Promise<T> {
+  assertPhotoshopExecutionClass(context, "modal-aware-mutation");
   if (
     context?.modalSessionId !== undefined &&
     context.modalSessionId === context.callbacks.activeModalSessionId
   ) {
     return Promise.resolve().then(fn);
+  }
+  if (context?.modalCoordinator && context.bridgeSessionId && context.signal) {
+    return context.modalCoordinator.run({
+      bridgeSessionId: context.bridgeSessionId,
+      operationId: context.operationId,
+      signal: context.signal,
+      execute: () => getPhotoshop().core.executeAsModal(async () => fn(), { commandName })
+    });
   }
   return getPhotoshop().core.executeAsModal(async () => fn(), { commandName });
 }

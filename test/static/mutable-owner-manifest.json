@@ -1,0 +1,262 @@
+[
+  {
+    "file": "src/uxp/index.ts",
+    "symbol": "bridgeOwnedModalCoordinator",
+    "classification": "shared-coordinator"
+  },
+  {
+    "file": "src/uxp/index.ts",
+    "symbol": "hostRouter",
+    "classification": "shared-coordinator"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/core/host.ts",
+    "symbol": "defaultCoreState",
+    "classification": "candidate-session-owner"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/imaging/host.ts",
+    "symbol": "defaultImagingState",
+    "classification": "candidate-session-owner"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "ACTION_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "ACTION_SET_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "APP_READABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "APP_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "APP_WRITABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "CHANNEL_MUTATING_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "CHANNEL_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "CHANNEL_WRITABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "CHANNEL_WRITABLE_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "CHARACTER_STYLE_PROPERTIES",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "COLOR_SAMPLER_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "COUNT_ITEM_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "COUNT_ITEMS_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "DOCUMENT_MUTATING_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "DOCUMENT_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "DOCUMENT_WRITABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "DOCUMENT_WRITABLE_COLLECTIONS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "DOCUMENT_WRITABLE_REFS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "DOCUMENT_WRITABLE_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "GUIDE_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "GUIDE_WRITABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "HISTORY_STATE_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "LAYER_COMP_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "LAYER_COMP_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "LAYER_COMP_WRITABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "LAYER_COMPS_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "LAYER_MUTATING_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "LAYER_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "LAYER_WRITABLE_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "PARAGRAPH_STYLE_PROPERTIES",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "PATH_ITEM_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "PATH_ITEM_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "PATH_ITEM_WRITABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "PATH_POINT_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "SELECTION_MUTATING_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "SELECTION_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "SUB_PATH_ITEM_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "TEXT_FONT_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "TEXT_ITEM_METHODS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "TEXT_ITEM_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "TEXT_ITEM_WRITABLE",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "TEXT_WARP_STYLE_PROPERTIES",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-api/modules/photoshop/host.ts",
+    "symbol": "TOOL_SCALARS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-execution-catalog.ts",
+    "symbol": "catalog",
+    "classification": "candidate-session-owner"
+  },
+  {
+    "file": "src/uxp/photoshop-execution-catalog.ts",
+    "symbol": "CORE_MUTATIONS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/photoshop-execution-catalog.ts",
+    "symbol": "IMAGING_LOCAL_READS",
+    "classification": "immutable-catalog"
+  },
+  {
+    "file": "src/uxp/uxp-api/modules/uxp/host.ts",
+    "symbol": "defaultState",
+    "classification": "candidate-session-owner"
+  },
+  {
+    "file": "src/uxp/uxp-api/modules/uxp/xmp/host.ts",
+    "symbol": "defaultState",
+    "classification": "candidate-session-owner"
+  }
+]

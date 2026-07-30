@@ -32,6 +32,7 @@ test("configWebviewBridge logs successful configuration", async () => {
     const runtime = configWebviewBridge({ target: environment.target });
 
     assert.deepEqual(environment.logs, [["[uxp-webview-bridge] WebView bridge configured."]]);
+    await runtime.ready;
     await runtime.destroy();
   } finally {
     environment.restore();
@@ -103,6 +104,7 @@ test("WebView RPC namespaces require reconfiguration after destroy", async () =>
   try {
     const { configWebviewBridge, os } = await import(webviewEntrypoint);
     const runtime = configWebviewBridge({ target: environment.target });
+    await runtime.ready;
     await runtime.destroy();
 
     assert.throws(() => os.platform(), configurationError);
@@ -116,6 +118,17 @@ function installRuntimeEnvironment() {
   const originalLog = console.log;
   const listeners = new Set();
   const logs = [];
+  const candidateId = "candidate-test";
+  const bridgeSessionId = "session-test";
+  const readyNonce = "nonce-test";
+
+  function dispatch(data) {
+    queueMicrotask(() => {
+      for (const listener of listeners) {
+        listener({ data, origin: "plugin://test", source: null });
+      }
+    });
+  }
 
   globalThis.window = {
     addEventListener(type, listener) {
@@ -134,16 +147,45 @@ function installRuntimeEnvironment() {
     },
     target: {
       postMessage(message) {
-        if (message.type !== "bridge.release-all") return;
-        queueMicrotask(() => {
-          for (const listener of listeners) {
-            listener({
-              data: { type: "bridge.success", operationId: message.operationId },
-              origin: "plugin://test",
-              source: null
-            });
-          }
-        });
+        if (message.type === "bridge.hello") {
+          dispatch({
+            type: "bridge.handshake.challenge",
+            clientInstanceId: message.clientInstanceId,
+            candidateId,
+            documentGeneration: 0,
+            challenge: "challenge-test",
+            expiresAt: Date.now() + 10_000
+          });
+        } else if (message.type === "bridge.handshake.ack") {
+          dispatch({
+            type: "bridge.ready",
+            clientInstanceId: message.clientInstanceId,
+            candidateId,
+            documentGeneration: 0,
+            bridgeSessionId,
+            readyNonce,
+            protocolVersion: "0.3.0",
+            hostVersion: "test",
+            capabilities: [],
+            navigationReplacement: "unsupported",
+            documentGenerationMode: "unsupported"
+          });
+        } else if (message.type === "bridge.ready.ack") {
+          dispatch({
+            type: "bridge.established",
+            clientInstanceId: message.clientInstanceId,
+            candidateId,
+            documentGeneration: 0,
+            bridgeSessionId
+          });
+        } else if (message.type === "bridge.release-all") {
+          dispatch({
+            type: "bridge.success",
+            bridgeSessionId,
+            operationId: message.operationId,
+            payload: undefined
+          });
+        }
       }
     },
     restore() {

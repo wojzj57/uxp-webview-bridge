@@ -1,7 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatCdpResult } from "./cdp-reporter.mjs";
+import { createCompatibilityArtifact } from "./uxp-compatibility-artifact.mjs";
+import { evaluateSuiteStatus } from "./cdp-run-policy.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cliOptions = parseCliOptions(process.argv.slice(2));
@@ -33,6 +35,7 @@ try {
 
   if (suiteName) {
     const result = await runSuite(client, suiteName);
+    await writeCompatibilityArtifact(result);
     printResult(result);
     if (result.status !== "passed") {
       process.exit(1);
@@ -44,12 +47,14 @@ try {
       selectedCaseName,
       await readRegisteredCaseTimeout(client, selectedCaseName, timeoutMs)
     );
+    await writeCompatibilityArtifact(result);
     printResult(result);
-    if (result.status === "failed") {
+    if (evaluateSuiteStatus([result]) !== "passed") {
       process.exit(1);
     }
   } else {
     const result = await runAllCases(client);
+    await writeCompatibilityArtifact(result);
     printResult(result);
     if (result.status !== "passed") {
       process.exit(1);
@@ -57,6 +62,14 @@ try {
   }
 } finally {
   client.close();
+}
+
+async function writeCompatibilityArtifact(result) {
+  const outputDirectory = path.join(repoRoot, "test-results");
+  const outputPath = path.join(outputDirectory, "uxp-compatibility-matrix.json");
+  await mkdir(outputDirectory, { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(createCompatibilityArtifact(result), null, 2)}\n`, "utf8");
+  result.compatibilityMatrixArtifact = path.relative(repoRoot, outputPath).replaceAll(path.sep, "/");
 }
 
 function printResult(result) {
@@ -87,7 +100,7 @@ async function runAllCases(client) {
 
   return {
     suiteName: "all",
-    status: results.some((result) => result.status === "failed") ? "failed" : "passed",
+    status: evaluateSuiteStatus(results),
     durationMs: Date.now() - startedAt,
     cases: results
   };
@@ -110,7 +123,7 @@ async function runSuite(client, name) {
 
   return {
     suiteName: suite.suiteName ?? name,
-    status: results.some((result) => result.status === "failed") ? "failed" : "passed",
+    status: evaluateSuiteStatus(results),
     durationMs: Date.now() - startedAt,
     cases: results
   };
@@ -211,7 +224,11 @@ async function pollForWebViewReady(client, timeout) {
     await delay(250);
   }
 
-  throw new Error("Timed out waiting for UXP WebView test harness readiness.");
+  let diagnostics = "unavailable";
+  try {
+    diagnostics = await client.evaluate("JSON.stringify(window.__UXP_BRIDGE_TEST_DIAGNOSTICS__)");
+  } catch {}
+  throw new Error(`Timed out waiting for UXP WebView test harness readiness. Host diagnostics: ${diagnostics}`);
 }
 
 function connectCdp(url, commandTimeoutMs) {

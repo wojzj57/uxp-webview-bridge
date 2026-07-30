@@ -15,6 +15,7 @@ import {
   type BridgeUnhandledErrorEnvelope
 } from "../shared/protocol.js";
 import type { BridgeCallPayload } from "../shared/types.js";
+import { isRemoteReference } from "../shared/uxp-api/remote-protocol.js";
 import type {
   UxpCallbackBridge,
   UxpCallbackInvokeOptions,
@@ -23,6 +24,8 @@ import type {
 
 export interface UxpWebViewElement {
   postMessage(message: unknown): void;
+  addEventListener?(type: "loadstart" | "load", listener: () => void): void;
+  removeEventListener?(type: "loadstart" | "load", listener: () => void): void;
 }
 
 export interface RpcHostDispatchOptions {
@@ -35,7 +38,10 @@ export interface RpcHostDispatchOptions {
 export interface RpcHostOptions {
   readonly webview: UxpWebViewElement;
   readonly allowedOrigins: readonly string[];
+  readonly bridgeSessionId?: string;
   readonly callbackTimeoutMs?: number;
+  /** Internal: HostRouter owns the sole listener when false. */
+  readonly manageListener?: boolean;
   readonly dispatchCall: (
     payload: BridgeCallPayload,
     options: RpcHostDispatchOptions
@@ -46,7 +52,7 @@ interface PendingCallbackInvocation {
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason: unknown) => void;
   readonly callbackId: string;
-  readonly sessionId?: string;
+  readonly modalSessionId?: string;
   readonly timeoutId?: ReturnType<typeof setTimeout>;
 }
 
@@ -76,7 +82,9 @@ const LISTENER_QUEUE_LIMIT = 256;
 export class RpcHost {
   private readonly webview: UxpWebViewElement;
   private readonly allowedOrigins: readonly string[];
+  private readonly bridgeSessionId: string;
   private readonly callbackTimeoutMs: number;
+  private readonly manageListener: boolean;
   private readonly dispatchCall: (
     payload: BridgeCallPayload,
     options: RpcHostDispatchOptions
@@ -89,19 +97,21 @@ export class RpcHost {
   private destroyPromise: Promise<void> | undefined;
   private readonly callbacks: UxpCallbackBridge;
   private readonly onMessageBound = (event: MessageEvent<unknown>): void => {
-    void this.handleMessage(event);
+    if (this.isAllowedEvent(event)) void this.receive(event.data);
   };
 
   constructor(options: RpcHostOptions) {
     this.webview = options.webview;
     this.allowedOrigins = options.allowedOrigins;
+    this.bridgeSessionId = options.bridgeSessionId ?? "bridge.direct";
     this.callbackTimeoutMs = options.callbackTimeoutMs ?? DEFAULT_CALLBACK_TIMEOUT_MS;
+    this.manageListener = options.manageListener ?? true;
     if (!Number.isFinite(this.callbackTimeoutMs) || this.callbackTimeoutMs < 0) {
       throw new TypeError("callbackTimeoutMs must be a non-negative finite number.");
     }
     this.dispatchCall = options.dispatchCall;
     this.callbacks = this.createCallbackBridge();
-    window.addEventListener("message", this.onMessageBound);
+    if (this.manageListener) window.addEventListener("message", this.onMessageBound);
   }
 
   destroy(): Promise<void> {
@@ -109,7 +119,7 @@ export class RpcHost {
       return this.destroyPromise;
     }
     this.destroyed = true;
-    window.removeEventListener("message", this.onMessageBound);
+    if (this.manageListener) window.removeEventListener("message", this.onMessageBound);
     for (const operation of this.inFlight.values()) {
       operation.controller.abort();
     }
@@ -124,21 +134,27 @@ export class RpcHost {
     return this.destroyPromise;
   }
 
-  private async handleMessage(event: MessageEvent<unknown>): Promise<void> {
-    if (this.destroyed || !this.isAllowedEvent(event)) {
-      return;
-    }
+  receive(message: unknown): Promise<void> {
+    return this.handleMessage(message);
+  }
 
-    const message = event.data;
+  private async handleMessage(message: unknown): Promise<void> {
+    if (this.destroyed) return;
     if (isCallbackResult(message)) {
+      if (message.bridgeSessionId !== this.bridgeSessionId) return;
       this.handleCallbackResult(message);
       return;
     }
     if (isBridgeCancel(message)) {
+      if (message.bridgeSessionId !== this.bridgeSessionId) return;
       this.inFlight.get(message.operationId)?.controller.abort();
       return;
     }
     if (!isBridgeRequest(message)) {
+      return;
+    }
+    if (message.bridgeSessionId !== this.bridgeSessionId) {
+      this.postError(message.operationId, codedSessionError("ERR_BRIDGE_STALE_SESSION"));
       return;
     }
     if (this.inFlight.has(message.operationId)) {
@@ -159,13 +175,23 @@ export class RpcHost {
           }),
           message.operationId
         );
-        this.postSuccess({ type: "bridge.success", operationId: message.operationId, payload: undefined });
+        this.postSuccess({
+          type: "bridge.success",
+          bridgeSessionId: this.bridgeSessionId,
+          operationId: message.operationId,
+          payload: undefined
+        });
         return;
       }
 
-      this.assertModalSession(message.sessionId);
+      this.assertModalSession(message.modalContext?.modalSessionId);
       const payload = await this.dispatch(message, operation.controller.signal);
-      this.postSuccess({ type: "bridge.success", operationId: message.operationId, payload });
+      this.postSuccess({
+        type: "bridge.success",
+        bridgeSessionId: this.bridgeSessionId,
+        operationId: message.operationId,
+        payload
+      });
     } catch (error) {
       this.postError(message.operationId, error);
     } finally {
@@ -194,9 +220,15 @@ export class RpcHost {
       signal,
       operationId: message.operationId,
       callbacks: this.callbacks,
-      ...(message.sessionId === undefined ? {} : { modalSessionId: message.sessionId })
+      ...(message.modalContext === undefined
+        ? {}
+        : { modalSessionId: message.modalContext.modalSessionId })
     };
-    return this.dispatchCall(message.payload as BridgeCallPayload, options);
+    const payload = message.payload as BridgeCallPayload;
+    return this.dispatchCall({
+      ...payload,
+      args: payload.args.map((value) => translateIncomingReferences(value, this.bridgeSessionId))
+    }, options);
   }
 
   private createCallbackBridge(): UxpCallbackBridge {
@@ -248,12 +280,13 @@ export class RpcHost {
     const mode = options.mode ?? "awaited";
     const message: BridgeCallbackInvokeEnvelope = {
       type: "bridge.callback.invoke",
+      bridgeSessionId: this.bridgeSessionId,
       operationId,
       callbackId: reference.callbackId,
       args,
       mode,
       ...(options.parentOperationId === undefined ? {} : { parentOperationId: options.parentOperationId }),
-      ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId })
+      ...(options.modalSessionId === undefined ? {} : { modalSessionId: options.modalSessionId })
     };
     return new Promise<T>((resolve, reject) => {
       const timeoutId = this.callbackTimeoutMs === 0
@@ -273,7 +306,7 @@ export class RpcHost {
         resolve: (value) => resolve(value as T),
         reject,
         callbackId: reference.callbackId,
-        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+        ...(options.modalSessionId === undefined ? {} : { modalSessionId: options.modalSessionId }),
         ...(timeoutId === undefined ? {} : { timeoutId })
       });
       try {
@@ -387,21 +420,21 @@ export class RpcHost {
     if (this.modalSessionId !== undefined) {
       throw new Error(`Modal session ${this.modalSessionId} is already active for this bridge.`);
     }
-    const sessionId = createOperationId();
-    this.modalSessionId = sessionId;
+    const modalSessionId = createOperationId();
+    this.modalSessionId = modalSessionId;
     let closed = false;
     return {
-      sessionId,
+      modalSessionId,
       invoke: <T>(reference: BridgeCallbackReference, args: readonly unknown[] = []) =>
         this.invokeCallback<T>(reference, args, {
           mode: "awaited",
-          sessionId,
+          modalSessionId,
           ...(parentOperationId === undefined ? {} : { parentOperationId })
         }),
       close: () => {
         if (closed) return Promise.resolve();
         closed = true;
-        if (this.modalSessionId === sessionId) {
+        if (this.modalSessionId === modalSessionId) {
           this.modalSessionId = undefined;
         }
         return Promise.resolve();
@@ -424,7 +457,11 @@ export class RpcHost {
   private handleCallbackResult(message: BridgeCallbackResultEnvelope): void {
     const pending = this.pendingCallbacks.get(message.operationId);
     if (!pending) return;
-    if (message.callbackId !== pending.callbackId || message.sessionId !== pending.sessionId) return;
+    if (
+      message.bridgeSessionId !== this.bridgeSessionId ||
+      message.callbackId !== pending.callbackId ||
+      message.modalSessionId !== pending.modalSessionId
+    ) return;
     this.pendingCallbacks.delete(message.operationId);
     if (pending.timeoutId !== undefined) clearTimeout(pending.timeoutId);
     if (message.type === "bridge.callback.success") {
@@ -466,12 +503,16 @@ export class RpcHost {
   }
 
   private postSuccess(message: BridgeSuccessEnvelope): void {
-    this.webview.postMessage(message);
+    this.webview.postMessage({
+      ...message,
+      payload: translateOutgoingReferences(message.payload, this.bridgeSessionId)
+    });
   }
 
   private postError(operationId: string, error: unknown): void {
     const message: BridgeErrorEnvelope = {
       type: "bridge.error",
+      bridgeSessionId: this.bridgeSessionId,
       operationId,
       error: normalizeError(error)
     };
@@ -483,6 +524,7 @@ export class RpcHost {
     const operationId = error instanceof BridgeRemoteError ? error.operationId : createOperationId();
     const message: BridgeUnhandledErrorEnvelope = {
       type: "bridge.unhandled-error",
+      bridgeSessionId: this.bridgeSessionId,
       operationId,
       error: { ...normalizeError(error), callbackId, parentOperationId }
     };
@@ -541,25 +583,98 @@ function toRemoteError(operationId: string, error: BridgeSerializedError): Bridg
   });
 }
 
+function codedSessionError(code: string): Error & { readonly code: string } {
+  const error = new Error("Bridge message belongs to a stale session.") as Error & { code: string };
+  error.code = code;
+  return error;
+}
+
+function translateIncomingReferences(value: unknown, bridgeSessionId: string): unknown {
+  if (isSessionOwnedReference(value)) {
+    if (value.bridgeSessionId !== bridgeSessionId &&
+      !(value.bridgeSessionId === undefined && bridgeSessionId === "bridge.direct")) {
+      const error = new Error("Remote reference belongs to a stale Bridge session.") as Error & {
+        code: string;
+      };
+      error.code = "ERR_BRIDGE_STALE_REFERENCE";
+      throw error;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => translateIncomingReferences(entry, bridgeSessionId));
+  }
+  if (isPlainRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        translateIncomingReferences(entry, bridgeSessionId)
+      ])
+    );
+  }
+  return value;
+}
+
+function translateOutgoingReferences(value: unknown, bridgeSessionId: string): unknown {
+  if (isSessionOwnedReference(value)) {
+    if (value.bridgeSessionId !== undefined && value.bridgeSessionId !== "bridge.direct" && value.bridgeSessionId !== bridgeSessionId) {
+      throw codedSessionError("ERR_BRIDGE_STALE_REFERENCE");
+    }
+    return { ...value, bridgeSessionId };
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => translateOutgoingReferences(entry, bridgeSessionId));
+  }
+  if (isPlainRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        translateOutgoingReferences(entry, bridgeSessionId)
+      ])
+    );
+  }
+  return value;
+}
+
+function isSessionOwnedReference(value: unknown): value is {
+  readonly kind: "uxp.remote.ref" | "uxp.storage.entry";
+  readonly id: string;
+  readonly bridgeSessionId?: string;
+} {
+  return isRemoteReference(value) || (
+    isPlainRecord(value) && value.kind === "uxp.storage.entry" && typeof value.id === "string" &&
+    (value.bridgeSessionId === undefined || typeof value.bridgeSessionId === "string")
+  );
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Reflect.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 function isBridgeRequest(message: unknown): message is BridgeRequestEnvelope {
   if (!message || typeof message !== "object") return false;
   const candidate = message as Partial<BridgeRequestEnvelope>;
-  return typeof candidate.operationId === "string" &&
+  return typeof candidate.bridgeSessionId === "string" &&
+    typeof candidate.operationId === "string" &&
     (candidate.type === "bridge.call" || candidate.type === "bridge.release-all");
 }
 
 function isBridgeCancel(message: unknown): message is BridgeCancelEnvelope {
   if (!message || typeof message !== "object") return false;
   const candidate = message as Partial<BridgeCancelEnvelope>;
-  return typeof candidate.operationId === "string" && candidate.type === "bridge.cancel";
+  return typeof candidate.bridgeSessionId === "string" &&
+    typeof candidate.operationId === "string" && candidate.type === "bridge.cancel";
 }
 
 function isCallbackResult(message: unknown): message is BridgeCallbackResultEnvelope {
   if (!message || typeof message !== "object") return false;
   const candidate = message as Partial<BridgeCallbackResultEnvelope>;
   const hasIdentity = typeof candidate.operationId === "string" &&
+    typeof candidate.bridgeSessionId === "string" &&
     typeof candidate.callbackId === "string" &&
-    (candidate.sessionId === undefined || typeof candidate.sessionId === "string");
+    (candidate.modalSessionId === undefined || typeof candidate.modalSessionId === "string");
   if (!hasIdentity) return false;
   if (candidate.type === "bridge.callback.success") return true;
   return candidate.type === "bridge.callback.error" &&

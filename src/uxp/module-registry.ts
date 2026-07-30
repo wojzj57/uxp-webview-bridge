@@ -5,23 +5,31 @@ import type {
   BridgeCallbackInvocationMode,
   BridgeCallbackReference
 } from "../shared/protocol.js";
+import type { BridgeOwnedModalCoordinator } from "./bridge-owned-modal-coordinator.js";
+import {
+  resolvePhotoshopExecutionClass,
+  type PhotoshopExecutionClass
+} from "./photoshop-execution-catalog.js";
 
 export interface UxpDispatchContext {
+  readonly bridgeSessionId?: string;
+  readonly modalCoordinator?: BridgeOwnedModalCoordinator;
   readonly signal?: AbortSignal;
   readonly operationId: string;
   readonly modalSessionId?: string;
   readonly callbacks: UxpCallbackBridge;
+  readonly executionClass?: PhotoshopExecutionClass;
 }
 
 export interface UxpCallbackInvokeOptions {
   readonly mode?: BridgeCallbackInvocationMode;
   readonly subscriptionId?: string;
-  readonly sessionId?: string;
+  readonly modalSessionId?: string;
   readonly parentOperationId?: string;
 }
 
 export interface UxpModalSession {
-  readonly sessionId: string;
+  readonly modalSessionId: string;
   invoke<T>(reference: BridgeCallbackReference, args?: readonly unknown[]): Promise<T>;
   close(): Promise<void>;
 }
@@ -53,6 +61,8 @@ export interface UxpModuleAdapter {
 }
 
 export interface UxpDispatchOptions {
+  readonly bridgeSessionId?: string;
+  readonly modalCoordinator?: BridgeOwnedModalCoordinator;
   readonly signal?: AbortSignal;
   readonly operationId: string;
   readonly modalSessionId?: string;
@@ -102,11 +112,15 @@ export function createUxpModuleRegistry(
         });
       }
 
+      const executionClass = resolvePhotoshopExecutionClass(payload.module, payload.method);
       const context: UxpDispatchContext = {
         operationId: options?.operationId ?? "bridge.direct-dispatch",
         callbacks: options?.callbacks ?? unavailableCallbacks,
+        ...(options?.bridgeSessionId === undefined ? {} : { bridgeSessionId: options.bridgeSessionId }),
+        ...(options?.modalCoordinator === undefined ? {} : { modalCoordinator: options.modalCoordinator }),
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
-        ...(options?.modalSessionId === undefined ? {} : { modalSessionId: options.modalSessionId })
+        ...(options?.modalSessionId === undefined ? {} : { modalSessionId: options.modalSessionId }),
+        ...(executionClass === undefined ? {} : { executionClass })
       };
       return adapter.dispatch(payload.method, payload.args, context);
     }
@@ -121,4 +135,13 @@ export function fixedCapability(
     assertMethod(method);
     return capability;
   };
+}
+export function assertPhotoshopExecutionClass(
+  context: UxpDispatchContext | undefined,
+  ...allowed: readonly PhotoshopExecutionClass[]
+): void {
+  if (context?.executionClass === undefined || allowed.includes(context.executionClass)) return;
+  throw new Error(
+    `Photoshop execution catalog classified this call as ${context.executionClass}; expected ${allowed.join(" or ")}.`
+  );
 }

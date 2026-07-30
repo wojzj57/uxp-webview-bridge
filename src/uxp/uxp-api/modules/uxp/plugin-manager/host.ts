@@ -7,43 +7,52 @@ import type {
 
 declare const require: (moduleName: "uxp") => UxpPluginManagerHostModule;
 
-const PLUGINS_BY_ID = new Map<string, UxpHostPlugin>();
+export interface UxpPluginManagerState {
+  readonly pluginsById: Map<string, UxpHostPlugin>;
+}
+
+export function createUxpPluginManagerState(): UxpPluginManagerState {
+  return { pluginsById: new Map() };
+}
+
+const defaultState = createUxpPluginManagerState();
 
 export function dispatchUxpPluginManagerCall(
   method: UxpPluginManagerMethodName,
-  args: readonly unknown[]
+  args: readonly unknown[],
+  state: UxpPluginManagerState = defaultState
 ): unknown {
   switch (method) {
     case "pluginManager.plugins":
-      return dispatchPlugins(args);
+      return dispatchPlugins(args, state);
     case "plugin.showPanel":
-      return dispatchShowPanel(args);
+      return dispatchShowPanel(args, state);
     case "plugin.invokeCommand":
-      return dispatchInvokeCommand(args);
+      return dispatchInvokeCommand(args, state);
     default:
       return assertNever(method);
   }
 }
 
-function dispatchPlugins(args: readonly unknown[]): UxpSerializedPlugin[] {
+function dispatchPlugins(args: readonly unknown[], state: UxpPluginManagerState): UxpSerializedPlugin[] {
   if (args.length > 0) {
     throw new Error("uxp.pluginManager.plugins does not accept arguments.");
   }
 
   const plugins = Array.from(require("uxp").pluginManager.plugins);
-  PLUGINS_BY_ID.clear();
-  return plugins.map(serializePlugin);
+  state.pluginsById.clear();
+  return plugins.map((plugin) => serializePlugin(plugin, state));
 }
 
-function dispatchShowPanel(args: readonly unknown[]): Promise<void | string> | void | string {
+function dispatchShowPanel(args: readonly unknown[], state: UxpPluginManagerState): Promise<void | string> | void | string {
   const [pluginId, panelId] = expectArgs<[string, string]>(args, 2, 2, "uxp.plugin.showPanel");
   assertNonEmptyString(pluginId, "uxp.plugin.showPanel pluginId");
   assertNonEmptyString(panelId, "uxp.plugin.showPanel panelId");
 
-  return getPlugin(pluginId).showPanel(panelId);
+  return getPlugin(pluginId, state).showPanel(panelId);
 }
 
-function dispatchInvokeCommand(args: readonly unknown[]): Promise<void> | void {
+function dispatchInvokeCommand(args: readonly unknown[], state: UxpPluginManagerState): Promise<void> | void {
   const [pluginId, commandId, ...params] = expectArgs<[string, string, ...unknown[]]>(
     args,
     2,
@@ -53,12 +62,12 @@ function dispatchInvokeCommand(args: readonly unknown[]): Promise<void> | void {
   assertNonEmptyString(pluginId, "uxp.plugin.invokeCommand pluginId");
   assertNonEmptyString(commandId, "uxp.plugin.invokeCommand commandId");
 
-  return getPlugin(pluginId).invokeCommand(commandId, ...params);
+  return getPlugin(pluginId, state).invokeCommand(commandId, ...params);
 }
 
-function serializePlugin(plugin: UxpHostPlugin): UxpSerializedPlugin {
+function serializePlugin(plugin: UxpHostPlugin, state: UxpPluginManagerState): UxpSerializedPlugin {
   assertNonEmptyString(plugin.id, "uxp.pluginManager plugin id");
-  PLUGINS_BY_ID.set(plugin.id, plugin);
+  state.pluginsById.set(plugin.id, plugin);
 
   return {
     kind: "uxp.pluginManager.plugin",
@@ -70,8 +79,8 @@ function serializePlugin(plugin: UxpHostPlugin): UxpSerializedPlugin {
   };
 }
 
-function getPlugin(pluginId: string): UxpHostPlugin {
-  const plugin = PLUGINS_BY_ID.get(pluginId);
+function getPlugin(pluginId: string, state: UxpPluginManagerState): UxpHostPlugin {
+  const plugin = state.pluginsById.get(pluginId);
   if (!plugin) {
     throw new Error(`Unknown uxp.pluginManager plugin id: ${pluginId}`);
   }

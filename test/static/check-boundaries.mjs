@@ -38,6 +38,7 @@ await checkSharedNativeTypes();
 await checkWebviewUxpModuleDoesNotOwnTypesDirectory();
 await checkWebviewUxpApiTypesAreLocal();
 await checkNoProductionTestHelperImports();
+await checkNoProductionDiagnosticBackdoors();
 await checkWebviewCdpTestImports();
 await checkWebviewCdpCaseNames();
 await checkCdpCaseOwnership();
@@ -200,6 +201,21 @@ async function checkDeprecatedSetupApis() {
       if (new RegExp(`\\b${deprecatedName}\\b`).test(source)) {
         failures.push(`${relative(file)} reintroduces deprecated setup API ${deprecatedName}`);
       }
+    }
+  }
+}
+
+async function checkNoProductionDiagnosticBackdoors() {
+  const forbidden = new Map([
+    ["uxp-webview-bridge.internal.host-diagnostics", "global diagnostic Symbol"],
+    ["__testCleanupPolicy", "private setup cleanup policy"],
+    ["snapshotDiagnostics", "diagnostic-only production snapshot surface"],
+    ["sessionDiagnostics", "unbounded historical session owner retention"]
+  ]);
+  for (const file of await listFiles(srcRoot, ".ts")) {
+    const source = await readFile(file, "utf8");
+    for (const [token, label] of forbidden) {
+      if (source.includes(token)) failures.push(`${relative(file)} contains forbidden ${label}: ${token}`);
     }
   }
 }

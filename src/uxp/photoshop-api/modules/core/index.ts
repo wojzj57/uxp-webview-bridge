@@ -1,5 +1,6 @@
 export {
   configureCoreAdapter,
+  createCoreModuleAdapter,
   coreModuleAdapter,
   destroyCoreAdapter,
   dispatchCoreCall

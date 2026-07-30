@@ -16,7 +16,10 @@ import {
  * Minimal RPC surface a {@link RemoteClass} needs. Matches the WebView bridge rpc client.
  */
 export interface RemoteRpc {
+  readonly bridgeSessionId: string;
   call<T>(module: string, method: string, args?: readonly unknown[]): Promise<T>;
+  bindReference?(reference: RemoteReference): Promise<RemoteReference>;
+  assertReferenceActive?(reference: RemoteReference): void;
 }
 
 /**
@@ -166,18 +169,18 @@ export abstract class RemoteClass<
     this.#config = config;
     this.#referencePromise = isConstructionRequest(source)
       ? config.rpc.call<RemoteReference>(config.moduleId, source.method, source.args)
-      : Promise.resolve(source);
+      : config.rpc.bindReference?.(source) ?? Promise.resolve(source);
 
     this.#defineMembers();
   }
 
-  toRemoteReference(): Promise<RemoteReference> {
-    return this.#referencePromise;
+  async toRemoteReference(): Promise<RemoteReference> {
+    return this.#ownedReference();
   }
 
   dispose(): Promise<void> {
     return this.#scheduler.run(async () => {
-      const reference = await this.#referencePromise;
+      const reference = await this.#ownedReference();
       await this.#config.rpc.call<void>(this.#config.moduleId, this.#config.methodNames.dispose, [reference]);
     });
   }
@@ -207,7 +210,7 @@ export abstract class RemoteClass<
     result?: RemoteResultTyping & { readonly decode?: RemoteValueDecoder }
   ): Promise<T> {
     const promise = this.#scheduler.run(async () => {
-      const reference = await this.#referencePromise;
+      const reference = await this.#ownedReference();
       const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
       const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
       return this.#decodeResult(result, raw) as T;
@@ -225,7 +228,7 @@ export abstract class RemoteClass<
     }
     const method = this.#requireMethodName(this.#config.methodNames.batchGet, "batch get properties");
     return this.#scheduler.run(async () => {
-      const reference = await this.#referencePromise;
+      const reference = await this.#ownedReference();
       const raw = await this.#config.rpc.call<Record<string, unknown>>(this.#config.moduleId, method, [
         reference,
         names
@@ -256,7 +259,7 @@ export abstract class RemoteClass<
     const encodedPromise = this.#encodeObject(snapshot);
     void encodedPromise.catch(() => undefined);
     return this.#scheduler.writeExplicit(async () => {
-      const reference = await this.#referencePromise;
+      const reference = await this.#ownedReference();
       const encoded = await encodedPromise;
       await this.#config.rpc.call<void>(this.#config.moduleId, method, [reference, encoded]);
     });
@@ -291,7 +294,7 @@ export abstract class RemoteClass<
 
   #getProperty(name: string): unknown {
     const promise = this.#scheduler.run(async () => {
-      const reference = await this.#referencePromise;
+      const reference = await this.#ownedReference();
       const method = this.#requireMethodName(this.#config.methodNames.propertyGet[name], `get property ${name}`);
       const remoteKey = this.#config.properties[name]?.remoteKey;
       const callArgs = remoteKey === undefined ? [reference] : [reference, remoteKey];
@@ -307,7 +310,7 @@ export abstract class RemoteClass<
 
   #callMethod(name: string, args: readonly unknown[]): unknown {
     const promise = this.#scheduler.run(async () => {
-      const reference = await this.#referencePromise;
+      const reference = await this.#ownedReference();
       const method = this.#requireMethodName(this.#config.methodNames.method[name], `call method ${name}`);
       const encoded = await encodeRemoteArgs(args, this.#config.argEncoders);
       const raw = await this.#config.rpc.call<unknown>(this.#config.moduleId, method, [reference, ...encoded]);
@@ -317,7 +320,7 @@ export abstract class RemoteClass<
   }
 
   async #writeProperty(name: string, value: unknown): Promise<void> {
-    const reference = await this.#referencePromise;
+    const reference = await this.#ownedReference();
     const method = this.#requireMethodName(this.#config.methodNames.propertySet[name], `set property ${name}`);
     const remoteKey = this.#config.properties[name]?.remoteKey;
     const [encoded] = await encodeRemoteArgs([value], this.#config.argEncoders);
@@ -342,6 +345,12 @@ export abstract class RemoteClass<
       this.#scheduler,
       `${this.constructor.name}.${memberName}`
     );
+  }
+
+  async #ownedReference(): Promise<RemoteReference> {
+    const reference = await this.#referencePromise;
+    this.#config.rpc.assertReferenceActive?.(reference);
+    return reference;
   }
 
   #decodeProperty(name: string, raw: unknown): unknown {

@@ -280,7 +280,8 @@ function createPhotoshopContext(rpc: PhotoshopRpc): { readonly context: Photosho
   appInstance = new AppClass({
     kind: REMOTE_REFERENCE_KIND,
     type: PHOTOSHOP_REMOTE_TYPE.Photoshop,
-    id: PHOTOSHOP_APP_REFERENCE_ID
+    id: PHOTOSHOP_APP_REFERENCE_ID,
+    bridgeSessionId: rpc.bridgeSessionId ?? "bridge.direct"
   });
 
   registry.registerCollectionCapabilities(PHOTOSHOP_REMOTE_TYPE.Document, {
@@ -410,20 +411,70 @@ function batchPlaySync(
   return context.rpc.call<ActionDescriptor[]>(PHOTOSHOP_MODULE_ID, "action.batchPlaySync", args);
 }
 
-export const photoshop: PhotoshopNamespace =
-  createPhotoshopNamespace({
+const photoshopNamespacesByClient = new WeakMap<object, PhotoshopNamespace>();
+const photoshopAppStaticMembers = {
+  SolidColor,
+  CMYKColor,
+  GrayColor,
+  HSBColor,
+  LabColor,
+  RGBColor,
+  PathPointInfo,
+  SubPathInfo
+};
+const photoshopApp = new Proxy(photoshopAppStaticMembers as unknown as PhotoshopApp, {
+  get(target, property, receiver) {
+    return Reflect.has(target as object, property)
+      ? Reflect.get(target as object, property, receiver)
+      : Reflect.get(getCurrentPhotoshopNamespace().app as object, property);
+  }
+});
+const photoshopStaticMembers = {
+  app: photoshopApp,
+  ColorConversionModel,
+  SolidColor,
+  CMYKColor,
+  GrayColor,
+  HSBColor,
+  LabColor,
+  RGBColor,
+  PathPointInfo,
+  SubPathInfo,
+  constants: PhotoshopConstants,
+  ...PhotoshopConstants
+};
+
+function getCurrentPhotoshopNamespace(): PhotoshopNamespace {
+  const client = getBridgeRpcClient();
+  const existing = photoshopNamespacesByClient.get(client);
+  if (existing) return existing;
+  const created = createPhotoshopNamespace({
+    get bridgeSessionId() {
+      return client.activeBridgeSessionId ?? "bridge.connecting";
+    },
     call: <T>(module: string, method: string, args?: readonly unknown[]) =>
-      getBridgeRpcClient().call<T>(module, method, args),
+      client.call<T>(module, method, args),
+    bindReference: (reference) => client.bindReference(reference),
+    assertReferenceActive: (reference) => client.assertReferenceActive(reference),
     get activeModalSessionId() {
-      return getBridgeRpcClient().activeModalSessionId;
+      return client.activeModalSessionId;
     },
-    get callbackScope() {
-      return getBridgeRpcClient();
-    },
+    callbackScope: client,
     retainCallback: (callback) =>
-      getBridgeRpcClient().retainCallback(callback as (...args: readonly unknown[]) => unknown),
-    releaseCallback: (reference) => getBridgeRpcClient().releaseCallback(reference)
+      client.retainCallback(callback as (...args: readonly unknown[]) => unknown),
+    releaseCallback: (reference) => client.releaseCallback(reference)
   });
+  photoshopNamespacesByClient.set(client, created);
+  return created;
+}
+
+export const photoshop = new Proxy(photoshopStaticMembers as unknown as PhotoshopNamespace, {
+  get(target, property, receiver) {
+    return Reflect.has(target as object, property)
+      ? Reflect.get(target as object, property, receiver)
+      : Reflect.get(getCurrentPhotoshopNamespace() as object, property);
+  }
+});
 
 function normalizeActionNotificationEvents(
   events: readonly string[],

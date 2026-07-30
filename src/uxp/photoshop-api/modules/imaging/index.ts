@@ -1,4 +1,9 @@
-export { destroyImagingHandles, dispatchImagingCall, imagingModuleAdapter } from "./host.js";
+export {
+  createImagingModuleAdapter,
+  destroyImagingHandles,
+  dispatchImagingCall,
+  imagingModuleAdapter
+} from "./host.js";
 export type {
   ExecuteAsModalOptions,
   ImagingMethodName,

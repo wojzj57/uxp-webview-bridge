@@ -1,4 +1,9 @@
-export { destroyPhotoshopHandles, dispatchPhotoshopCall, photoshopModuleAdapter } from "./host.js";
+export {
+  createPhotoshopModuleAdapter,
+  destroyPhotoshopHandles,
+  dispatchPhotoshopCall,
+  photoshopModuleAdapter
+} from "./host.js";
 export type {
   ExecuteAsModalOptions,
   PhotoshopApp,

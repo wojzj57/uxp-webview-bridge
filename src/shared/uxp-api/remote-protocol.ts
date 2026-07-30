@@ -18,6 +18,7 @@ export interface RemoteReference extends BridgeRemoteReference {
   readonly kind: typeof REMOTE_REFERENCE_KIND;
   readonly type: string;
   readonly id: string;
+  readonly bridgeSessionId: string;
 }
 
 export function isRemoteReference(value: unknown): value is RemoteReference {
@@ -26,6 +27,7 @@ export function isRemoteReference(value: unknown): value is RemoteReference {
     typeof value === "object" &&
     (value as { kind?: unknown }).kind === REMOTE_REFERENCE_KIND &&
     typeof (value as { type?: unknown }).type === "string" &&
-    typeof (value as { id?: unknown }).id === "string"
+    typeof (value as { id?: unknown }).id === "string" &&
+    typeof (value as { bridgeSessionId?: unknown }).bridgeSessionId === "string"
   );
 }

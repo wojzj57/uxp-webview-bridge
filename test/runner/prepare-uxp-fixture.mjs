@@ -13,6 +13,13 @@ const fixtureGeneratedRoot = path.join(fixtureRoot, "webview", "generated");
 const fixtureGeneratedCasesRoot = path.join(fixtureGeneratedRoot, "cases");
 const fixtureGeneratedModuleCasesRoot = path.join(fixtureGeneratedRoot, "module-cases");
 const oldVendorRoot = path.join(fixtureRoot, "vendor");
+const MULTI_WEBVIEW_TIMEOUTS = Object.freeze({
+  "bridge.multi-webview-source-routing": 20_000,
+  "bridge.multi-webview-resource-isolation": 30_000,
+  "bridge.multi-webview-navigation-generation": 30_000,
+  "bridge.multi-webview-modal-ordering": 30_000,
+  "bridge.multi-webview-bounded-teardown": 30_000
+});
 
 assertInsideWorkspace(fixtureDistRoot);
 assertInsideWorkspace(fixtureGeneratedRoot);
@@ -24,6 +31,7 @@ await rm(fixtureGeneratedRoot, { recursive: true, force: true });
 await cp(distRoot, fixtureDistRoot, { recursive: true });
 await writeCaseRegistry();
 await writeUxpClassicBundle();
+await writeRuntimeMetadata();
 
 console.log(`Prepared UXP fixture dist at ${path.relative(repoRoot, fixtureDistRoot)}`);
 
@@ -52,6 +60,22 @@ async function writeUxpClassicBundle() {
   });
 }
 
+async function writeRuntimeMetadata() {
+  const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
+  const protocolSource = await readFile(path.join(repoRoot, "src", "shared", "protocol.ts"), "utf8");
+  const protocolMatch = protocolSource.match(/BRIDGE_PROTOCOL_VERSION\s*=\s*["']([^"']+)["']/);
+  if (!protocolMatch) throw new Error("Unable to read BRIDGE_PROTOCOL_VERSION for the UXP fixture.");
+  const metadata = {
+    packageVersion: packageJson.version,
+    protocolVersion: protocolMatch[1]
+  };
+  await writeFile(
+    path.join(fixtureDistRoot, "runtime-metadata.js"),
+    `window.__UXP_BRIDGE_TEST_RUNTIME_METADATA__ = ${JSON.stringify(metadata)};\n`,
+    "utf8"
+  );
+}
+
 async function writeCaseRegistry() {
   await mkdir(fixtureGeneratedCasesRoot, { recursive: true });
 
@@ -61,7 +85,7 @@ async function writeCaseRegistry() {
     return {
       caseName,
       loader: `() => import(${JSON.stringify(`./cases/${caseName}.mjs`)})`,
-      timeoutMs: undefined
+      timeoutMs: MULTI_WEBVIEW_TIMEOUTS[caseName]
     };
   });
 

@@ -42,7 +42,12 @@ import { isPhotoshopValueTransport, serializeValue } from "@shared/photoshop-api
 import { isBridgeCallbackReference, type BridgeCallbackReference } from "@shared/protocol.js";
 import { isRemoteReference, type RemoteReference } from "@shared/uxp-api/remote-protocol.js";
 import { isUxpStorageEntryReference } from "@shared/uxp-api/uxp-protocol.js";
-import type { UxpCallbackBridge, UxpDispatchContext, UxpModuleAdapter } from "@uxp/module-registry.js";
+import {
+  assertPhotoshopExecutionClass,
+  type UxpCallbackBridge,
+  type UxpDispatchContext,
+  type UxpModuleAdapter
+} from "@uxp/module-registry.js";
 import { createRemoteHandleRegistry } from "@uxp/uxp-api/remote/index.js";
 import { resolveUxpStorageEntryReference } from "@uxp/uxp-api/modules/uxp/persistent-file-storage/host.js";
 import type {
@@ -297,15 +302,6 @@ const TOOL_SCALARS = new Set(["id", "typename"]);
 const ACTION_SET_SCALARS = new Set(["typename", "index", "id", "name", "actions"]);
 const ACTION_SCALARS = new Set(["typename", "id", "index", "name", "parent"]);
 
-const photoshopRegistry = createRemoteHandleRegistry();
-// Dispatch selects its modal helper synchronously, so this scoped context reaches every existing
-// DOM mutation handler without widening their internal signatures. It is restored before dispatch
-// returns, while the selected native/direct execution promise continues independently.
-let activePhotoshopDispatchContext: UxpDispatchContext | undefined;
-const actionNotificationRegistrations = new WeakMap<UxpCallbackBridge, Map<string, ActionNotificationRegistration>>();
-const liveActionNotificationMaps = new Set<Map<string, ActionNotificationRegistration>>();
-const documentModalContexts = new WeakMap<UxpCallbackBridge, Map<string, Record<string, unknown>>>();
-
 interface ActionNotificationRegistration {
   readonly subscriptionId: string;
   readonly callbacks: UxpCallbackBridge;
@@ -314,27 +310,6 @@ interface ActionNotificationRegistration {
   readonly nativeListener: (eventName: string, descriptor: Record<string, unknown>) => void;
   readonly added: Promise<void>;
   removing?: Promise<void>;
-}
-
-export const photoshopModuleAdapter: UxpModuleAdapter = {
-  moduleId: PHOTOSHOP_MODULE_ID,
-  resolveCapability: resolvePhotoshopCapability,
-  dispatch: (method, args, context) => dispatchPhotoshopCall(method, args, context),
-  destroy: destroyPhotoshopHandles
-};
-
-export function dispatchPhotoshopCall(
-  method: string,
-  args: readonly unknown[],
-  context?: UxpDispatchContext
-): unknown {
-  const previousContext = activePhotoshopDispatchContext;
-  activePhotoshopDispatchContext = context;
-  try {
-    return dispatchPhotoshopCallInContext(method, args);
-  } finally {
-    activePhotoshopDispatchContext = previousContext;
-  }
 }
 
 function isBatchPlayMethod(method: string): boolean {
@@ -347,6 +322,44 @@ export function resolvePhotoshopCapability(method: string): "photoshop.batchPlay
   assertPhotoshopProtocolMethodName(method);
   return isBatchPlayMethod(method) ? "photoshop.batchPlay" : "photoshop.dom";
 }
+
+interface PhotoshopAdapterOwner {
+  dispatch(method: string, args: readonly unknown[], context?: UxpDispatchContext): unknown;
+  destroy(): void | Promise<void>;
+}
+
+function createPhotoshopAdapterOwner(
+  bridgeSessionId: string,
+  resolveStorageEntryReference: typeof resolveUxpStorageEntryReference
+): PhotoshopAdapterOwner {
+  const photoshopRegistry = createRemoteHandleRegistry({ bridgeSessionId });
+  const actionNotificationRegistrations = new WeakMap<
+    UxpCallbackBridge,
+    Map<string, ActionNotificationRegistration>
+  >();
+  const liveActionNotificationMaps = new Set<Map<string, ActionNotificationRegistration>>();
+  const documentModalContexts = new WeakMap<
+    UxpCallbackBridge,
+    Map<string, Record<string, unknown>>
+  >();
+  const pathItemGeometry = new WeakMap<object, readonly Record<string, unknown>[]>();
+  const colorSamplerOwners = new WeakMap<object, PhotoshopDocumentLike>();
+  const countItemOwners = new WeakMap<object, PhotoshopDocumentLike>();
+  const layerCompOwners = new WeakMap<object, PhotoshopDocumentLike>();
+  const textItemOwners = new WeakMap<object, PhotoshopLayerLike>();
+  const characterStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
+  const paragraphStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
+  const textWarpStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
+  const pathItemOwners = new WeakMap<object, PhotoshopDocumentLike>();
+  const geometryKeys = new WeakMap<object, string>();
+  let nextGeometryKey = 1;
+
+function dispatchPhotoshopCall(
+  method: string,
+  args: readonly unknown[],
+  context?: UxpDispatchContext
+): unknown {
+  return dispatchPhotoshopCallInContext(method, args);
 
 function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]): unknown {
   assertPhotoshopProtocolMethodName(method);
@@ -424,21 +437,6 @@ function dispatchPhotoshopCallInContext(method: string, args: readonly unknown[]
     return dispatchActionCall(method, args);
   }
   throw new Error(`Unsupported photoshop method: ${method}`);
-}
-
-export function destroyPhotoshopHandles(): void | Promise<void> {
-  photoshopRegistry.clear();
-  const pending: Promise<void>[] = [];
-  for (const registrations of liveActionNotificationMaps) {
-    for (const registration of registrations.values()) {
-      pending.push(
-        registration.added
-          .then(() => registration.callbacks.unregisterSubscription(registration.subscriptionId))
-          .catch(() => undefined)
-      );
-    }
-  }
-  return pending.length === 0 ? undefined : Promise.all(pending).then(() => undefined);
 }
 
 // ---------------------------------------------------------------------------- app.*
@@ -701,13 +699,13 @@ function dispatchSimpleObjectCall(
 
 function dispatchDocumentCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "document.suspendHistory") {
-    return dispatchDocumentSuspendHistory(args, method, activePhotoshopDispatchContext);
+    return dispatchDocumentSuspendHistory(args, method, context);
   }
   if (method.startsWith("document.modal.")) {
     return dispatchDocumentModalControl(
       args,
       method as Extract<PhotoshopProtocolMethodName, `document.modal.${string}`>,
-      activePhotoshopDispatchContext
+      context
     );
   }
   if (method.startsWith("document.saveAs.")) {
@@ -1732,7 +1730,6 @@ function dispatchReadonlyPathObjectCall(type: "SubPathItem" | "PathPoint", metho
 
 function buildSubPathInfos(value: unknown): unknown[] { if (!Array.isArray(value)) throw new Error("pathItems.add entirePath must be an array."); const app = getPhotoshop().app as Record<string, unknown>; const SubPathInfo = app.SubPathInfo as { new(): Record<string, unknown> } | undefined; const PathPointInfo = app.PathPointInfo as { new(): Record<string, unknown> } | undefined; return value.map((raw) => { const source = assertObjectRecord(raw, "SubPathInfo"); const info = SubPathInfo ? new SubPathInfo() : {}; info.closed = source.closed; info.operation = source.operation; if (!Array.isArray(source.entireSubPath)) throw new Error("SubPathInfo.entireSubPath must be an array."); info.entireSubPath = source.entireSubPath.map((point) => { const pointSource = assertObjectRecord(point, "PathPointInfo"); const result = PathPointInfo ? new PathPointInfo() : {}; Object.assign(result, pointSource); return result; }); return info; }); }
 
-const pathItemGeometry = new WeakMap<object, readonly Record<string, unknown>[]>();
 function rememberPathGeometry(pathItem: PhotoshopPathItemLike, value: unknown): void {
   if (!Array.isArray(value)) return;
   const subPaths = value.map((raw) => {
@@ -1766,10 +1763,10 @@ function rememberPathGeometry(pathItem: PhotoshopPathItemLike, value: unknown): 
  */
 function dispatchActionCall(method: PhotoshopProtocolMethodName, args: readonly unknown[]): unknown {
   if (method === "action.addNotificationListener") {
-    return dispatchActionAddNotificationListener(args, method, activePhotoshopDispatchContext);
+    return dispatchActionAddNotificationListener(args, method, context);
   }
   if (method === "action.removeNotificationListener") {
-    return dispatchActionRemoveNotificationListener(args, method, activePhotoshopDispatchContext);
+    return dispatchActionRemoveNotificationListener(args, method, context);
   }
   if (method === "action.getIDFromString") {
     expectArgs(args, 1, 1, method);
@@ -1938,14 +1935,6 @@ function serializeChannel(channel: PhotoshopChannelLike): RemoteReference {
   return photoshopRegistry.register(PHOTOSHOP_REMOTE_TYPE.Channel, channel);
 }
 
-const colorSamplerOwners = new WeakMap<object, PhotoshopDocumentLike>();
-const countItemOwners = new WeakMap<object, PhotoshopDocumentLike>();
-const layerCompOwners = new WeakMap<object, PhotoshopDocumentLike>();
-const textItemOwners = new WeakMap<object, PhotoshopLayerLike>();
-const characterStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
-const paragraphStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
-const textWarpStyleOwners = new WeakMap<object, PhotoshopLayerLike>();
-
 function serializeColorSampler(value: PhotoshopColorSamplerLike): RemoteReference {
   return photoshopRegistry.register(PHOTOSHOP_REMOTE_TYPE.ColorSampler, value);
 }
@@ -1966,7 +1955,12 @@ function serializeLayerComp(value: PhotoshopLayerCompLike, owner?: PhotoshopDocu
 
 function serializePhotoshop(app: PhotoshopApp): RemoteReference {
   void app;
-  return { kind: "uxp.remote.ref", type: PHOTOSHOP_REMOTE_TYPE.Photoshop, id: PHOTOSHOP_APP_REFERENCE_ID };
+  return {
+    kind: "uxp.remote.ref",
+    type: PHOTOSHOP_REMOTE_TYPE.Photoshop,
+    id: PHOTOSHOP_APP_REFERENCE_ID,
+    bridgeSessionId: "bridge.direct"
+  };
 }
 
 function serializeTextFont(font: PhotoshopTextFontLike): RemoteReference {
@@ -2033,10 +2027,6 @@ function serializePathItem(pathItem: PhotoshopPathItemLike): RemoteReference {
   return photoshopRegistry.getOrCreate(PHOTOSHOP_REMOTE_TYPE.PathItem, key, () => pathItem);
 }
 
-const pathItemOwners = new WeakMap<object, PhotoshopDocumentLike>();
-
-const geometryKeys = new WeakMap<object, string>();
-let nextGeometryKey = 1;
 function geometryKey(type: string, value: object): string {
   const record = value as Record<string, unknown>;
   const coordinates = [record._docId, record._pathId, record._subPathIndex, record._index];
@@ -2162,13 +2152,25 @@ function getMemberArray(collection: unknown): readonly unknown[] {
 
 // ---------------------------------------------------------------------------- modal execution
 
-function executeAsModal<T>(commandName: string, fn: () => T | Promise<T>): Promise<T> {
-  const context = activePhotoshopDispatchContext;
+function executeAsModal<T>(
+  commandName: string,
+  fn: () => T | Promise<T>,
+  dispatchContext: UxpDispatchContext | undefined = context
+): Promise<T> {
+  assertPhotoshopExecutionClass(dispatchContext, "modal-aware-mutation");
   if (
-    context?.modalSessionId !== undefined &&
-    context.modalSessionId === context.callbacks.activeModalSessionId
+    dispatchContext?.modalSessionId !== undefined &&
+    dispatchContext.modalSessionId === dispatchContext.callbacks.activeModalSessionId
   ) {
     return Promise.resolve().then(fn);
+  }
+  if (dispatchContext?.modalCoordinator && dispatchContext.bridgeSessionId && dispatchContext.signal) {
+    return dispatchContext.modalCoordinator.run({
+      bridgeSessionId: dispatchContext.bridgeSessionId,
+      operationId: dispatchContext.operationId,
+      signal: dispatchContext.signal,
+      execute: () => getPhotoshop().core.executeAsModal(async () => fn(), { commandName })
+    });
   }
   return getPhotoshop().core.executeAsModal(async () => fn(), { commandName });
 }
@@ -2287,8 +2289,8 @@ function dispatchDocumentSuspendHistory(
         contexts = new Map();
         documentModalContexts.set(callbacks, contexts);
       }
-      contexts.set(session.sessionId, nativeContext);
-      const cancelSubscriptionId = `photoshop.document.suspend-history.cancel:${session.sessionId}`;
+      contexts.set(session.modalSessionId, nativeContext);
+      const cancelSubscriptionId = `photoshop.document.suspend-history.cancel:${session.modalSessionId}`;
       callbacks.registerSubscription(cancelSubscriptionId, () => {
         nativeContext.onCancel = undefined;
       });
@@ -2300,7 +2302,7 @@ function dispatchDocumentSuspendHistory(
         void Promise.resolve().then(() => callbacks.invoke(cancelReference, nativeEvent, {
           mode: "listener",
           subscriptionId: cancelSubscriptionId,
-          sessionId: session.sessionId,
+          modalSessionId: session.modalSessionId,
           ...(context?.operationId === undefined ? {} : { parentOperationId: context.operationId })
         })).catch(() => undefined);
       };
@@ -2308,12 +2310,12 @@ function dispatchDocumentSuspendHistory(
         await session.invoke(targetReference, [{ isCancelled: Boolean(nativeContext.isCancelled) }]);
       } finally {
         await callbacks.unregisterSubscription(cancelSubscriptionId);
-        contexts.delete(session.sessionId);
+        contexts.delete(session.modalSessionId);
       }
     },
     historyStateName
   ]));
-  const modalSubscriptionId = `photoshop.document.suspend-history:${session.sessionId}`;
+  const modalSubscriptionId = `photoshop.document.suspend-history:${session.modalSessionId}`;
   let settled = false;
   let modalPromise = Promise.resolve<unknown>(undefined);
   callbacks.registerSubscription(modalSubscriptionId, async () => {
@@ -2673,4 +2675,69 @@ function unsupported(method: string): never {
 
 function getPhotoshop(): PhotoshopHostModule {
   return require("photoshop");
+}
+
+}
+
+function destroy(): void | Promise<void> {
+  photoshopRegistry.clear();
+  const pending: Promise<void>[] = [];
+  for (const registrations of liveActionNotificationMaps) {
+    for (const registration of registrations.values()) {
+      pending.push(
+        registration.added
+          .then(() => registration.callbacks.unregisterSubscription(registration.subscriptionId))
+          .catch(() => undefined)
+      );
+    }
+  }
+  liveActionNotificationMaps.clear();
+  return pending.length === 0 ? undefined : Promise.all(pending).then(() => undefined);
+}
+
+return { dispatch: dispatchPhotoshopCall, destroy };
+}
+
+const defaultPhotoshopOwner = createPhotoshopAdapterOwner(
+  "bridge.direct",
+  resolveUxpStorageEntryReference
+);
+
+export const photoshopModuleAdapter: UxpModuleAdapter = {
+  moduleId: PHOTOSHOP_MODULE_ID,
+  resolveCapability: resolvePhotoshopCapability,
+  dispatch: defaultPhotoshopOwner.dispatch,
+  destroy: defaultPhotoshopOwner.destroy
+};
+
+export interface CreatePhotoshopModuleAdapterOptions {
+  readonly resolveStorageEntryReference?: typeof resolveUxpStorageEntryReference;
+}
+
+export function createPhotoshopModuleAdapter(
+  bridgeSessionId: string,
+  options: CreatePhotoshopModuleAdapterOptions = {}
+): UxpModuleAdapter {
+  const owner = createPhotoshopAdapterOwner(
+    bridgeSessionId,
+    options.resolveStorageEntryReference ?? resolveUxpStorageEntryReference
+  );
+  return {
+    moduleId: PHOTOSHOP_MODULE_ID,
+    resolveCapability: resolvePhotoshopCapability,
+    dispatch: owner.dispatch,
+    destroy: owner.destroy
+  };
+}
+
+export function dispatchPhotoshopCall(
+  method: string,
+  args: readonly unknown[],
+  context?: UxpDispatchContext
+): unknown {
+  return defaultPhotoshopOwner.dispatch(method, args, context);
+}
+
+export function destroyPhotoshopHandles(): void | Promise<void> {
+  return defaultPhotoshopOwner.destroy();
 }

@@ -118,7 +118,10 @@ export function createPhotoshopTypeRegistry(
 
   function resolveReference(reference: RemoteReference): object {
     const entry = registration(reference.type);
-    return entry.identityCache.getOrCreate(reference.id, () => entry.factory(reference));
+    return entry.identityCache.getOrCreate(
+      `${reference.bridgeSessionId}\u0000${reference.id}`,
+      () => entry.factory(reference)
+    );
   }
 
   const decodeContext: RemoteDecodeContext = {
@@ -167,8 +170,13 @@ export function createPhotoshopTypeRegistry(
     }
   };
 
-  function memberReference(memberKind: string, id: string): RemoteReference {
-    return { kind: REMOTE_REFERENCE_KIND, type: memberKind, id };
+  function memberReference(memberKind: string, id: string, owner: RemoteReference): RemoteReference {
+    return {
+      kind: REMOTE_REFERENCE_KIND,
+      type: memberKind,
+      id,
+      bridgeSessionId: owner.bridgeSessionId
+    };
   }
 
   function createSnapshotCollection(
@@ -177,7 +185,7 @@ export function createPhotoshopTypeRegistry(
     memberIds: readonly string[]
   ): unknown[] {
     const capabilities = collectionCapabilities.get(memberKind) ?? {};
-    const resolved = memberIds.map((id) => resolveReference(memberReference(memberKind, id)));
+    const resolved = memberIds.map((id) => resolveReference(memberReference(memberKind, id, owner)));
 
     class SnapshotCollection extends Array<object> {}
 
@@ -189,6 +197,7 @@ export function createPhotoshopTypeRegistry(
         configurable: false,
         value: (...args: unknown[]): unknown => {
           const promise = scheduler.run(async () => {
+            rpc.assertReferenceActive?.(owner);
             const encoded = await encodeRemoteArgs(args, argEncoders);
             const raw = await rpc.call<unknown>(PHOTOSHOP_MODULE_ID, method.rpc, [owner, ...encoded]);
             return decodeCollectionMethodResult(method.result, raw);

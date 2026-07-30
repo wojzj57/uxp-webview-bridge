@@ -32,6 +32,8 @@ export interface RemoteHandleRegistry {
 }
 
 export interface RemoteHandleRegistryOptions {
+  /** Immutable owning Bridge session. */
+  readonly bridgeSessionId: string;
   /** Milliseconds a handle may stay untouched before {@link RemoteHandleRegistry.prune} removes it. */
   readonly ttlMs?: number;
   /** Injected clock, primarily for tests. Defaults to `Date.now`. */
@@ -47,7 +49,10 @@ interface RegisteredHandle {
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
-export function createRemoteHandleRegistry(options: RemoteHandleRegistryOptions = {}): RemoteHandleRegistry {
+export function createRemoteHandleRegistry(
+  options: RemoteHandleRegistryOptions = { bridgeSessionId: "bridge.direct" }
+): RemoteHandleRegistry {
+  const bridgeSessionId = options.bridgeSessionId;
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
   const now = options.now ?? Date.now;
 
@@ -60,7 +65,12 @@ export function createRemoteHandleRegistry(options: RemoteHandleRegistryOptions 
   }
 
   function makeReference(type: string, id: string): RemoteReference {
-    return { kind: REMOTE_REFERENCE_KIND, type, id };
+    return {
+      kind: REMOTE_REFERENCE_KIND,
+      type,
+      id,
+      bridgeSessionId
+    };
   }
 
   function register(type: string, value: unknown): RemoteReference {
@@ -88,6 +98,7 @@ export function createRemoteHandleRegistry(options: RemoteHandleRegistryOptions 
   }
 
   function resolve(reference: RemoteReference, expectedType: string): unknown {
+    assertReferenceOwner(reference);
     if (reference.kind !== REMOTE_REFERENCE_KIND || reference.type !== expectedType || typeof reference.id !== "string") {
       throw new Error(`Invalid ${expectedType} reference.`);
     }
@@ -102,6 +113,7 @@ export function createRemoteHandleRegistry(options: RemoteHandleRegistryOptions 
   }
 
   function dispose(reference: RemoteReference): void {
+    assertReferenceOwner(reference);
     remove(reference.id);
   }
 
@@ -115,7 +127,7 @@ export function createRemoteHandleRegistry(options: RemoteHandleRegistryOptions 
   }
 
   function clear(): void {
-    handles.clear();
+    for (const id of [...handles.keys()]) remove(id);
     keyToId.clear();
   }
 
@@ -128,6 +140,15 @@ export function createRemoteHandleRegistry(options: RemoteHandleRegistryOptions 
     if (handle.key !== undefined && keyToId.get(handle.key) === id) {
       keyToId.delete(handle.key);
     }
+  }
+
+  function assertReferenceOwner(reference: RemoteReference): void {
+    if (reference.bridgeSessionId === bridgeSessionId) return;
+    const error = new Error("Remote reference belongs to a stale Bridge session.") as Error & {
+      code: string;
+    };
+    error.code = "ERR_BRIDGE_STALE_REFERENCE";
+    throw error;
   }
 
   return { register, getOrCreate, resolve, dispose, prune, clear };
